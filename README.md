@@ -2,12 +2,6 @@
 
 Match Explorer is a comprehensive and interactive football match analysis dashboard, built with Python, Dash, and Plotly. It allows analysts and enthusiasts to dive deep into event data from a match, from formations and passing networks to transition phases and individual player statistics.
 
-*(Tip: Replace this link with an actual screenshot of your Home Page)*
-![Home Page Screenshot](https://via.placeholder.com/800x400.png?text=Home+Page+Screenshot)
-
-*(Tip: Replace this link with an actual screenshot of the match analysis page)*
-![Match Analysis Screenshot](https://via.placeholder.com/800x400.png?text=Match+Analysis+Screenshot)
-
 ---
 
 ## 🚀 Key Features
