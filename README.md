@@ -119,8 +119,6 @@ Follow these steps to set up and run the project locally.
 
 ---
 
----
-
 ## 🤔 Troubleshooting
 
 If you encounter issues while setting up or running the application, check these common problems and solutions.
