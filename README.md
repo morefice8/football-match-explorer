@@ -94,7 +94,7 @@ Follow these steps to set up and run the project locally.
     
     - Navigate to the following directory in your local project folder:
       ```
-      data/matches/English Premier League/2024-2025/partidos/
+      data/matches/English_Premier_League/2024-2025/partidos/
       ```
     - Inside this folder, you will find four `.zip` files: `data_part_1.zip`, `data_part_2.zip`, `data_part_3.zip`, and `data_part_4.zip`.
     - **Extract all of them** directly into this same folder. Your file manager (like Windows Explorer or macOS Finder) should have an "Extract All" or "Unzip" option.
