@@ -119,5 +119,75 @@ Follow these steps to set up and run the project locally.
 
 ---
 
+---
+
+## 🤔 Troubleshooting
+
+If you encounter issues while setting up or running the application, check these common problems and solutions.
+
+### Error: `source: no such file or directory: venv/bin/activate`
+
+**Cause:** You are trying to activate a virtual environment that doesn't exist in your current directory. This usually happens if you skipped the creation step or you are in the wrong folder.
+
+**Solution:**
+1.  Make sure you are in the project's root directory (the one containing `app.py`). You can check with `pwd` on macOS/Linux or `cd` on Windows.
+2.  Create the virtual environment by running the following command **only once**:
+    ```bash
+    # On macOS or Linux
+    python3 -m venv venv
+
+    # On Windows
+    python -m venv venv
+    ```
+3.  Now, activate it. This command should work:
+    ```bash
+    # On macOS or Linux
+    source venv/bin/activate
+
+    # On Windows
+    .\venv\Scripts\activate
+    ```
+
+### Error: `ModuleNotFoundError: No module named 'some_library'`
+
+**Example:** `ModuleNotFoundError: No module named 'matplotlib'` or `ModuleNotFoundError: No module named 'highlight_text'`
+
+**Cause:** This means a required Python library is not installed in the active environment. This typically happens for one of two reasons:
+1.  You forgot to activate the virtual environment (`venv`) before running the app.
+2.  The library is missing from the `requirements.txt` file.
+
+**Solution:**
+1.  **Activate the correct environment.** Make sure your terminal prompt starts with `(venv)`. If it shows `(base)` or nothing, you are in the wrong environment. Stop the app (`Ctrl+C`) and run the activation command:
+    ```bash
+    source venv/bin/activate
+    ```
+2.  **Install the missing library.** While inside the `(venv)` environment, install the specific package mentioned in the error:
+    ```bash
+    pip install "some_library" 
+    # Example: pip install highlight-text
+    ```
+3.  **Run the app again** to confirm it works:
+    ```bash
+    python app.py
+    ```
+4.  **Update `requirements.txt`.** Once the app runs, stop it (`Ctrl+C`) and update the requirements file to include the new package for future installations:
+    ```bash
+    pip freeze > requirements.txt
+    ```
+5.  **Commit the change** to your repository so others will benefit from the fix.
+
+### Error: NumPy Version Conflict (`A module that was compiled using NumPy 1.x...`)
+
+**Cause:** Your system is trying to use a version of a library (like `pandas`) that was built with an old version of NumPy, but it's being run with a newer, incompatible version of NumPy (like 2.x). This almost always happens when you run the app outside of its intended virtual environment.
+
+**Solution:**
+The definitive solution is to **always run the application inside its activated virtual environment (`venv`)**.
+
+1.  Make sure your terminal prompt starts with `(venv)`. If not, activate it: `source venv/bin/activate`.
+2.  Run `pip install -r requirements.txt` inside the `(venv)` environment. This will install the correct, compatible versions of all libraries, including `numpy<2`, as specified in the project's requirements.
+3.  Launch the app with `python app.py`. The conflict will be resolved because `venv` contains a self-consistent set of packages.
+
+---
+
 ## 📜 License
 This project is distributed under the MIT License. See the `LICENSE` file for more details.
