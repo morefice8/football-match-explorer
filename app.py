@@ -5317,7 +5317,8 @@ def toggle_set_piece(n, is_open):
 
 @app.callback(
     Output("store-set-piece-filter", "data"),
-    Output("cross-filter-store", "data"),
+    Output("cross-filter-store", "data", allow_duplicate=True),
+    Output("cross-selection-store", "data", allow_duplicate=True), # <-- NUOVO OUTPUT
     Input({"type": "sp-filter", "filter_type": ALL, "value": ALL}, "n_clicks"),
     Input({"type": "cross-filter", "filter_type": ALL, "value": ALL}, "n_clicks"),
     Input({"type": "reset-btn", "section": ALL}, "n_clicks"),
@@ -5335,49 +5336,42 @@ def update_specific_filters(sp_clicks, cross_clicks, reset_clicks, sp_filter, cr
     try:
         triggered_info = ast.literal_eval(triggered_id_str)
     except (ValueError, SyntaxError):
-        return no_update, no_update
+        return no_update, no_update, no_update
 
-    # Determina quale filtro è stato attivato
     trigger_source = triggered_info.get('type')
 
-    # Se è stato premuto un bottone di reset
     if trigger_source == 'reset-btn':
         section = triggered_info.get('section')
         if section == 'set-piece':
-            return None, no_update
+            return None, no_update, no_update
         elif section == 'crosses':
-            return no_update, None
+            # Resetta sia il filtro che la selezione
+            return no_update, None, None # <-- MODIFICATO QUI
         else:
-            return no_update, no_update
+            return no_update, no_update, no_update
 
-    # Se è stata cliccata una card del filtro "Set Piece"
     elif trigger_source == 'sp-filter':
         filter_type = triggered_info.get('filter_type')
         value = triggered_info.get('value')
-        
         current_filter = sp_filter or {}
         if current_filter.get(filter_type) == value:
             current_filter.pop(filter_type, None)
         else:
             current_filter[filter_type] = value
-        
-        return current_filter if current_filter else None, no_update
+        return current_filter if current_filter else None, no_update, no_update
 
-    # Se è stata cliccata una card del filtro "Crosses"
     elif trigger_source == 'cross-filter':
         filter_type = triggered_info.get('filter_type')
         value = triggered_info.get('value')
-
         current_filter = cross_filter or {}
         if current_filter.get(filter_type) == value:
             current_filter.pop(filter_type, None)
         else:
             current_filter[filter_type] = value
-            
-        return no_update, current_filter if current_filter else None
+        # Quando applico un filtro, resetto anche la selezione del singolo cross
+        return no_update, current_filter if current_filter else None, None # <-- MODIFICATO QUI
 
-    # Se non è nessuno dei casi precedenti, non fare nulla
-    return no_update, no_update
+    return no_update, no_update, no_update
 
 
 @app.callback(
@@ -5503,7 +5497,7 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
         sankey_plot = cross_plots.plot_cross_sankey(crosses_filtered)
         
         analysis_summary_content = dash_html.Div([
-            dbc.Button("❌ Reset Filters & Selection", id="cross-reset-filter-btn", color="danger", size="sm", className="mb-3"),
+            dbc.Button("❌ Reset Filters & Selection", id={'type': 'reset-btn', 'section': 'crosses'}, color="danger", size="sm", className="mb-3"),
             cards
         ])
 
@@ -5522,21 +5516,24 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
             dbc.Collapse(
                 analysis_summary_content,
                 id="cross-summary-collapse",
-                is_open=False,
+                is_open=True,
             ),
             dash_html.Hr(),
             dbc.Tabs([
-                dbc.Tab(label="📍 Location Heatmaps", children=[
+                dbc.Tab(label="📍 Location Heatmaps", tab_id="heatmaps-tab", children=[ # <-- Aggiungi tab_id
                     dbc.Row([
                         dbc.Col(dcc.Graph(id='cross-origin-map'), md=6),
                         dbc.Col(dcc.Graph(id='cross-dest-map'), md=6),
                     ], className="mt-4"),
                 ]),
-                dbc.Tab(label="🌊 Cross Flow Analysis", children=[
+                dbc.Tab(label="🌊 Cross Flow Analysis", tab_id="flow-tab", children=[ # <-- Aggiungi tab_id
                     dash_html.Div(home_flow_table, className="mt-4"),
                     dcc.Graph(figure=sankey_plot)
                 ]),
-            ])
+            ],
+            id="cross-analysis-subtabs",  # <--- AGGIUNGI UN ID
+            active_tab="heatmaps-tab"    # <--- IMPOSTA LA TAB DI DEFAULT
+            )
         ])
     except Exception as e:
         return dbc.Alert(f"Error rendering crosses: {traceback.format_exc()}", color="danger")
@@ -5552,21 +5549,34 @@ def toggle_cross_summary(n, is_open):
         return not is_open
     return is_open
 
+# --- NEW: Callback to reset cross filters when switching between Home/Away ---
+@app.callback(
+    Output("cross-filter-store", "data", allow_duplicate=True),
+    Input("crosses-team-tabs", "active_tab"),
+    prevent_initial_call=True
+)
+def reset_cross_filter_on_team_switch(active_tab):
+    """
+    This callback fires whenever the user switches between the Home and Away
+    crosses tabs. Its only job is to reset the filter to ensure no old,
+    stale filters are applied to the new view.
+    """
+    print(f"Crosses team tab changed to '{active_tab}'. Resetting cross filter store.")
+    return None # Returning None effectively clears the store
+
 # Callback 3: Gestisce la selezione/deselezione del punto e aggiorna lo store
 @app.callback(
     Output('cross-selection-store', 'data'),
     Input('cross-origin-map', 'clickData'),
     Input('cross-dest-map', 'clickData'),
-    Input("cross-reset-filter-btn", "n_clicks"),
     State('cross-selection-store', 'data'),
     prevent_initial_call=True
 )
-def update_cross_selection(origin_click, dest_click, reset_clicks, selected_cross_id):
+def update_cross_selection_on_map_click(origin_click, dest_click, selected_cross_id):
     ctx = dash.callback_context
-    triggered_id_str = ctx.triggered[0]["prop_id"].split(".")[0]
-
-    if triggered_id_str == "cross-reset-filter-btn":
-        return None # Resetta la selezione
+    # Se non c'è stato un click, non fare nulla
+    if not ctx.triggered:
+        return no_update
 
     click_data = ctx.triggered[0]['value']
     if click_data and click_data['points']:
