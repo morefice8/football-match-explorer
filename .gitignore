@@ -1,18 +1,48 @@
-# Byte-compiled / optimized / C files
+# Byte-compiled, optimized, and C files
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # Virtual environment
+# Ignore the virtual environment folder (e.g., venv, .venv)
 venv/
 .venv/
 env/
-.env
+.env*
 
 # Distribution / packaging
+# Ignore artifacts created when building packages
 .eggs/
 *.egg-info/
 *.egg
 dist/
 build/
+
+# -------------------------------------------------------------------
+# Project-specific ignores for Match Explorer
+# -------------------------------------------------------------------
+
+# Local data files
+# Ignore the entire 'data' directory and its contents to keep
+# the local "database" out of the repository.
+data/
+
+# Local configuration and secrets
+# Ignore .env files which may contain environment variables,
+# API keys, local paths, etc.
+.env
+*.env
+.env.*
+!/.env.example
+
+# IDE / editor specific files (e.g., VS Code)
+# Ignore workspace-specific settings
+.vscode/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# OS-generated files
+.DS_Store
+Thumbs.db
