@@ -2,71 +2,193 @@
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from src.utils.path_helpers import get_team_logo_path
 
-def create_quadrant_plot(df, x_metric, y_metric, invert_y=False, quadrant_labels=None, template="plotly_dark"):
+# def create_quadrant_plot(df, x_metric, y_metric, invert_y=False, quadrant_labels=None, template="plotly_dark"):
+#     """
+#     Crea uno scatter plot a quadranti con sfondi colorati, linea di tendenza e loghi.
+#     """
+#     if x_metric not in df.columns or y_metric not in df.columns:
+#         return go.Figure().update_layout(
+#             title_text=f"Error: One or more metrics not found ('{x_metric}', '{y_metric}')", 
+#             template=template,
+#             font=dict(color='red' if template == 'plotly_dark' else 'black')
+#         )
+
+#     # Rimuovi eventuali righe con dati mancanti per le metriche selezionate
+#     df_plot = df.dropna(subset=[x_metric, y_metric]).copy()
+#     if df_plot.empty:
+#         return go.Figure().update_layout(title_text="No data available for the selected metrics.", template=template)
+
+#     x_mean = df_plot[x_metric].mean()
+#     y_mean = df_plot[y_metric].mean()
+    
+#     fig = go.Figure()
+
+#     # Punti delle squadre
+#     text_color = 'black' if template == 'plotly_white' else 'white'
+#     for i, row in df_plot.iterrows():
+#         fig.add_trace(go.Scatter(
+#             x=[row[x_metric]], y=[row[y_metric]],
+#             mode='markers+text',
+#             marker=dict(size=14, line=dict(width=1, color=text_color)),
+#             text=row['equipo'], textposition="top center", textfont=dict(size=11, color=text_color),
+#             name=row['equipo'],
+#             hoverinfo='text',
+#             hovertext=f"<b>{row['equipo']}</b><br>{x_metric}: {row[x_metric]:.2f}<br>{y_metric}: {row[y_metric]:.2f}"
+#         ))
+
+#     if invert_y:
+#         fig.update_yaxes(autorange="reversed")
+
+#     fig.update_layout(template=template, showlegend=False)
+
+#     # Calcola i limiti degli assi X e Y con un margine extra
+#     x_min, x_max = df_plot[x_metric].min(), df_plot[x_metric].max()
+#     y_min, y_max = df_plot[y_metric].min(), df_plot[y_metric].max()
+#     x_margin = (x_max - x_min) * 0.1 if x_max > x_min else 1
+#     y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 1
+#     x_axis_range = [x_min - x_margin, x_max + x_margin]
+#     y_axis_range = [y_min - y_margin, y_max + y_margin]
+#     fig.update_xaxes(range=x_axis_range)
+#     fig.update_yaxes(range=y_axis_range)
+
+    
+#     # --- 1. Aggiungi i quadranti colorati ---
+#     quadrant_colors = {
+#         'top_right': 'rgba(46, 204, 113, 0.1)',   # Verde (Buono/Buono)
+#         'bottom_right': 'rgba(241, 196, 15, 0.1)',# Giallo (Buono/Cattivo)
+#         'bottom_left': 'rgba(231, 76, 60, 0.1)', # Rosso (Cattivo/Cattivo)
+#         'top_left': 'rgba(52, 152, 219, 0.1)',   # Blu (Cattivo/Buono)
+#     }
+
+#     fig.add_shape(type="rect", x0=x_mean, y0=y_mean, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=quadrant_colors['top_right'], layer="below", line_width=0)
+#     fig.add_shape(type="rect", x0=x_mean, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_mean, fillcolor=quadrant_colors['bottom_right'], layer="below", line_width=0)
+#     fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_mean, y1=y_mean, fillcolor=quadrant_colors['bottom_left'], layer="below", line_width=0)
+#     fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_mean, x1=x_mean, y1=y_axis_range[1], fillcolor=quadrant_colors['top_left'], layer="below", line_width=0)
+
+#     # Sposta i label dei quadranti più vicino alle estremità
+#     if quadrant_labels:
+#         x_pos_right = x_axis_range[0] + 0.995 * (x_axis_range[1] - x_axis_range[0])
+#         y_pos_top = y_axis_range[0] + 0.995 * (y_axis_range[1] - y_axis_range[0])
+#         x_pos_left = x_axis_range[0] + 0.005 * (x_axis_range[1] - x_axis_range[0])
+#         y_pos_bottom = y_axis_range[0] + 0.005 * (y_axis_range[1] - y_axis_range[0])
+#         if invert_y:
+#             y_pos_top, y_pos_bottom = y_pos_bottom, y_pos_top
+
+#         fig.add_annotation(x=x_pos_right, y=y_pos_top, xanchor='right', yanchor='top', text=f"<b>{quadrant_labels[0]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+#         fig.add_annotation(x=x_pos_right, y=y_pos_bottom, xanchor='right', yanchor='bottom', text=f"<b>{quadrant_labels[1]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+#         fig.add_annotation(x=x_pos_left, y=y_pos_bottom, xanchor='left', yanchor='bottom', text=f"<b>{quadrant_labels[2]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+#         fig.add_annotation(x=x_pos_left, y=y_pos_top, xanchor='left', yanchor='top', text=f"<b>{quadrant_labels[3]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+
+    
+#     # --- 2. Aggiungi la linea di tendenza (regressione lineare) ---
+    
+#     coeffs = np.polyfit(df_plot[x_metric], df_plot[y_metric], 1)
+#     trendline_y = np.polyval(coeffs, df_plot[x_metric])
+#     fig.add_trace(go.Scatter(
+#         x=df_plot[x_metric], y=trendline_y,
+#         mode='lines',
+#         name='Trendline',
+#         line=dict(color='blue', dash='longdash', width=2)
+#     ))
+
+#     # --- 3. Aggiungi le linee delle medie ---
+#     fig.add_shape(type='line', x0=x_axis_range[0], y0=y_mean, x1=x_axis_range[1], y1=y_mean, line=dict(dash='dash', color='grey', width=1))
+#     fig.add_shape(type='line', x0=x_mean, y0=y_axis_range[0], x1=x_mean, y1=y_axis_range[1], line=dict(dash='dash', color='grey', width=1))
+   
+
+#     fig.update_layout(
+#         title=f"<b>{y_metric} vs. {x_metric}</b>",
+#         xaxis_title=x_metric,
+#         yaxis_title=y_metric,
+#         template=template,
+#         showlegend=False,
+#         font=dict(color=text_color)
+#     )
+    
+#     if invert_y:
+#         fig.update_yaxes(autorange="reversed")
+        
+#     return fig
+
+def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert_y=False, quadrant_labels=None, template="plotly_white"):
     """
     Crea uno scatter plot a quadranti con sfondi colorati, linea di tendenza e loghi.
     """
     if x_metric not in df.columns or y_metric not in df.columns:
-        return go.Figure().update_layout(
-            title_text=f"Error: One or more metrics not found ('{x_metric}', '{y_metric}')", 
-            template=template,
-            font=dict(color='red' if template == 'plotly_dark' else 'black')
-        )
+        return go.Figure().update_layout(title_text=f"Error: Metric not found")
 
-    # Rimuovi eventuali righe con dati mancanti per le metriche selezionate
     df_plot = df.dropna(subset=[x_metric, y_metric]).copy()
     if df_plot.empty:
-        return go.Figure().update_layout(title_text="No data available for the selected metrics.", template=template)
+        return go.Figure().update_layout(title_text="No data for selected metrics.")
 
     x_mean = df_plot[x_metric].mean()
     y_mean = df_plot[y_metric].mean()
     
     fig = go.Figure()
 
-    # Punti delle squadre
-    text_color = 'black' if template == 'plotly_white' else 'white'
-    for i, row in df_plot.iterrows():
-        fig.add_trace(go.Scatter(
-            x=[row[x_metric]], y=[row[y_metric]],
-            mode='markers+text',
-            marker=dict(size=14, line=dict(width=1, color=text_color)),
-            text=row['equipo'], textposition="top center", textfont=dict(size=11, color=text_color),
-            name=row['equipo'],
-            hoverinfo='text',
-            hovertext=f"<b>{row['equipo']}</b><br>{x_metric}: {row[x_metric]:.2f}<br>{y_metric}: {row[y_metric]:.2f}"
-        ))
+    fig.add_trace(go.Scatter(
+        x=df_plot[x_metric], y=df_plot[y_metric],
+        mode='markers',
+        marker=dict(
+            size=35,
+            color='rgba(255,255,255,255)',
+            line=dict(width=1, color='rgba(255, 255, 255, 0.5)')
+        ),
+        hoverinfo='text',
+        hovertext=[f"<b>{row['Squad']}</b><br>{x_label}: {row[x_metric]:.2f}<br>{y_label}: {row[y_metric]:.2f}" for _, row in df_plot.iterrows()]
+    ))
 
-    if invert_y:
-        fig.update_yaxes(autorange="reversed")
-
-    fig.update_layout(template=template, showlegend=False)
-
-    # Calcola i limiti degli assi X e Y con un margine extra
+    # Calcolo limiti assi
     x_min, x_max = df_plot[x_metric].min(), df_plot[x_metric].max()
     y_min, y_max = df_plot[y_metric].min(), df_plot[y_metric].max()
-    x_margin = (x_max - x_min) * 0.1 if x_max > x_min else 1
-    y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 1
+    x_margin = (x_max - x_min) * 0.1
+    y_margin = (y_max - y_min) * 0.1
+    x_range = [x_min - x_margin, x_max + x_margin]
+    y_range = [y_min - y_margin, y_max + y_margin]
     x_axis_range = [x_min - x_margin, x_max + x_margin]
     y_axis_range = [y_min - y_margin, y_max + y_margin]
     fig.update_xaxes(range=x_axis_range)
     fig.update_yaxes(range=y_axis_range)
 
-    
-    # --- 1. Aggiungi i quadranti colorati ---
-    quadrant_colors = {
-        'top_right': 'rgba(46, 204, 113, 0.1)',   # Verde (Buono/Buono)
-        'bottom_right': 'rgba(241, 196, 15, 0.1)',# Giallo (Buono/Cattivo)
-        'bottom_left': 'rgba(231, 76, 60, 0.1)', # Rosso (Cattivo/Cattivo)
-        'top_left': 'rgba(52, 152, 219, 0.1)',   # Blu (Cattivo/Buono)
-    }
+    # --- 2. Aggiungi i Loghi come Immagini ---
+    images = []
+    x_range_val = (x_max - x_min) if x_max > x_min else 1
+    y_range_val = (y_max - y_min) if y_max > y_min else 1
+    logo_size_x = x_range_val / 25 
+    logo_size_y = y_range_val / 18
 
-    fig.add_shape(type="rect", x0=x_mean, y0=y_mean, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=quadrant_colors['top_right'], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_mean, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_mean, fillcolor=quadrant_colors['bottom_right'], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_mean, y1=y_mean, fillcolor=quadrant_colors['bottom_left'], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_mean, x1=x_mean, y1=y_axis_range[1], fillcolor=quadrant_colors['top_left'], layer="below", line_width=0)
+    for i, row in df_plot.iterrows():
+        logo_path = get_team_logo_path(row['League'], row['Squad'])
+        images.append(go.layout.Image(
+            source=logo_path,
+            xref="x", yref="y",
+            x=row[x_metric], y=row[y_metric],
+            sizex=logo_size_x, sizey=logo_size_y,
+            xanchor="center", yanchor="middle"
+        ))
 
-    # Sposta i label dei quadranti più vicino alle estremità
+    fig.update_layout(images=images)
+
+    # Quadranti colorati
+    colors = ['rgba(214, 39, 40, 0.1)', 'rgba(52, 152, 219, 0.1)', 'rgba(44, 160, 44, 0.1)', 'rgba(241, 196, 15, 0.1)']
+    if invert_y: # Inverti i colori per l'asse Y invertito
+        colors = [colors[1], colors[0], colors[3], colors[2]]
+        
+    fig.add_shape(type="rect", x0=x_mean, y0=y_mean, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=colors[2], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_mean, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_mean, fillcolor=colors[3], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_mean, y1=y_mean, fillcolor=colors[0], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_mean, x1=x_mean, y1=y_axis_range[1], fillcolor=colors[1], layer="below", line_width=0)
+
+    # Linee medie e di tendenza
+    coeffs = np.polyfit(df_plot[x_metric], df_plot[y_metric], 1)
+    trendline_y = np.polyval(coeffs, df_plot[x_metric])
+    fig.add_trace(go.Scatter(x=df_plot[x_metric], y=trendline_y, mode='lines', line=dict(color='blue', dash='dash')))
+    fig.add_hline(y=y_mean, line_dash="dash", line_color="grey")
+    fig.add_vline(x=x_mean, line_dash="dash", line_color="grey")
+
+    # Etichette dei quadranti
     if quadrant_labels:
         x_pos_right = x_axis_range[0] + 0.995 * (x_axis_range[1] - x_axis_range[0])
         y_pos_top = y_axis_range[0] + 0.995 * (y_axis_range[1] - y_axis_range[0])
@@ -80,35 +202,27 @@ def create_quadrant_plot(df, x_metric, y_metric, invert_y=False, quadrant_labels
         fig.add_annotation(x=x_pos_left, y=y_pos_bottom, xanchor='left', yanchor='bottom', text=f"<b>{quadrant_labels[2]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
         fig.add_annotation(x=x_pos_left, y=y_pos_top, xanchor='left', yanchor='top', text=f"<b>{quadrant_labels[3]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
 
-    
-    # --- 2. Aggiungi la linea di tendenza (regressione lineare) ---
-    
-    coeffs = np.polyfit(df_plot[x_metric], df_plot[y_metric], 1)
-    trendline_y = np.polyval(coeffs, df_plot[x_metric])
-    fig.add_trace(go.Scatter(
-        x=df_plot[x_metric], y=trendline_y,
-        mode='lines',
-        name='Trendline',
-        line=dict(color='blue', dash='longdash', width=2)
-    ))
-
-    # --- 3. Aggiungi le linee delle medie ---
-    fig.add_shape(type='line', x0=x_axis_range[0], y0=y_mean, x1=x_axis_range[1], y1=y_mean, line=dict(dash='dash', color='grey', width=1))
-    fig.add_shape(type='line', x0=x_mean, y0=y_axis_range[0], x1=x_mean, y1=y_axis_range[1], line=dict(dash='dash', color='grey', width=1))
-   
-
     fig.update_layout(
-        title=f"<b>{y_metric} vs. {x_metric}</b>",
-        xaxis_title=x_metric,
-        yaxis_title=y_metric,
-        template=template,
-        showlegend=False,
-        font=dict(color=text_color)
+        title=f"<b>{title}</b>",
+        xaxis_title=x_label, yaxis_title=y_label,
+        template=template, showlegend=False,
+        font_color='white', paper_bgcolor='#2E3439', plot_bgcolor='#343A40',
+        height=700,
+        # --- MODIFICHE VISIVE ---
+        xaxis=dict(
+            range=x_axis_range,
+            showgrid=False, # Rimuovi griglia
+            showline=True, linecolor='grey', linewidth=1, # Mostra solo la linea dell'asse
+            zeroline=False
+        ),
+        yaxis=dict(
+            range=y_axis_range, 
+            autorange='reversed' if invert_y else None,
+            showgrid=False, # Rimuovi griglia
+            showline=True, linecolor='grey', linewidth=1, # Mostra solo la linea dell'asse
+            zeroline=False
+        )
     )
-    
-    if invert_y:
-        fig.update_yaxes(autorange="reversed")
-        
     return fig
 
 def create_team_radar(df, team_names, template="plotly_dark"):

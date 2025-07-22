@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
-from dash import Dash, html as dash_html, dcc, Input, Output, State, dash_table, no_update, callback, ctx, ALL
+from dash import Dash, html as dash_html, dcc, Input, Output, dash_table, no_update
 from dash.dependencies import State
 import dash_bootstrap_components as dbc
 import traceback
@@ -22,28 +22,27 @@ import dash
 from dash.dependencies import ALL
 import uuid
 from dash import ctx
-from flask import send_from_directory
-from urllib.parse import parse_qs
 
 
-# Import dei layout dalle pagine separate
-from pages import home, upload, database, match_analysis, team_stats, player_stats, team_profile
-
-# Import delle funzioni di logica
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
-from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, set_piece_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly
+from src.visualization import pitch_plots, player_plots, buildup_phases, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, set_piece_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly
 from src.data_processing import preprocess, pass_processing
-from src.utils import mapping_loader
+from src.utils import mapping_loader, formation_layouts
 from src import config
 from src.metrics import pass_metrics, player_metrics, buildup_metrics, transition_metrics, set_piece_metrics, cross_metrics, league_metrics, defensive_metrics
 
-# Define colors
+# Define colors (get from config if available, otherwise define fallbacks)
 HCOL = getattr(config, 'DEFAULT_HCOL', 'tomato')
 ACOL = getattr(config, 'DEFAULT_ACOL', 'skyblue')
-VIOLET = getattr(config, 'VIOLET', '#a369ff')
-GREEN = getattr(config, 'GREEN', '#69f900')
+VIOLET = getattr(config, 'VIOLET', '#a369ff') # From your main_analyze_match
+GREEN = getattr(config, 'GREEN', '#69f900')    # From your main_analyze_match
 BG_COLOR = getattr(config, 'BG_COLOR', 'white')
 LINE_COLOR = getattr(config, 'LINE_COLOR', 'black')
+PATH_EFFECTS_HEATMAP = [] # Define if plot_pass_heatmap needs it, or remove from plot function
+
+# Imports for Buildup Tab - Commented out for now
+# from src.data_preparation_for_plots import prepare_offensive_buildups_data
+# from src.visualization.buildup_phases import plot_buildup_phases_with_summary
 
 # App configuration
 app = Dash(
@@ -53,57 +52,12 @@ app = Dash(
 )
 server = app.server
 
-# --- NUOVA SEZIONE: SERVIRE I FILE DALLA CARTELLA 'data' ---
-# Questa rotta permette di accedere ai loghi tramite URL come /data/fbref/serie-a/.../logo.png
-@app.server.route('/data/<path:filepath>')
-def serve_data_files(filepath):
-    """Serve un file dalla directory 'data' del progetto."""
-    return send_from_directory('data', filepath)
+# Helper functions
+def get_leagues():
+    path = os.path.join("data", "matches")
+    if not os.path.exists(path): return []
+    return [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
 
-# -----------------------------------------------------------------------------
-# Main App Layout (Contenitore principale)
-# -----------------------------------------------------------------------------
-app.layout = dash_html.Div([
-    dcc.Location(id='url', refresh=False),
-    
-    # Stores per i dati
-    dcc.Store(id="store-df-match"),
-    dcc.Store(id='store-uploaded-data', storage_type='session'),
-    dcc.Store(id="store-player-stats-df"),
-    dcc.Store(id="team-stats-full-df-store"),
-
-    # Stores per i commenti e filtri
-    dcc.Store(id="store-comment-pass-network", storage_type="local"),
-    dcc.Store(id="store-comment-progressive-passes", storage_type="local"),
-    dcc.Store(id="store-comment-formation", storage_type="local"),
-    dcc.Store(id="store-comment-final-third", storage_type="local"),
-    dcc.Store(id="store-comment-pass-density", storage_type="local"),
-    dcc.Store(id="store-comment-pass-heatmap", storage_type="local"),
-    dcc.Store(id="store-comment-top-passers-bar", storage_type="local"),
-    dcc.Store(id="store-comment-home-top-passer-map", storage_type="local"),
-    dcc.Store(id="store-comment-away-top-passer-map", storage_type="local"),
-    dcc.Store(id="store-comment-shot-sequence-bar", storage_type="local"),
-    dcc.Store(id="store-comment-home-top-shot-contributor-map", storage_type="local"),
-    dcc.Store(id="store-comment-away-top-shot-contributor-map", storage_type="local"),
-    dcc.Store(id="store-comment-defender-stats-bar", storage_type="local"),
-    dcc.Store(id="store-comment-home-top-defender-map", storage_type="local"),
-    dcc.Store(id="store-comment-away-top-defender-map", storage_type="local"),
-    dcc.Store(id="store-comment-buildup", storage_type="local"),
-    dcc.Store(id="store-buildup-filter", storage_type="memory"),
-    dcc.Store(id="store-def-transition-filter", data=None),
-    dcc.Store(id="store-off-transition-filter", data=None),
-    dcc.Store(id="store-set-piece-filter", data=None),
-    dcc.Store(id="cross-filter-store", data=None),
-    dcc.Store(id="cross-selection-store", data=None),
-    dcc.Store(id="report-html-content-store"),
-    
-    # Contenitore dove verranno caricate le pagine
-    dash_html.Div(id='page-content')
-])
-
-# -----------------------------------------------------------------------------
-# Helper Functions (solo quelle usate nei callback di questo file)
-# -----------------------------------------------------------------------------
 def get_seasons(league):
     path = os.path.join("data", "matches", league)
     if not os.path.exists(path): return []
@@ -114,345 +68,221 @@ def get_matches(league, season):
     if not os.path.exists(path): return []
     return [f for f in os.listdir(path) if f.endswith(".json")]
 
-def parse_upload_contents(contents, filename):
-    if not contents or not filename: return None
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
-    try:
-        if 'json' in filename:
-            return json.loads(decoded.decode('utf-8'))
-        return None
-    except Exception as e:
-        print(f"Error parsing file {filename}: {e}")
-        return None
+def extract_rounds(matches):
+    """Extracts and sorts round names. Attempts numerical sort for round numbers."""
+    rounds_data = set() # Store tuples of (numeric_part, original_string) for sorting
+
+    for file_name in matches:
+        original_round_name = file_name.split("_")[0]
+        
+        # Try to extract a number from the beginning of the round name
+        numeric_part_match = re.match(r"(\d+)", original_round_name) # Matches one or more digits at the start
+        
+        if numeric_part_match:
+            numeric_value = int(numeric_part_match.group(1))
+            rounds_data.add((numeric_value, original_round_name))
+        else:
+            # If no number found at the start, use a large number for sorting to place non-numeric/complex names last,
+            # or handle as pure strings. For now, let's treat them as strings to be sorted alphabetically after numbers.
+            # To sort them alphabetically *after* numbers, we can give them a sort key that's a tuple starting with a very large number or float('inf')
+            rounds_data.add((float('inf'), original_round_name)) # Sorts non-numeric last
+
+    # Sort first by the numeric part, then by the original string if numbers are the same (or for non-numeric)
+    # For those with float('inf'), they will be sorted alphabetically amongst themselves at the end.
+    sorted_rounds_data = sorted(list(rounds_data), key=lambda x: (x[0], x[1]))
+    
+    # Extract just the original round names for the dropdown
+    sorted_round_names = [original_name for numeric_val, original_name in sorted_rounds_data]
+    
+    return sorted_round_names
 
 def parse_match(filename):
     parts = filename.replace(".json", "").split("_")
-    if len(parts) < 4: return None
-    return {"round": parts[0], "home_team": parts[1], "away_team": "_".join(parts[2:-1]), "id": parts[-1], "file": filename}
+    if len(parts) < 4: # Ensure enough parts for round, home, away, id
+        print(f"Warning: Could not parse filename '{filename}'. Expected at least 4 parts.")
+        return None
+    round_name = parts[0]
+    # Handle cases where team names might have underscores if the ID is not the last part
+    match_id = parts[-1]
+    home_team = parts[1]
+    away_team = "_".join(parts[2:-1]) if len(parts) > 3 else "UnknownAway" # Simplistic handling
 
-def get_team_logo_src_by_code(team_short_code):
-    if not team_short_code: return DEFAULT_LOGO_PATH
+    return {
+        "round": round_name,
+        "home_team": home_team,
+        "away_team": away_team,
+        "id": match_id,
+        "file": filename
+    }
+
+def get_team_logo_src(team_name, default_logo_path="/assets/logos/_default_badge.png"):
+    if not team_name:
+        return default_logo_path
+
+    team_code = TEAM_NAME_TO_LOGO_CODE.get(str(team_name).strip()) # Use .strip() for safety
+
+    if not team_code:
+        # Fallback if team name not in mapping: try to generate a code from the name
+        # This is less reliable but can be a fallback.
+        # For example, take the first 3 letters if you don't have an explicit code.
+        # Or, if you expect team names like "Wolverhampton Wanderers" and want "WOL"
+        # you might need a more complex fallback logic.
+        # For now, if not in map, use default.
+        print(f"Warning: Team name '{team_name}' not found in TEAM_NAME_TO_LOGO_CODE mapping. Using default logo.")
+        return default_logo_path
+
+    logo_filename = f"{LOGO_PREFIX}{team_code}{LOGO_EXTENSION}" # e.g., ENG_BOU.png
+    prospective_src = f"/assets/logos/{logo_filename}"
+    
+    # Optional server-side check (as before)
+    # logo_path_on_server = os.path.join("assets", "logos", logo_filename)
+    # if not os.path.exists(logo_path_on_server):
+    #     print(f"DEV_NOTE: Logo file not found on server: {logo_path_on_server} for team '{team_name}' (code: {team_code})")
+    #     return default_logo_path
+        
+    return prospective_src
+
+def get_team_logo_src_by_code(team_short_code): # Removed default here, handle in show_cards
+    if not team_short_code:
+        # print(f"Warning: No team short code provided for logo. Using default.")
+        return DEFAULT_LOGO_PATH
+
+    # Assuming your logo files like ENG_BOU.png use uppercase codes
     logo_filename = f"{LOGO_PREFIX}{str(team_short_code).upper()}{LOGO_EXTENSION}"
-    return f"/assets/logos/{logo_filename}"
-
-def get_comment_key(pathname, plot_identifier):
-    if pathname and pathname.startswith("/match/"):
-        match_id = pathname.split("/")[-1]
-        if match_id: return f"comments_{match_id}_{plot_identifier}"
-    return None
-
-# -----------------------------------------------------------------------------
-# CALLBACKS DI ROUTING E CARICAMENTO DATI
-# -----------------------------------------------------------------------------
-
-@callback(
-    Output("page-content", "children"),
-    Input("url", "pathname"),
-    State("url", "search")
-)
-def render_page_content(pathname, search):
-    print(f"--- Router rendering for path: '{pathname}' ---")
-    if pathname == "/upload":
-        return upload.layout()
-    elif pathname == "/database":
-        return database.layout()
-    elif pathname == "/team-stats":
-        return team_stats.layout()
-    elif pathname.startswith("/team-stats/team/"):
-        team_name_url = pathname.split("/")[-1]
-        
-        # Estrai la stagione dai parametri query, se presenti
-        season = "2024-2025" # Default
-        if search:
-            query_params = parse_qs(search.lstrip('?'))
-            if 'season' in query_params:
-                season = query_params['season'][0]
-                
-        return team_profile.layout(team_name_url, season)
+    prospective_src = f"/assets/logos/{logo_filename}"
     
-    elif pathname.startswith("/team-stats/league/"):
-        league_name = pathname.split("/")[-1].replace('_', ' ')
-        return html.Div([
-            html.H1(f"League Detail Page: {league_name}"),
-            dbc.Alert("This page is under construction.", color="info")
-        ])
-    elif pathname == "/player-stats":
-        return player_stats.layout()
-    elif pathname and pathname.startswith("/match/"):
-        match_id = pathname.split("/")[-1]
-        return match_analysis.layout(match_id)
-    
-    return home.layout()
-
-@callback(
-    Output('store-uploaded-data', 'data'),
-    Output('url', 'pathname', allow_duplicate=True),
-    Output('upload-status-output', 'children'),
-    Input('upload-data', 'contents'),
-    State('upload-data', 'filename'),
-    prevent_initial_call=True
-)
-def handle_upload(contents, filename):
-    if not contents: return no_update, no_update, no_update
-    print(f"--- Upload Handler: Processing '{filename}' ---")
-    json_data = parse_upload_contents(contents, filename)
-    if json_data is None: return no_update, no_update, dbc.Alert("Error parsing file. Please ensure it is a valid JSON.", color="danger", duration=4000)
-    
-    try:
-        event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
-        qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
-        match_info = config.extract_match_info(json_data)
-        df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
-        if df is None or df.empty: return no_update, no_update, dbc.Alert("Processing resulted in empty data.", color="warning", duration=4000)
-        
-        match_id = f"upload-{uuid.uuid4().hex[:12]}"
-        match_info['id'] = match_id
-        data_to_store = {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}
-        new_pathname = f"/match/{match_id}"
-        print(f"  Upload successful. Populating session store and redirecting to {new_pathname}")
-        return data_to_store, new_pathname, dbc.Alert(f"Successfully processed {filename}!", color="success", duration=3000)
-    except Exception as e:
-        print(f"ERROR during processing: {traceback.format_exc()}")
-        return no_update, no_update, dbc.Alert(f"An error occurred: {e}", color="danger", duration=5000)
-
-@callback(
-    Output('store-df-match', 'data'),
-    Output('store-uploaded-data', 'data', allow_duplicate=True),
-    Input('url', 'pathname'),
-    State('store-uploaded-data', 'data'),
-    prevent_initial_call=True
-)
-def populate_main_store(pathname, uploaded_data):
-    print(f"--- Main Data Loader triggered for path: {pathname} ---")
-    
-    # Se andiamo a una pagina che NON è di analisi, puliamo gli store per sicurezza
-    if not (pathname and pathname.startswith('/match/')):
-        print("  Navigated to a non-match page. Clearing data stores.")
-        return None, None
-
-    # Caso Upload: i dati sono nello store di sessione
-    if 'upload-' in pathname:
-        if uploaded_data:
-            print(f"  Populating main store for {pathname} from session data.")
-            return uploaded_data, None
-        return no_update, no_update
-
-    # Caso Database
-    match_id = pathname.split('/')[-1]
-    print(f"  Attempting to load match {match_id} from DB.")
-    for league in database.get_leagues():
-        for season in get_seasons(league):
-            path = os.path.join("data", "matches", league, season, "partidos")
-            if not os.path.exists(path): continue
-            for file_name in os.listdir(path):
-                if file_name.endswith(f"_{match_id}.json"):
-                    try:
-                        with open(os.path.join(path, file_name), 'r', encoding='utf-8') as f:
-                            json_data = json.load(f)
-                        event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
-                        qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
-                        match_info = config.extract_match_info(json_data)
-                        parsed_info = parse_match(file_name)
-                        if parsed_info: match_info['roundNameFromFilename'] = parsed_info['round']
-                        df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
-                        if df is None or df.empty: return None, None
-                        print(f"  DB load successful for {match_id}")
-                        return {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}, None
-                    except Exception:
-                        print(f"  Error processing DB file.")
-                        return None, None
-    print(f"  Match ID {match_id} not found in DB. Clearing stores.")
-    return None, None
-
-# -----------------------------------------------------------------------------
-# CALLBACKS PER LA PAGINA DEL DATABASE
-# -----------------------------------------------------------------------------
-
-@callback(
-    Output("dropdown-season", "options"),
-    Output("dropdown-season", "value"),
-    Input("dropdown-league", "value")
-)
-def update_seasons(selected_league):
-    if selected_league:
-        seasons = get_seasons(selected_league)
-        options = [{"label": s, "value": s} for s in seasons]
-        return options, None
-    return [], None
-
-@callback(
-    Output("dropdown-round", "options"),
-    Output("dropdown-round", "value"),
-    Input("dropdown-league", "value"),
-    Input("dropdown-season", "value"),
-    prevent_initial_call=True
-)
-def update_rounds(league, season):
-    if league and season:
-        matches = get_matches(league, season)
-        # La funzione extract_rounds non è definita qui, va aggiunta alle helper o importata
-        # Per ora la includo per completezza
-        def extract_rounds(matches_list):
-            rounds_data = set()
-            for file_name in matches_list:
-                original_round_name = file_name.split("_")[0]
-                numeric_part_match = re.match(r"(\d+)", original_round_name)
-                if numeric_part_match:
-                    rounds_data.add((int(numeric_part_match.group(1)), original_round_name))
-                else:
-                    rounds_data.add((float('inf'), original_round_name))
-            sorted_rounds_data = sorted(list(rounds_data), key=lambda x: (x[0], x[1]))
-            return [name for _, name in sorted_rounds_data]
-        
-        rounds = extract_rounds(matches)
-        options = [{"label": round_name, "value": round_name} for round_name in rounds]
-        return options, None
-    return [], None
-
-@callback(
-    Output("dropdown-team-filter", "options"),
-    Output("dropdown-team-filter", "value"),
-    Input("dropdown-league", "value"),
-    Input("dropdown-season", "value"),
-    prevent_initial_call=True
-)
-def update_team_filter_options(league, season):
-    if not (league and season):
-        return [], None
-    all_matches_files = get_matches(league, season)
-    if not all_matches_files:
-        return [], None
-    teams = set()
-    base_path_matches = os.path.join("data", "matches", league, season, "partidos")
-    for m_filename in all_matches_files:
-        try:
-            match_file_path = os.path.join(base_path_matches, m_filename)
-            with open(match_file_path, 'r', encoding='utf-8') as f:
-                match_data = json.load(f)
-            match_info = config.extract_match_info(match_data)
-            if match_info.get('hteamDisplayName'): teams.add(match_info['hteamDisplayName'])
-            if match_info.get('ateamDisplayName'): teams.add(match_info['ateamDisplayName'])
-        except Exception:
-            parsed_info = parse_match(m_filename)
-            if parsed_info:
-                teams.add(parsed_info['home_team'].replace('_', ' '))
-                teams.add(parsed_info['away_team'].replace('_', ' '))
-    sorted_teams = sorted(list(teams))
-    options = [{"label": team, "value": team} for team in sorted_teams]
-    return options, None
-
-@callback(
-    Output("match-list", "children"),
-    Input("dropdown-league", "value"),
-    Input("dropdown-season", "value"),
-    Input("dropdown-team-filter", "value"),
-    Input("dropdown-round", "value"),
-    prevent_initial_call=True,
-)
-def show_cards(league, season, team_filter, round_name_filter):
-    if not (league and season):
-        return ""
-
-    all_matches_in_season_files = get_matches(league, season)
-    matches_data_for_cards = []
-    base_path_matches = os.path.join("data", "matches", league, season, "partidos")
-
-    for m_filename in all_matches_in_season_files:
-        try:
-            filename_parsed_info = parse_match(m_filename)
-            if not filename_parsed_info: continue
-            if round_name_filter and filename_parsed_info['round'] != round_name_filter: continue
+    # Optional server-side check for debugging (uncomment if needed)
+    # logo_path_on_server = os.path.join("assets", "logos", logo_filename)
+    # if not os.path.exists(logo_path_on_server):
+    #     print(f"DEV_NOTE: Logo file not found on server: {logo_path_on_server} (code: {team_short_code})")
+    #     return DEFAULT_LOGO_PATH # Fallback if server check fails
             
-            match_file_path = os.path.join(base_path_matches, m_filename)
-            with open(match_file_path, 'r', encoding='utf-8') as f:
-                json_data_for_card = json.load(f)
-            
-            temp_match_info = config.extract_match_info(json_data_for_card)
-            home_team_display = temp_match_info.get('hteamDisplayName')
-            away_team_display = temp_match_info.get('ateamDisplayName')
+    return prospective_src
 
-            if team_filter and (team_filter not in [home_team_display, away_team_display]): continue
-            
-            match_details_for_card = {
-                'filename': m_filename,
-                'parsed_base_info': filename_parsed_info,
-                'home_team_display_name': home_team_display,
-                'away_team_display_name': away_team_display,
-                'home_team_code_for_logo': temp_match_info.get('hteamCode'),
-                'away_team_code_for_logo': temp_match_info.get('ateamCode'),
-                'home_score': temp_match_info.get('home_score'),
-                'away_score': temp_match_info.get('away_score'),
-                'date_iso_for_sort': None,
-                'date_formatted_for_display': temp_match_info.get('date_formatted', "N/A"),
-                'competitionName': temp_match_info.get('competitionName'),
-                'numeric_round_sort_key': float('inf'),
-                'original_round_name': filename_parsed_info['round']
-            }
-            
-            numeric_parts_round = re.findall(r"(\d+)", filename_parsed_info['round'])
-            if numeric_parts_round:
-                try: match_details_for_card['numeric_round_sort_key'] = int(numeric_parts_round[0])
-                except ValueError: pass
 
-            iso_date_str = temp_match_info.get('date_iso')
-            if iso_date_str:
-                try:
-                    cleaned_iso_date_str = iso_date_str.replace('Z', '')
-                    dt_obj = datetime.strptime(cleaned_iso_date_str.split("T")[0], "%Y-%m-%d")
-                    match_details_for_card['date_iso_for_sort'] = dt_obj
-                except ValueError:
-                    match_details_for_card['date_iso_for_sort'] = datetime.max
-            
-            matches_data_for_cards.append(match_details_for_card)
-        except Exception as e:
-            print(f"Warning: Could not process card data for {m_filename}: {e}")
-            continue
+@app.callback(Output('page-content', 'className'),
+              Input('url', 'pathname'))
+def update_background_class(pathname):
+    if pathname == '/' or pathname == '/home':
+        return 'home-background'
+    return 'default-background'
 
-    if not matches_data_for_cards:
-        return dbc.Alert("No matches found for this selection.", color="warning")
+# Home page layout
+def layout_home():
+    upload_style = {
+        'width': '100%',
+        'height': '120px',
+        'lineHeight': '120px',
+        'borderWidth': '2px',
+        'borderStyle': 'dashed',
+        'borderRadius': '5px',
+        'textAlign': 'center',
+        'margin': '20px 0',
+        'borderColor': '#6c757d',
+        'color': '#6c757d',
+        'transition': 'all 0.3s ease-in-out'
+    }
 
-    def sort_key_for_card(match_data):
-        date_for_sort = match_data.get('date_iso_for_sort', datetime.max)
-        if date_for_sort is None: date_for_sort = datetime.max
-        return (match_data['numeric_round_sort_key'], match_data['original_round_name'], date_for_sort, match_data.get('home_team_display_name', ''))
-    
-    sorted_matches_data = sorted(matches_data_for_cards, key=sort_key_for_card)
-    
-    cards = []
-    logo_style = {"height": "40px", "width": "40px", "objectFit": "contain", "marginRight": "8px", "marginLeft": "8px"}
-    for match_data in sorted_matches_data:
-        pbi = match_data['parsed_base_info']
-        home_logo_src = get_team_logo_src_by_code(match_data['home_team_code_for_logo'])
-        away_logo_src = get_team_logo_src_by_code(match_data['away_team_code_for_logo'])
+    return dbc.Container([
+        dbc.Row([
+            dbc.Col(dash_html.Img(src="/assets/brand/app_logo_symbol.png", style={'height': '80px'}), width="auto"),
+            dbc.Col(dash_html.H1("Match Explorer", className="align-self-center mb-0"), width=True)
+        ], align="center", className="mt-4 mb-2"),
         
-        score_display = [dash_html.Span("vs", className="mx-2")]
-        if match_data['home_score'] is not None and match_data['away_score'] is not None:
-            score_display = [dash_html.Span(f"{match_data['home_score']}", className="fw-bold fs-5"), dash_html.Span("-", className="mx-2"), dash_html.Span(f"{match_data['away_score']}", className="fw-bold fs-5")]
+        dash_html.Hr(),
+        dash_html.H4("Analyze a New Match", className="text-center mt-4"),
+        dash_html.P("Upload a raw match event file (JSON) to start.", className="lead text-center text-muted"),
+        dcc.Upload(
+            id='upload-data',
+            children=dash_html.Div(['Drag and Drop or ', dash_html.A('Select a File')]),
+            style=upload_style,
+            multiple=False
+        ),
+        dash_html.Div(id='upload-status-output', className="text-center mt-3"),
         
-        header_content = [dash_html.Span(f"Round: {match_data['original_round_name']}", className="me-3")]
-        if match_data['date_formatted_for_display'] != "N/A": header_content.append(dash_html.Span(f"{match_data['date_formatted_for_display']}"))
-        
-        card = dbc.Col(
-            dbc.Card([
-                dbc.CardHeader(dash_html.Div(header_content, className="small text-muted text-center")),
-                dbc.CardBody([
-                    dbc.Row([
-                        dbc.Col([dash_html.Img(src=home_logo_src, style=logo_style), dash_html.Span(match_data['home_team_display_name'], className="fw-bold")], width="auto", className="d-flex align-items-center justify-content-end"),
-                        dbc.Col(score_display, width="auto", className="d-flex align-items-center justify-content-center px-0"),
-                        dbc.Col([dash_html.Img(src=away_logo_src, style=logo_style), dash_html.Span(match_data['away_team_display_name'], className="fw-bold")], width="auto", className="d-flex align-items-center justify-content-start")
-                    ], justify="center", align="center", className="my-3"),
-                    dbc.Button("View Match", color="primary", href=f"/match/{pbi['id']}", className="w-100 mt-auto")
-                ], className="d-flex flex-column")
-            ], className="mb-4 shadow-sm h-100"),
-            lg=4, md=6, sm=12
-        )
-        cards.append(card)
-    return dbc.Row(cards)
+    ], fluid=True, className="mt-3")
 
-# -----------------------------------------------------------------------------
-# CALLBACKS PER LA PAGINA DI ANALISI
-# -----------------------------------------------------------------------------
+# --- CALLBACK TO HANDLE JSON FILE UPLOAD ---
+
+
+# --- Match page layout (MODIFIED FOR SIDEBAR TABS) ---
+def layout_match(match_id):
+    sidebar_style = {
+        "position": "fixed",
+        "top": 0,
+        "left": 0,
+        "bottom": 0,
+        "width": "18rem",
+        "padding": "2rem 1rem",
+        "backgroundColor": "#2E3439",
+        "overflowY": "auto",
+        "display": "flex", # Added for flex layout
+        "flexDirection": "column" # Added for flex layout
+    }
+    content_style = {
+        "marginLeft": "20rem",
+        "marginRight": "1rem",
+        "padding": "2rem 1rem",
+        "maxWidth": "calc(100vw - 22rem)",
+    }
+    tabs_config = [
+        {"label": "Match Overview", "value": "overview", "icon": "fas fa-clipboard-list"},
+        {"label": "Formation", "value": "formation", "icon": "fas fa-users"},
+        {"label": "Passes", "value": "passes", "icon": "fas fa-exchange-alt"},
+        {"label": "Buildup", "value": "buildup", "icon": "fas fa-sitemap"},
+        {"label": "Def. Transition", "value": "defensive-transition", "icon": "fas fa-shield-alt"},
+        {"label": "Off. Transition", "value": "offensive-transition", "icon": "fas fa-bolt"},
+        {"label": "Set Piece", "value": "set-piece", "icon": "fas fa-flag"},
+        {"label": "Player Analysis", "value": "player_analysis", "icon": "fas fa-user-astronaut"},
+    ]
+    sidebar = dash_html.Div(
+        [
+            dash_html.Div(id="sidebar-match-header", className="text-white text-center mb-3"),
+            dash_html.Hr(className="text-white"),
+            dbc.Nav(
+                [
+                    dbc.NavLink(
+                        [dash_html.I(className=f"{tab['icon']} me-2"), tab["label"]],
+                        href=f"/match/{match_id}?tab={tab['value']}",
+                        active="exact",
+                        id=f"navlink-{tab['value']}",
+                        className="py-2"
+                    ) for tab in tabs_config
+                ],
+                vertical=True, pills=True, className="mb-3 flex-grow-1" # flex-grow-1 to push buttons down
+            ),
+            dash_html.Img(src="/assets/brand/app_logo.png", style={
+                "width": "120px",
+                "margin": "30px auto 20px auto",
+                "display": "block"
+                }
+            ),
+            dbc.Button(
+                [dash_html.I(className="fas fa-file-alt me-2"), "Generate Report"], # Icon for report
+                id="generate-report-button",
+                color="success",
+                className="mb-2 w-100" # Margin bottom and full width
+            ),
+            dbc.Button(
+                [dash_html.I(className="fas fa-home me-2"), "Back to Home"], # Icon for home
+                href="/",
+                color="secondary",
+                className="w-100" # Takes full width of its container
+            )
+        ],
+        style=sidebar_style,
+    )
+    content_area = dash_html.Div(id="match-tab-content", style=content_style)
+
+    return dash_html.Div([
+        # Stores have been moved to the main app.layout
+        dash_html.Div(id="clientside-report-trigger-div", style={"display": "none"}),
+        sidebar,
+        content_area
+    ])
+
+
+
 
 @app.callback(
     Output("sidebar-match-header", "children"),
@@ -557,6 +387,7 @@ def update_sidebar_header(stored_data_json, pathname):
             
     return header_content
 
+# --- NEW CALLBACK TO RENDER TAB CONTENT ---
 @app.callback(
     Output("match-tab-content", "children"),
     Input("url", "search"),  # Listen to query parameters like ?tab=formation
@@ -628,10 +459,137 @@ def render_match_tab_content(search_query, stored_data_json):
                 dcc.Download(id="download-dataframe-csv"), # Componente per gestire il download
             ], className="p-3")
             
+            # return dash_html.Div([
+            #     dash_html.H4("Match Events Overview", className="text-white mb-3"),
+            #     dash_html.P(f"Displaying first 100 (of {df.shape[0]}) events:", className="text-muted small"),
+            #     dash_table.DataTable(
+            #         data=df.head(100).to_dict("records"),
+            #         columns=[{"name": i, "id": i} for i in df.columns],
+            #         page_size=15,
+            #         style_table={"overflowX": "scroll", "maxWidth":"100%"},
+            #         style_cell={"backgroundColor": "#343A40", "color": "white", "textAlign": "left", 
+            #                     "minWidth": "120px", "maxWidth":"250px", "whiteSpace":"normal", "border": "1px solid #454D55"},
+            #         style_header={"backgroundColor": "#454D55", "color": "white", "fontWeight": "bold", "borderBottom": "2px solid #6C757D"} # Using a theme color
+            #     )
+            # ], className="p-3")
         except Exception as e:
             return dbc.Alert(f"Error loading overview: {e}", color="danger")
 
-    elif active_tab == "formation":            
+    elif active_tab == "formation":
+        # if not stored_data_json:
+        #     return dbc.Alert("Match data loading for formation...", color="info")
+        # try:
+        #     df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
+        #     df_processed = df_processed.reset_index().rename(columns={'index': 'event_sequence_index'})
+            
+        #     match_info = json.loads(stored_data_json['match_info'])
+
+        #     # --- 1. SETUP INIZIALE (ROBUSTO) ---
+            
+        #     # Mappa dati giocatori
+        #     player_data_map = {}
+        #     if not df_processed.empty:
+        #         df_players_unique = df_processed.dropna(subset=['playerId', 'Mapped Jersey Number']).drop_duplicates(subset=['playerId'])
+        #         for _, player in df_players_unique.iterrows():
+        #             player_id = player['playerId']
+        #             jersey_num_raw = player['Mapped Jersey Number']
+        #             try:
+        #                 jersey_num = int(jersey_num_raw)
+        #             except (ValueError, TypeError):
+        #                 jersey_num = '?'
+        #             player_data_map[player_id] = {'name': player.get('playerName', 'N/A'), 'jersey': str(jersey_num)}
+
+        #     # Recupero sicuro degli eventi di formazione iniziale
+        #     start_events = df_processed[df_processed['typeId'] == 34].sort_values('eventId')
+        #     if len(start_events) < 2:
+        #         return dbc.Alert("Error: Could not find starting formation events for both teams.", color="danger")
+            
+        #     home_team_name_from_info = match_info.get('hteamName')
+        #     event1, event2 = start_events.iloc[0], start_events.iloc[1]
+            
+        #     if home_team_name_from_info and event1['team_name'] == home_team_name_from_info:
+        #         home_start_event, away_start_event = event1, event2
+        #     elif home_team_name_from_info and event2['team_name'] == home_team_name_from_info:
+        #         home_start_event, away_start_event = event2, event1
+        #     else:
+        #         home_start_event, away_start_event = event1, event2
+            
+        #     home_id, away_id = home_start_event['contestantId'], away_start_event['contestantId']
+        #     home_name, away_name = home_start_event['team_name'], away_start_event['team_name']
+            
+        #     home_state = {'formation_id': int(home_start_event['Team formation']), 'players': formations._extract_player_positions(home_start_event)}
+        #     away_state = {'formation_id': int(away_start_event['Team formation']), 'players': formations._extract_player_positions(away_start_event)}
+            
+        #     # --- 2. LOGICA DI COSTRUZIONE SINCRONA (AGGIORNATA) ---
+        #     home_plots, timeline_items, away_plots = [], [], []
+
+        #     # Stato iniziale (t=0)
+        #     title = f"0' | Starting XI"
+        #     home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, {}, player_data_map, HCOL, title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
+        #     away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, {}, player_data_map, ACOL, title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
+        #     timeline_items.append(dbc.ListGroupItem([dash_html.H5("Match Timeline", className="text-white"), dash_html.P("0' - Kick Off")], className="bg-dark text-white text-center"))
+            
+            
+            
+        #     # Prendi solo gli eventi di cambio formazione
+        #     formation_change_events = df_processed[df_processed['typeId'] == 40].sort_values('event_sequence_index')
+
+        #     for _, fc_event in formation_change_events.iterrows():
+        #         time_str = f"{fc_event['timeMin']}'"
+        #         previous_home_state, previous_away_state = home_state.copy(), away_state.copy()
+                
+        #         # Aggiorna lo stato della squadra che ha cambiato formazione
+        #         if fc_event['contestantId'] == home_id:
+        #             home_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
+        #         else:
+        #             away_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
+                
+        #         # Calcola lo score PRIMA di questo evento, per riflettere lo stato al momento del cambio
+        #         goals_before = df_processed[(df_processed['typeId'] == 16) & (df_processed['event_sequence_index'] < fc_event['event_sequence_index'])]
+        #         home_score = (goals_before['contestantId'] == home_id).sum()
+        #         away_score = (goals_before['contestantId'] == away_id).sum()
+        #         score_str = f"{home_score} - {away_score}"
+
+        #         # Determina i colori per l'highlight
+        #         home_player_colors = {pid: '#00FFFF' for pid, pos in home_state['players'].items() if previous_home_state['players'].get(pid) != pos}
+        #         away_player_colors = {pid: '#00FFFF' for pid, pos in away_state['players'].items() if previous_away_state['players'].get(pid) != pos}
+
+        #         # Costruisci i titoli per i plot
+        #         event_team_name = home_name if fc_event['contestantId'] == home_id else away_name
+        #         title = f"{time_str} | Formation Change: {event_team_name}"
+                
+        #         # Crea un titolo per lo score
+        #         away_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
+        #         home_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
+                
+        #         home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, home_player_colors, player_data_map, HCOL, home_title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
+        #         away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, away_player_colors, player_data_map, ACOL, away_title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
+            
+        #     # Usa la timeline unificata solo per la colonna centrale
+        #     central_timeline_events = formations.create_unified_timeline(df_processed, home_id, away_id, player_data_map)
+        #     for event in central_timeline_events:
+        #         timeline_items.append(dbc.ListGroupItem([dash_html.Strong(f"{event['time_str']} "), event['description_component']], className="bg-transparent text-white border-secondary"))
+
+        #     # --- 3. COSTRUZIONE LAYOUT FINALE ---
+        #     # ... (il layout flexbox rimane identico alla mia risposta precedente) ...
+        #     final_layout = dash_html.Div([
+        #         dash_html.Div([
+        #             dash_html.H4(home_name, className="text-center text-white", style={'flex': '0 0 38%'}),
+        #             dash_html.H4("Key Events", className="text-center text-white", style={'flex': '0 0 24%'}),
+        #             dash_html.H4(away_name, className="text-center text-white", style={'flex': '0 0 38%'}),
+        #         ], style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '1rem'}),
+        #         dash_html.Div([
+        #             dash_html.Div(home_plots, style={'flex': '0 0 38%', 'paddingRight': '10px'}),
+        #             dash_html.Div(dbc.ListGroup(timeline_items, flush=True), style={'flex': '0 0 24%'}),
+        #             dash_html.Div(away_plots, style={'flex': '0 0 38%', 'paddingLeft': '10px'}),
+        #         ], style={'display': 'flex', 'flex-direction': 'row', 'align-items': 'flex-start'}),
+        #         dash_html.Hr(className="my-4"),
+        #         dash_html.H6("Comments for Formation Analysis:", className="mt-3 text-white"),
+        #         dcc.Textarea(id="comment-formation", placeholder="Enter your summary analysis here...", style={'width': '100%', 'height': 120, 'backgroundColor': '#495057', 'color': 'white'}),
+        #         dbc.Button("Save Comment", id="save-comment-formation", color="info", size="sm", className="mt-2"),
+        #         dash_html.Div(id="save-status-formation", className="small d-inline-block ms-2")
+        #     ])
+            
             return dash_html.Div([
                 dash_html.H4("Formation & Shape Analysis", className="text-white mb-3"),
                 dbc.Tabs(
@@ -649,6 +607,27 @@ def render_match_tab_content(search_query, stored_data_json):
                     children=dash_html.Div(id="formation-tab-content")
                 )
             ], className="p-3")
+
+        # except Exception as e:
+        #     tb_str = traceback.format_exc()
+        #     return dbc.Alert(f"Error generating formation analysis: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+        
+        # return dash_html.Div([
+        #     dash_html.H4("Formation Chart", style={"color": "white"}, className="mb-3"),
+        #     dcc.Loading(type="circle", children=dash_html.Div(id="div-formation-match-content")),
+        #     # --- ADDED COMMENT SECTION FOR FORMATION ---
+        #     dash_html.Hr(),
+        #     dash_html.H6("Comments for Formation:", className="mt-3 text-white"),
+        #     dcc.Textarea(
+        #         id="comment-formation", # Unique ID
+        #         placeholder="Enter your analysis comments for formation...",
+        #         style={'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'},
+        #         className="mb-2"
+        #     ),
+        #     dbc.Button("Save Comment", id="save-comment-formation", color="info", size="sm", className="me-2"),
+        #     dash_html.Div(id="save-status-formation", className="small d-inline-block")
+        #     # -----------------------------------------
+        # ], className="p-3")
     
     elif active_tab == "passes":
         passes_content = dash_html.Div([
@@ -691,6 +670,18 @@ def render_match_tab_content(search_query, stored_data_json):
                                 dcc.Loading(type="circle", children=dash_html.Div(id="div-final-third-content")),
                                 style={"flex": "1 1 75%", "minHeight": "400px"} # Adjust flex-basis as needed
                             ),
+                            # dash_html.Div([ # Comment Area
+                            #     dash_html.Hr(),
+                            #     dash_html.H6("Comments for Final Third Entries:", className="mt-3 text-white"),
+                            #     dcc.Textarea(
+                            #         id="comment-final-third",
+                            #         placeholder="Enter comments for Final Third Entries...",
+                            #         style={'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'},
+                            #         className="mb-2"
+                            #     ),
+                            #     dbc.Button("Save Comment", id="save-comment-final-third", color="info", size="sm", className="me-2"),
+                            #     dash_html.Div(id="save-status-final-third", className="small d-inline-block")
+                            # ], style={"flex": "0 0 20%", "paddingTop": "20px"}) # Adjust flex-basis
                         ], style={"display": "flex", "flexDirection": "column", "height": "calc(100vh - 250px)"}) # Adjust height
                     ]),
                     dbc.Tab(label="Pass Locations", tab_id="pass_locations", children=[ 
@@ -817,7 +808,8 @@ def render_match_tab_content(search_query, stored_data_json):
              )
         ], className="p-3")
 
-### Formaion Tab Content Callbacks
+
+### Formaion Tab Content Callback
 @app.callback(
     Output("formation-tab-content", "children"),
     Input("formation-primary-tabs", "active_tab"),
@@ -974,6 +966,32 @@ def render_formation_content(active_tab, stored_data_json):
                     dcc.Graph(figure=fig_away, config={'displayModeBar': False})
                 ], md=6)
             ], className="mt-4")
+        
+        # # --- CASO 3: BLOCCO DIFENSIVO ---
+        # elif active_tab == 'defensive_shape':
+        #     df_home_def, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
+        #     df_away_def, df_away_agg = defensive_metrics.get_defensive_block_data(df_processed, ATEAM_NAME)
+            
+        #     fig_home = defensive_transitions_plotly.plot_defensive_block_plotly(df_home_def, df_home_agg, HCOL, is_away=False)
+        #     fig_away = defensive_transitions_plotly.plot_defensive_block_plotly(df_away_def, df_away_agg, ACOL, is_away=True)
+            
+        #     return dbc.Row([
+        #         dbc.Col([dash_html.H5(f"{HTEAM_NAME} - Defensive Block", className="text-center text-white mt-3"), dcc.Graph(figure=fig_home)], md=6),
+        #         dbc.Col([dash_html.H5(f"{ATEAM_NAME} - Defensive Block", className="text-center text-white mt-3"), dcc.Graph(figure=fig_away)], md=6)
+        #     ])
+
+        # # --- CASO 4: HULL DIFENSIVO ---
+        # elif active_tab == 'defensive_hull':
+        #     _, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
+        #     _, df_away_agg = defensive_metrics.get_defensive_block_data(df_processed, ATEAM_NAME)
+
+        #     fig_home_hull = defensive_transitions_plotly.plot_defensive_hull_plotly(df_home_agg, HCOL, is_away=False)
+        #     fig_away_hull = defensive_transitions_plotly.plot_defensive_hull_plotly(df_away_agg, ACOL, is_away=True)
+            
+        #     return dbc.Row([
+        #         dbc.Col([dash_html.H5(f"{HTEAM_NAME} - Defensive Shape (Hull)", className="text-center text-white mt-3"), dcc.Graph(figure=fig_home_hull)], md=6),
+        #         dbc.Col([dash_html.H5(f"{ATEAM_NAME} - Defensive Shape (Hull)", className="text-center text-white mt-3"), dcc.Graph(figure=fig_away_hull)], md=6)
+        #     ])
 
     except Exception as e:
         return dbc.Alert(f"Error rendering formation/shape content: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
@@ -1147,6 +1165,17 @@ def show_pass_network_graph_plotly(stored_data_json):
 def show_pass_network_graph_content_callback(stored_data_json):
     print("--- show_pass_network_graph_content_callback (Plotly) TRIGGERED ---")
     return show_pass_network_graph_plotly(stored_data_json)
+    
+# @app.callback(
+#     Output("div-pass-network-content", "children"), # <--- UPDATED ID
+#     Input("store-df-match", "data"),
+#     # Optionally, trigger only if "pass_network" nested tab is active
+#     # Input("passes-nested-tabs", "active_tab") # Add this if you want to optimize
+# )
+# # def show_pass_network_graph_content_callback(stored_data_json, active_nested_tab=None): # Add active_nested_tab
+# def show_pass_network_graph_content_callback(stored_data_json):
+#     print(f"--- show_pass_network_graph_content_callback TRIGGERED ---")
+#     return show_pass_network_graph(stored_data_json)
 
 @app.callback(
     Output("collapse-home", "is_open"),
@@ -1339,6 +1368,20 @@ def generate_progressive_passes_plot(stored_data_json):
 
 
 # --- CALLBACK FOR PROGRESSIVE PASSES CONTENT ---
+# @app.callback(
+#     Output("div-progressive-passes-content", "children"),
+#     Input("store-df-match", "data"),
+#     Input("passes-nested-tabs", "active_tab") # Listen to which nested tab is active
+# )
+# def show_progressive_passes_content_callback(stored_data_json, active_nested_tab):
+#     print(f"--- show_progressive_passes_content_callback TRIGGERED (Active Nested Tab: {active_nested_tab}) ---")
+#     if active_nested_tab == "progressive_passes":
+#         if not stored_data_json:
+#             return dash_html.P("Waiting for match data for progressive passes...", style={"color": "orange"})
+#         # Call the helper function to generate the plot
+#         return generate_progressive_passes_plot(stored_data_json)
+#     return no_update # Or an empty div if you want to clear content when tab is not active
+
 @app.callback(
     Output("div-progressive-passes-content", "children"),
     Input("store-df-match", "data"),
@@ -1559,6 +1602,21 @@ def generate_final_third_plot(stored_data_json):
     except Exception as e:
         tb_str = traceback.format_exc()
         return dash_html.P(f"❌ Error in Final Third plot: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
+
+
+# --- CALLBACK FOR FINAL THIRD ENTRIES CONTENT ---
+# @app.callback(
+#     Output("div-final-third-content", "children"),
+#     Input("store-df-match", "data"),
+#     Input("passes-nested-tabs", "active_tab")
+# )
+# def show_final_third_content_callback(stored_data_json, active_nested_tab):
+#     print(f"--- show_final_third_content_callback TRIGGERED (Active Nested Tab: {active_nested_tab}) ---")
+#     if active_nested_tab == "final_third_entries":
+#         if not stored_data_json:
+#             return dash_html.P("Waiting for match data...", style={"color": "orange"})
+#         return generate_final_third_plot(stored_data_json)
+#     return no_update
 
 @app.callback(
     Output("div-final-third-content", "children"),
@@ -1891,6 +1949,295 @@ def load_pass_heatmap_comment(data, pn):
     if not key or data is None: return ""
     return data.get(key, "")
 
+# -----------------------------------------
+
+# # --- NEW SINGLE CALLBACK FOR CONTENT WITHIN "Player Analysis" NESTED TABS ---
+# @app.callback(
+#     Output("player-analysis-nested-tab-content", "children"),
+#     Input("player-analysis-nested-tabs", "active_tab"),
+#     Input("store-df-match", "data"),
+#     Input("store-player-stats-df", "data"),
+#     State("url", "pathname") # For comment keys
+# )
+# def render_player_analysis_nested_content(active_nested_tab, stored_match_data_json, player_stats_df_json, pathname):
+#     print(f"--- render_player_analysis_nested_content TRIGGERED --- Active Nested Tab: {active_nested_tab}")
+
+#     common_textarea_style = {'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'}
+#     common_flex_column_style = {"display": "flex", "flexDirection": "column", "height": "calc(100vh - 220px)"}
+#     common_plot_area_style = {"flex": "1 1 75%", "minHeight": "350px", "overflow": "hidden"}
+#     common_comment_area_style = {"flex": "0 0 20%", "paddingTop": "15px", "overflowY": "auto"}
+
+#     if not stored_match_data_json:
+#         return dash_html.P("Waiting for base match data...", style={"color": "orange"})
+
+#     if active_nested_tab == "pa_top_passers_stats":
+#         print("  Rendering content for 'pa_top_passers_stats'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats data not yet available for bar chart.", style={"color": "orange"})
+        
+#         bar_chart_img_component = generate_top_passer_stats_plot(player_stats_df_json)
+        
+#         return dash_html.Div([ # Flex container for this nested tab
+#             dash_html.Div(bar_chart_img_component, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Top Passers Chart:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-top-passers-bar", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-top-passers-bar", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-top-passers-bar", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+
+#     elif active_nested_tab == "pa_home_passer_map":
+#         print("  Rendering content for 'pa_home_passer_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats data not yet available for home map.", style={"color": "orange"})
+
+#         match_info = json.loads(stored_match_data_json['match_info'])
+#         df_processed = pd.read_json(stored_match_data_json['df'], orient='split')
+#         player_stats_df = pd.read_json(player_stats_df_json, orient='split')
+#         HTEAM_NAME = match_info.get('hteamName')
+#         top_home_passer_name = None
+#         if HTEAM_NAME and not player_stats_df.empty: # Ensure player_stats_df is not empty
+#             home_team_player_names = df_processed[df_processed['team_name'] == HTEAM_NAME]['playerName'].unique()
+#             home_player_stats_df = player_stats_df[player_stats_df.index.isin(home_team_player_names)]
+#             if not home_player_stats_df.empty:
+#                 top_home_series = home_player_stats_df.sort_values('Offensive Pass Total', ascending=False)
+#                 if not top_home_series.empty: top_home_passer_name = top_home_series.index[0]
+        
+#         home_pass_map_img = generate_player_pass_map_plot(stored_match_data_json, top_home_passer_name, False) if top_home_passer_name else dash_html.P(f"Could not determine top passer for {HTEAM_NAME} map.", style={"color":"orange"})
+        
+#         return dash_html.Div([ # Flex container
+#             dash_html.Div(home_pass_map_img, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Home Passer Map:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-home-top-passer-map", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-home-top-passer-map", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-home-top-passer-map", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+
+#     elif active_nested_tab == "pa_away_passer_map":
+#         print("  Rendering content for 'pa_away_passer_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats data not yet available for away map.", style={"color": "orange"})
+            
+#         match_info = json.loads(stored_match_data_json['match_info'])
+#         df_processed = pd.read_json(stored_match_data_json['df'], orient='split')
+#         player_stats_df = pd.read_json(player_stats_df_json, orient='split')
+#         ATEAM_NAME = match_info.get('ateamName')
+#         top_away_passer_name = None
+#         if ATEAM_NAME and not player_stats_df.empty: # Ensure player_stats_df is not empty
+#             away_team_player_names = df_processed[df_processed['team_name'] == ATEAM_NAME]['playerName'].unique()
+#             away_player_stats_df = player_stats_df[player_stats_df.index.isin(away_team_player_names)]
+#             if not away_player_stats_df.empty:
+#                 top_away_series = away_player_stats_df.sort_values('Offensive Pass Total', ascending=False)
+#                 if not top_away_series.empty: top_away_passer_name = top_away_series.index[0]
+
+#         away_pass_map_img = generate_player_pass_map_plot(stored_match_data_json, top_away_passer_name, True) if top_away_passer_name else dash_html.P(f"Could not determine top passer for {ATEAM_NAME} map.", style={"color":"orange"})
+
+#         return dash_html.Div([ # Flex container
+#             dash_html.Div(away_pass_map_img, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Away Passer Map:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-away-top-passer-map", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-away-top-passer-map", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-away-top-passer-map", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+    
+#     elif active_nested_tab == "pa_shot_sequence_stats":
+#         print("  Rendering content for 'pa_shot_sequence_stats'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats data not yet available for shot sequence chart.", style={"color": "orange"})
+        
+#         shot_seq_bar_chart = generate_shot_sequence_bar_plot(player_stats_df_json)
+        
+#         return dash_html.Div([ # Flex container for this nested tab
+#             dash_html.Div(shot_seq_bar_chart, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Shot Sequence Chart:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-shot-sequence-bar", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-shot-sequence-bar", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-shot-sequence-bar", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+
+#     elif active_nested_tab == "pa_home_shot_contributor_map":
+#         print("  Rendering content for 'pa_home_shot_contributor_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats not yet available for home contributor map.", style={"color": "orange"})
+            
+#         home_contributor_map = generate_team_top_shot_contributor_map_plot(stored_match_data_json, player_stats_df_json, is_for_home_team=True)
+
+#         return dash_html.Div([ # Flex container
+#             dash_html.Div(home_contributor_map, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Home Contributor Map:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-home-top-shot-contributor-map", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-home-top-shot-contributor-map", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-home-top-shot-contributor-map", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+
+#     elif active_nested_tab == "pa_away_shot_contributor_map":
+#         print("  Rendering content for 'pa_away_shot_contributor_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats not yet available for away contributor map.", style={"color": "orange"})
+            
+#         away_contributor_map = generate_team_top_shot_contributor_map_plot(stored_match_data_json, player_stats_df_json, is_for_home_team=False)
+
+#         return dash_html.Div([ # Flex container
+#             dash_html.Div(away_contributor_map, style=common_plot_area_style),
+#             dash_html.Div([ # Comment Area
+#                 dash_html.Hr(),
+#                 dash_html.H6("Comments for Away Contributor Map:", className="mt-3 text-white"),
+#                 dcc.Textarea(id="comment-away-top-shot-contributor-map", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                 dbc.Button("Save Comment", id="save-comment-away-top-shot-contributor-map", color="info", size="sm", className="me-2"),
+#                 dash_html.Div(id="save-status-away-top-shot-contributor-map", className="small d-inline-block")
+#             ], style=common_comment_area_style)
+#         ], style=common_flex_column_style)
+    
+#     elif active_nested_tab == "pa_defender_stats":
+#         print("  Rendering content for 'pa_defender_stats' (Simple Static Plot)")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats data not available.", style={"color": "orange"})
+
+#         try:
+#             player_stats_df = pd.read_json(player_stats_df_json, orient='split')
+#             df_processed = pd.read_json(stored_match_data_json['df'], orient='split')
+#             match_info = json.loads(stored_match_data_json['match_info'])
+#             home_team_name = match_info.get('hteamName', '')
+
+#             # --- Generate the Matplotlib Bar Chart Image ---
+#             # Using a dark background consistent with the theme
+#             fig_bar, ax_bar = plt.subplots(figsize=(12, 8), facecolor='#2E3439')
+#             ax_bar.set_facecolor('#2E3439')
+
+#             # Call our robust plotting function
+#             player_plots.plot_defender_stats_bar_by_team(
+#                 ax_bar, player_stats_df, df_processed, home_team_name, hcol=HCOL, acol=ACOL
+#             )
+            
+#             # --- Convert plot to image for Dash ---
+#             buf = io.BytesIO()
+#             plt.savefig(buf, format="png", dpi=100, bbox_inches='tight', facecolor=fig_bar.get_facecolor())
+#             plt.close(fig_bar)
+#             buf.seek(0)
+#             img_src = f"data:image/png;base64,{base64.b64encode(buf.read()).decode('ascii')}"
+
+#             # --- Return the Bar Chart and the Comment Section ---
+#             # This layout is clean and focuses on the single plot
+#             return dash_html.Div([
+#                 dash_html.Div(dash_html.Img(src=img_src, style={'width': '100%', 'maxWidth': '900px', 'display': 'block', 'margin': 'auto'}), style=common_plot_area_style),
+#                 dash_html.Div([
+#                     dash_html.Hr(),
+#                     dash_html.H6("Comments for Defender Stats Chart:", className="mt-3 text-white"),
+#                     dcc.Textarea(id="comment-defender-stats-bar", placeholder="Comments...", style=common_textarea_style, className="mb-2"),
+#                     dbc.Button("Save Comment", id="save-comment-defender-stats-bar", color="info", size="sm", className="me-2"),
+#                     dash_html.Div(id="save-status-defender-stats-bar", className="small d-inline-block")
+#                 ], style=common_comment_area_style)
+#             ], style=common_flex_column_style)
+
+#         except Exception as e:
+#             tb_str = traceback.format_exc()
+#             return dbc.Alert(f"Error creating defender bar chart: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+
+#     elif active_nested_tab == "pa_home_defender_map":
+#         print("  Rendering content for 'pa_home_defender_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats not available for home defender map.", style={"color": "orange"})
+            
+#         home_defender_map, home_stats_table, home_players = generate_team_top_defender_map_plot(
+#             stored_match_data_json, player_stats_df_json, is_for_home_team=True
+#         )
+        
+#         if home_stats_table is None:
+#             return home_defender_map
+
+#         # Construct the initial layout with the modified dropdown
+#         return dash_html.Div([
+#             dbc.Row(dbc.Col(
+#                 dcc.Dropdown(
+#                     id='home-defender-dropdown',
+#                     options=home_players,
+#                     # --- START CHANGES ---
+#                     value=None,  # Set default value to None (empty)
+#                     placeholder="Select another player to analyze...", # Add placeholder text
+#                     # --- END CHANGES ---
+#                     clearable=True, # Allow user to clear selection to see default again (optional but good UX)
+#                     style={'color': 'black'}
+#                 ),
+#                 md=6,
+#             ), justify="center", className="mb-3"),
+            
+#             # This div is updated by the other callback
+#             dash_html.Div(id='home-defender-output', children=[
+#                 dbc.Row(dbc.Col(home_defender_map, width=12)),
+#                 dbc.Row([
+#                     dbc.Col([
+#                         dash_html.H5("Action Summary", className="text-center text-white mt-4"),
+#                         home_stats_table
+#                     ], md=6),
+#                     dbc.Col([
+#                         dash_html.H5("Analyst Comments", className="text-center text-white mt-4"),
+#                         dcc.Textarea(id="comment-home-top-defender-map", placeholder="Comments for the TOP defender...", style=common_textarea_style, className="mb-2"),
+#                         dbc.Button("Save Comment", id="save-comment-home-top-defender-map", color="info", size="sm", className="me-2"),
+#                         dash_html.Div(id="save-status-home-top-defender-map", className="small d-inline-block")
+#                     ], md=6)
+#                 ], className="mt-3")
+#             ])
+#         ])
+
+#     elif active_nested_tab == "pa_away_defender_map":
+#         print("  Rendering content for 'pa_away_defender_map'")
+#         if not player_stats_df_json:
+#             return dash_html.P("Player stats not available for away defender map.", style={"color": "orange"})
+            
+#         away_defender_map, away_stats_table, away_players = generate_team_top_defender_map_plot(
+#             stored_match_data_json, player_stats_df_json, is_for_home_team=False
+#         )
+        
+#         if away_stats_table is None:
+#             return away_defender_map
+            
+#         return dash_html.Div([
+#             dbc.Row(dbc.Col(
+#                 dcc.Dropdown(
+#                     id='away-defender-dropdown',
+#                     options=away_players,
+#                     # --- START CHANGES ---
+#                     value=None, # Set default value to None (empty)
+#                     placeholder="Select another player to analyze...", # Add placeholder text
+#                     # --- END CHANGES ---
+#                     clearable=True,
+#                     style={'color': 'black'}
+#                 ),
+#                 md=6,
+#             ), justify="center", className="mb-3"),
+            
+#             dash_html.Div(id='away-defender-output', children=[
+#                  dbc.Row(dbc.Col(away_defender_map, width=12)),
+#                  dbc.Row([
+#                     dbc.Col([
+#                         dash_html.H5("Action Summary", className="text-center text-white mt-4"),
+#                         away_stats_table
+#                     ], md=6),
+#                     dbc.Col([
+#                         dash_html.H5("Analyst Comments", className="text-center text-white mt-4"),
+#                         dcc.Textarea(id="comment-away-top-defender-map", placeholder="Comments for the TOP defender...", style=common_textarea_style, className="mb-2"),
+#                         dbc.Button("Save Comment", id="save-comment-away-top-defender-map", color="info", size="sm", className="me-2"),
+#                         dash_html.Div(id="save-status-away-top-defender-map", className="small d-inline-block")
+#                     ], md=6)
+#                  ], className="mt-3")
+#             ])
+#         ])
+
+#     return dash_html.P(f"Content for player analysis sub-tab '{active_nested_tab}' not yet implemented.", style={"color":"white"})
 
 @app.callback(
     Output("player-analysis-primary-tab-content", "children"),
@@ -2267,7 +2614,7 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
     elif active_tab == "pa_away_shot_contributor_map":
         return create_shot_contributor_layout('away', stored_match_data_json, player_stats_df_json)
     
-    return dash_html.P(f"Content for {active_tab} not found.")
+    return html.P(f"Content for {active_tab} not found.")
 
 # --- 3. Aggiungi i NUOVI callback di aggiornamento ---
 @app.callback(
@@ -3200,7 +3547,7 @@ def load_comment_defender_stats_bar(data, pn):
 )
 def update_home_defender_view(selected_player, stored_match_data_json, player_stats_df_json):
     if not selected_player:
-        return dash_html.P("Select a player from the dropdown to view their map.")
+        return html.P("Select a player from the dropdown to view their map.")
 
     # Chiama la stessa funzione helper, ma passando il giocatore selezionato
     layout_content, _, _ = player_plots.generate_defender_layout_and_data(
@@ -3217,7 +3564,7 @@ def update_home_defender_view(selected_player, stored_match_data_json, player_st
 )
 def update_away_defender_view(selected_player, stored_match_data_json, player_stats_df_json):
     if not selected_player:
-        return dash_html.P("Select a player from the dropdown to view their map.")
+        return html.P("Select a player from the dropdown to view their map.")
         
     layout_content, _, _ = player_plots.generate_defender_layout_and_data(
         stored_match_data_json, player_stats_df_json, is_for_home_team=False, selected_player=selected_player
@@ -4977,140 +5324,140 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 # ----------------------------------------
 
 # --- CALLBACK TO GENERATE REPORT HTML ---
+@app.callback(
+    Output("report-html-content-store", "data"),
+    Output("clientside-report-trigger-div", "children"), # Output simple trigger
+    Input("generate-report-button", "n_clicks"),
+    State("store-df-match", "data"),
+    State("url", "pathname"),
+    State("store-comment-formation", "data"),         # State 1
+    State("store-comment-pass-network", "data"),      # State 2
+    State("store-comment-progressive-passes", "data"),# State 3 - THIS IS THE ONE
+    # ... other comment stores ...
+    prevent_initial_call=True
+)
+def prepare_report_and_trigger_clientside(
+    n_clicks, stored_match_data, pathname,
+    formation_comments_data,
+    pass_network_comments_data,
+    progressive_passes_comments_data
+):
+    if n_clicks is None or not stored_match_data:
+        return no_update, no_update # No update for both outputs
+    
+    print(f"--- prepare_report_and_trigger_clientside TRIGGERED (n_clicks: {n_clicks}) ---")
+
+    report_html_elements = []
+    match_info_dict = {}
+    if stored_match_data.get('match_info'):
+        match_info_dict = json.loads(stored_match_data['match_info'])
+        # ... (extracting hteam, ateam, etc.) ...
+        hteam = match_info_dict.get('hteamDisplayName', 'Home')
+        ateam = match_info_dict.get('ateamDisplayName', 'Away')
+        comp = match_info_dict.get('competitionName', '')
+        round_n = match_info_dict.get('roundNameFromFilename', '') 
+        date_val = match_info_dict.get('date_formatted', '') 
+        hs = match_info_dict.get('home_score', '')
+        aws = match_info_dict.get('away_score', '')
+        score = f"{hs} - {aws}" if hs is not None and aws is not None else "vs"
+
+        report_html_elements.append(f"<h1>Match Report: {hteam} {score} {ateam}</h1>")
+        report_html_elements.append(f"<p>{comp} - {round_n} | {date_val}</p><hr>")
+
+
+    # # --- Section for Formation ---
+    # report_html_elements.append("<h2>Formation Analysis</h2>")
+    # formation_img_component = show_match_formation(stored_match_data)
+    # if isinstance(formation_img_component, dash_html.Img): # Use aliased dash_html
+    #     report_html_elements.append(f"<img src='{formation_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
+    # elif isinstance(formation_img_component, dash_html.P):
+    #     report_html_elements.append(f"<p><em>Error generating formation plot: {str(formation_img_component.children)}</em></p>")
+    # else:
+    #     report_html_elements.append("<p>Formation plot could not be generated.</p>")
+    
+    # form_comment_key = get_comment_key(pathname, "formation")
+    # if formation_comments_data and form_comment_key and formation_comments_data.get(form_comment_key):
+    #     report_html_elements.append("<h4>Comments:</h4>")
+    #     comment_text = html.escape(formation_comments_data.get(form_comment_key)) # <<<--- CORRECTED
+    #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
+    # report_html_elements.append("<hr>")
+
+
+    # # --- Section for Pass Network ---
+    # report_html_elements.append("<h2>Pass Network Analysis</h2>")
+    # pass_network_img_component = show_pass_network_graph(stored_match_data)
+    # if isinstance(pass_network_img_component, dash_html.Img): # Use aliased dash_html
+    #     report_html_elements.append(f"<img src='{pass_network_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
+    # elif isinstance(pass_network_img_component, dash_html.P):
+    #     report_html_elements.append(f"<p><em>Error generating pass network plot: {str(pass_network_img_component.children)}</em></p>")
+    # else:
+    #     report_html_elements.append("<p>Pass Network plot could not be generated.</p>")
+
+    # pn_comment_key = get_comment_key(pathname, "pass_network")
+    # if pass_network_comments_data and pn_comment_key and pass_network_comments_data.get(pn_comment_key):
+    #     report_html_elements.append("<h4>Comments:</h4>")
+    #     comment_text = html.escape(pass_network_comments_data.get(pn_comment_key))
+    #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
+    # report_html_elements.append("<hr>")
+
+    # # ... (rest of the function, including final_html_string) ...
+    # final_html_string = f"""
+    # <html>
+    #     <head>
+    #         <title>Match Report</title>
+    #         <style>
+    #             body {{ font-family: sans-serif; margin: 20px; }}
+    #             h1, h2, h3, h4 {{ color: #333; }}
+    #             hr {{ margin-top: 20px; margin-bottom: 20px; border: 0; border-top: 1px solid #eee; }}
+    #             img {{ border: 1px solid #ddd; margin-bottom: 10px; padding: 5px; background-color: white; }}
+    #             pre {{ white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; }}
+    #         </style>
+    #     </head>
+    #     <body>
+    #         {''.join(report_html_elements)}
+    #     </body>
+    # </html>
+    # """
+    # print(f"prepare_report_html: Generated HTML (first 200 chars): {final_html_string[:200]}")
+    # print(f"prepare_report_html: Generated HTML (last 200 chars): {final_html_string[-200:]}")
+    # print(f"prepare_report_html: Total length of HTML string: {len(final_html_string)}")
+    # # ... (your logic to build final_html_string) ...
+    # Example:
+    report_html_elements = ["<h1>Test Report Version 2</h1>"]
+    # ... (add plots and comments as before) ...
+    final_html_string = f"<html><body>{''.join(report_html_elements)}</body></html>"
+    # ...
+
+    print(f"prepare_report_and_trigger_clientside: HTML length: {len(final_html_string)}")
+    
+    # Return HTML to its store, and a simple trigger (timestamp) to the dummy div
+    trigger_value = datetime.now().timestamp()
+    print(f"prepare_report_and_trigger_clientside: Setting trigger value: {trigger_value}")
+    return final_html_string, trigger_value
+
+# def relay_trigger_for_report_window(report_html):
+#     if report_html:
+#         return datetime.now().timestamp() # Or just a counter, anything to trigger the change
+#     return no_update
+
+# # --- NEW PYTHON CALLBACK TO TRIGGER CLIENTSIDE ACTION & CLEAR HTML STORE ---
 # @app.callback(
-#     Output("report-html-content-store", "data"),
-#     Output("clientside-report-trigger-div", "children"), # Output simple trigger
-#     Input("generate-report-button", "n_clicks"),
-#     State("store-df-match", "data"),
-#     State("url", "pathname"),
-#     State("store-comment-formation", "data"),         # State 1
-#     State("store-comment-pass-network", "data"),      # State 2
-#     State("store-comment-progressive-passes", "data"),# State 3 - THIS IS THE ONE
-#     # ... other comment stores ...
+#     Output("clientside-report-trigger-div", "children"), # Output to dummy div (acts as trigger)
+#     Output("report-html-content-store", "data", allow_duplicate=True), # Output to clear the store
+#     Input("report-html-content-store", "data"), # Input: when HTML is ready
 #     prevent_initial_call=True
 # )
-# def prepare_report_and_trigger_clientside(
-#     n_clicks, stored_match_data, pathname,
-#     formation_comments_data,
-#     pass_network_comments_data,
-#     progressive_passes_comments_data
-# ):
-#     if n_clicks is None or not stored_match_data:
-#         return no_update, no_update # No update for both outputs
-    
-#     print(f"--- prepare_report_and_trigger_clientside TRIGGERED (n_clicks: {n_clicks}) ---")
+# def trigger_clientside_and_clear_store(report_html_content):
+#     if report_html_content:
+#         print("trigger_clientside_and_clear_store: HTML ready, triggering clientside and clearing store.")
+#         # The value passed to the dummy div's children can be anything that changes.
+#         # The clientside callback will use the HTML from the store via State.
+#         # We pass the HTML itself as the trigger data, so the clientside callback gets it directly.
+#         return report_html_content, None # Trigger with HTML, then clear the store
+#     print("trigger_clientside_and_clear_store: No HTML, no action.")
+#     return no_update, no_update
 
-#     report_html_elements = []
-#     match_info_dict = {}
-#     if stored_match_data.get('match_info'):
-#         match_info_dict = json.loads(stored_match_data['match_info'])
-#         # ... (extracting hteam, ateam, etc.) ...
-#         hteam = match_info_dict.get('hteamDisplayName', 'Home')
-#         ateam = match_info_dict.get('ateamDisplayName', 'Away')
-#         comp = match_info_dict.get('competitionName', '')
-#         round_n = match_info_dict.get('roundNameFromFilename', '') 
-#         date_val = match_info_dict.get('date_formatted', '') 
-#         hs = match_info_dict.get('home_score', '')
-#         aws = match_info_dict.get('away_score', '')
-#         score = f"{hs} - {aws}" if hs is not None and aws is not None else "vs"
-
-#         report_html_elements.append(f"<h1>Match Report: {hteam} {score} {ateam}</h1>")
-#         report_html_elements.append(f"<p>{comp} - {round_n} | {date_val}</p><hr>")
-
-
-#     # # --- Section for Formation ---
-#     # report_html_elements.append("<h2>Formation Analysis</h2>")
-#     # formation_img_component = show_match_formation(stored_match_data)
-#     # if isinstance(formation_img_component, dash_html.Img): # Use aliased dash_html
-#     #     report_html_elements.append(f"<img src='{formation_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
-#     # elif isinstance(formation_img_component, dash_html.P):
-#     #     report_html_elements.append(f"<p><em>Error generating formation plot: {str(formation_img_component.children)}</em></p>")
-#     # else:
-#     #     report_html_elements.append("<p>Formation plot could not be generated.</p>")
-    
-#     # form_comment_key = get_comment_key(pathname, "formation")
-#     # if formation_comments_data and form_comment_key and formation_comments_data.get(form_comment_key):
-#     #     report_html_elements.append("<h4>Comments:</h4>")
-#     #     comment_text = dash_html.escape(formation_comments_data.get(form_comment_key)) # <<<--- CORRECTED
-#     #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
-#     # report_html_elements.append("<hr>")
-
-
-#     # # --- Section for Pass Network ---
-#     # report_html_elements.append("<h2>Pass Network Analysis</h2>")
-#     # pass_network_img_component = show_pass_network_graph(stored_match_data)
-#     # if isinstance(pass_network_img_component, dash_html.Img): # Use aliased dash_html
-#     #     report_html_elements.append(f"<img src='{pass_network_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
-#     # elif isinstance(pass_network_img_component, dash_html.P):
-#     #     report_html_elements.append(f"<p><em>Error generating pass network plot: {str(pass_network_img_component.children)}</em></p>")
-#     # else:
-#     #     report_html_elements.append("<p>Pass Network plot could not be generated.</p>")
-
-#     # pn_comment_key = get_comment_key(pathname, "pass_network")
-#     # if pass_network_comments_data and pn_comment_key and pass_network_comments_data.get(pn_comment_key):
-#     #     report_html_elements.append("<h4>Comments:</h4>")
-#     #     comment_text = dash_html.escape(pass_network_comments_data.get(pn_comment_key))
-#     #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
-#     # report_html_elements.append("<hr>")
-
-#     # # ... (rest of the function, including final_html_string) ...
-#     # final_html_string = f"""
-#     # <html>
-#     #     <head>
-#     #         <title>Match Report</title>
-#     #         <style>
-#     #             body {{ font-family: sans-serif; margin: 20px; }}
-#     #             h1, h2, h3, h4 {{ color: #333; }}
-#     #             hr {{ margin-top: 20px; margin-bottom: 20px; border: 0; border-top: 1px solid #eee; }}
-#     #             img {{ border: 1px solid #ddd; margin-bottom: 10px; padding: 5px; background-color: white; }}
-#     #             pre {{ white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; }}
-#     #         </style>
-#     #     </head>
-#     #     <body>
-#     #         {''.join(report_html_elements)}
-#     #     </body>
-#     # </html>
-#     # """
-#     # print(f"prepare_report_html: Generated HTML (first 200 chars): {final_html_string[:200]}")
-#     # print(f"prepare_report_html: Generated HTML (last 200 chars): {final_html_string[-200:]}")
-#     # print(f"prepare_report_html: Total length of HTML string: {len(final_html_string)}")
-#     # # ... (your logic to build final_html_string) ...
-#     # Example:
-#     report_html_elements = ["<h1>Test Report Version 2</h1>"]
-#     # ... (add plots and comments as before) ...
-#     final_html_string = f"<html><body>{''.join(report_html_elements)}</body></html>"
-#     # ...
-
-#     print(f"prepare_report_and_trigger_clientside: HTML length: {len(final_html_string)}")
-    
-#     # Return HTML to its store, and a simple trigger (timestamp) to the dummy div
-#     trigger_value = datetime.now().timestamp()
-#     print(f"prepare_report_and_trigger_clientside: Setting trigger value: {trigger_value}")
-#     return final_html_string, trigger_value
-
-# # def relay_trigger_for_report_window(report_html):
-# #     if report_html:
-# #         return datetime.now().timestamp() # Or just a counter, anything to trigger the change
-# #     return no_update
-
-# # # --- NEW PYTHON CALLBACK TO TRIGGER CLIENTSIDE ACTION & CLEAR HTML STORE ---
-# # @app.callback(
-# #     Output("clientside-report-trigger-div", "children"), # Output to dummy div (acts as trigger)
-# #     Output("report-html-content-store", "data", allow_duplicate=True), # Output to clear the store
-# #     Input("report-html-content-store", "data"), # Input: when HTML is ready
-# #     prevent_initial_call=True
-# # )
-# # def trigger_clientside_and_clear_store(report_html_content):
-# #     if report_html_content:
-# #         print("trigger_clientside_and_clear_store: HTML ready, triggering clientside and clearing store.")
-# #         # The value passed to the dummy div's children can be anything that changes.
-# #         # The clientside callback will use the HTML from the store via State.
-# #         # We pass the HTML itself as the trigger data, so the clientside callback gets it directly.
-# #         return report_html_content, None # Trigger with HTML, then clear the store
-# #     print("trigger_clientside_and_clear_store: No HTML, no action.")
-# #     return no_update, no_update
-
-# # Callback 3: Clientside callback to open window
+# Callback 3: Clientside callback to open window
 
 ##################################################################
 def create_graph_card(graph_id, title, height='550px'):
@@ -5241,29 +5588,187 @@ def update_team_radar_multi(selected_teams):
     # Passiamo il template 'plotly_white'
     return league_plots.create_team_radar(df_league_adv, teams_to_plot, template='plotly_white')
 
-
-@callback(
+@app.callback(
     Output("download-dataframe-csv", "data"),
     Input("btn-download-csv", "n_clicks"),
-    State("store-df-match", "data"),
+    State("store-df-match", "data"), # Prendiamo i dati completi dallo store
     prevent_initial_call=True,
 )
 def download_csv(n_clicks, stored_data_json):
     if not n_clicks or not stored_data_json:
-        return no_update
+        return dash.no_update
+
     try:
-        df = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-        match_info = json.loads(stored_data_json['match_info'])
+        df_json_str = stored_data_json.get('df')
+        match_info_json_str = stored_data_json.get('match_info')
+
+        if not df_json_str or not match_info_json_str:
+            return dash.no_update
+        
+        df = pd.read_json(io.StringIO(df_json_str), orient='split')
+        match_info = json.loads(match_info_json_str)
+
+        # Creiamo un nome file significativo
         hteam = match_info.get('hteamDisplayName', 'Home')
         ateam = match_info.get('ateamDisplayName', 'Away')
         filename = f"match_events_{hteam}_vs_{ateam}.csv"
+
+        # Usiamo dcc.send_data_frame per creare e inviare il file CSV
         return dcc.send_data_frame(df.to_csv, filename=filename, index=False)
+
     except Exception as e:
         print(f"Error during CSV download: {e}")
-        return no_update
+        return dash.no_update
+    
+def parse_upload_contents(contents, filename):
+    """
+    Helper function to parse the content of an uploaded file.
+    """
+    if not contents or not filename:
+        return None
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    try:
+        if 'json' in filename:
+            json_data = json.loads(decoded.decode('utf-8'))
+            return json_data
+        return None
+    except Exception as e:
+        print(f"Error parsing file {filename}: {e}")
+        return None
 
-# -----------------------------------------------------------------------------
-# Esecuzione dell'App
-# -----------------------------------------------------------------------------
+# ==============================================================================
+# --- CALLBACKS PER UPLOAD, ROUTING E CARICAMENTO DATI (VERSIONE SEMPLIFICATA) ---
+# ==============================================================================
+
+# CALLBACK 1: Gestisce il file caricato.
+# Processa il file, lo salva nello store di sessione e cambia l'URL per il redirect.
+@app.callback(
+    Output('store-uploaded-data', 'data'),
+    Output('url', 'pathname', allow_duplicate=True),
+    Output('upload-status-output', 'children'),
+    Input('upload-data', 'contents'),
+    State('upload-data', 'filename'),
+    prevent_initial_call=True
+)
+def handle_upload(contents, filename):
+    if not contents:
+        return no_update, no_update, no_update
+
+    print(f"--- Upload Handler: Processing '{filename}' ---")
+    json_data = parse_upload_contents(contents, filename)
+    if json_data is None:
+        return no_update, no_update, dbc.Alert("Error parsing file. Please ensure it is a valid JSON.", color="danger", duration=4000)
+
+    try:
+        event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
+        qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
+        match_info = config.extract_match_info(json_data)
+        df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
+
+        if df is None or df.empty:
+            return no_update, no_update, dbc.Alert("Processing resulted in empty data.", color="warning", duration=4000)
+
+        match_id = f"upload-{uuid.uuid4().hex[:12]}"
+        match_info['id'] = match_id
+        
+        data_to_store = {
+            'df': df.to_json(date_format='iso', orient='split'),
+            'match_info': json.dumps(match_info)
+        }
+        
+        new_pathname = f"/match/{match_id}"
+        print(f"  Upload successful. Populating session store and redirecting to {new_pathname}")
+        
+        return data_to_store, new_pathname, dbc.Alert(f"Successfully processed {filename}!", color="success", duration=3000)
+
+    except Exception as e:
+        print(f"ERROR during processing: {traceback.format_exc()}")
+        return no_update, no_update, dbc.Alert(f"An error occurred: {e}", color="danger", duration=5000)
+
+
+# CALLBACK 2: Popola lo store principale della partita.
+# Si attiva quando l'URL cambia. Se è un URL di upload, sposta i dati
+# dallo store di sessione a quello di memoria e pulisce lo store di sessione.
+@app.callback(
+    Output('store-df-match', 'data'),
+    Output('store-uploaded-data', 'data', allow_duplicate=True),
+    Input('url', 'pathname'),
+    State('store-uploaded-data', 'data'),
+    prevent_initial_call=True
+)
+def populate_main_store_on_navigate(pathname, uploaded_data):
+    # Se andiamo alla home, puliamo tutto.
+    if pathname == '/':
+        print("--- Navigated to Home. Clearing data stores. ---")
+        return None, None
+
+    # Se navighiamo a una pagina di un match uploadato e ci sono dati nello store di sessione, li usiamo.
+    if pathname and 'upload-' in pathname and uploaded_data:
+        print(f"--- Populating main store for {pathname} from session data. ---")
+        # Copia i dati nello store principale e pulisce quello temporaneo.
+        return uploaded_data, None
+        
+    # In tutti gli altri casi (es. ricaricamento di una pagina di upload senza dati), non fare nulla.
+    return no_update, no_update
+
+
+# CALLBACK 3: Router principale per il layout delle pagine.
+@app.callback(
+    Output("page-content", "children"),
+    Input("url", "pathname")
+)
+def render_page_content(pathname):
+    print(f"--- Router rendering for path: '{pathname}' ---")
+    if pathname and pathname.startswith("/match/"):
+        match_id = pathname.split("/")[-1]
+        return layout_match(match_id)
+        
+    # Per default, o per qualsiasi altro percorso non riconosciuto, mostra la home page.
+    return layout_home()
+
+
+
+# Main layout (only one layout, using dynamic display)
+app.layout = dash_html.Div([
+    # These components are always present, regardless of the page
+    dcc.Location(id='url'),
+
+    # --- ALL application-wide stores are defined here ---
+    dcc.Store(id="store-df-match"),
+    dcc.Store(id='store-uploaded-data', storage_type='session'),
+    dcc.Store(id="store-comment-pass-network", storage_type="local"),
+    dcc.Store(id="store-comment-progressive-passes", storage_type="local"),
+    dcc.Store(id="store-comment-formation", storage_type="local"),
+    dcc.Store(id="store-comment-final-third", storage_type="local"),
+    dcc.Store(id="store-comment-pass-density", storage_type="local"),
+    dcc.Store(id="store-comment-pass-heatmap", storage_type="local"),
+    dcc.Store(id="store-comment-top-passers-bar", storage_type="local"),
+    dcc.Store(id="store-comment-home-top-passer-map", storage_type="local"),
+    dcc.Store(id="store-comment-away-top-passer-map", storage_type="local"),
+    dcc.Store(id="store-comment-shot-sequence-bar", storage_type="local"),
+    dcc.Store(id="store-comment-home-top-shot-contributor-map", storage_type="local"),
+    dcc.Store(id="store-comment-away-top-shot-contributor-map", storage_type="local"),
+    dcc.Store(id="store-comment-defender-stats-bar", storage_type="local"),
+    dcc.Store(id="store-comment-home-top-defender-map", storage_type="local"),
+    dcc.Store(id="store-comment-away-top-defender-map", storage_type="local"),
+    dcc.Store(id="store-comment-buildup", storage_type="local"), 
+    dcc.Store(id="store-player-stats-df"),
+    dcc.Store(id="store-buildup-filter", storage_type="memory"),
+    dcc.Store(id="store-def-transition-filter", data=None),
+    dcc.Store(id="store-off-transition-filter", data=None),
+    dcc.Store(id="store-set-piece-filter", data=None),
+    dcc.Store(id="set-piece-analyzed-df-store", data=None),
+    dcc.Store(id="cross-filter-store", data=None),
+    dcc.Store(id="cross-selection-store", data=None),
+    dcc.Store(id="report-html-content-store"),
+    # --- End of stores ---
+
+    # This Div will be filled with the content of the current page
+    dash_html.Div(id='page-content')
+])
+
+# Run the app
 if __name__ == "__main__":
     app.run(debug=True)
+# --- END OF FILE app.py ---

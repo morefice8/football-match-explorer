@@ -1,0 +1,223 @@
+/* assets/custom_theme.css */
+
+/* :root ci permette di definire variabili CSS globali */
+:root {
+  --napoli-primary-blue: #00A0D2;
+  --napoli-secondary-blue: #87CEEB;
+  --napoli-light-text: #EAEAEA;
+  --napoli-background-dark: #23272B; /* Un grigio scuro, leggermente più morbido di SLATE */
+  --napoli-background-light: #343A40; /* Un grigio per le card e i componenti */
+}
+
+/* Sovrascriviamo i colori principali del tema Bootstrap */
+body {
+  --bs-primary: var(--napoli-primary-blue) !important;
+  --bs-secondary: var(--napoli-secondary-blue) !important;
+  --bs-body-bg: var(--napoli-background-dark) !important;
+  --bs-body-color: var(--napoli-light-text) !important;
+}
+
+/* Colore per i link e i bottoni "primary" */
+.btn-primary, .text-primary, .nav-pills .nav-link.active {
+  background-color: var(--napoli-primary-blue) !important;
+  border-color: var(--napoli-primary-blue) !important;
+  color: white !important;
+}
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+/* Colore per i bottoni "secondary" (es. Back to Home) */
+.btn-secondary {
+    background-color: var(--napoli-background-light) !important;
+    border-color: var(--napoli-secondary-blue) !important;
+    color: var(--napoli-secondary-blue) !important;
+}
+.btn-secondary:hover {
+    background-color: var(--napoli-secondary-blue) !important;
+    color: var(--napoli-background-dark) !important;
+}
+
+/* Colore di sfondo generale */
+.home-background, .default-background {
+  background-color: var(--napoli-background-dark) !important;
+}
+
+/* Colore per le Card e componenti interni */
+.card {
+  background-color: var(--napoli-background-light) !important;
+  border: 1px solid #454D55;
+}
+
+/* Titoli delle card e testo principale */
+.card-title, h1, h2, h3, h4, h5, h6 {
+    color: var(--napoli-light-text) !important;
+}
+
+/* Testo "muted" (descrizioni) */
+.text-muted {
+    color: #adb5bd !important; /* Manteniamo un grigio chiaro per il contrasto */
+}
+
+/* Stile per la sidebar dell'analisi */
+.sidebar-match-analysis {
+    background-color: #1c1e22 !important; /* Un nero ancora più scuro per la sidebar */
+}
+
+/* =================================================== */
+/* === FIX PER GLI ELEMENTI ATTIVI E SELEZIONATI === */
+/* =================================================== */
+
+/* --- 1. Sidebar Laterale (NavLinks) --- NUOVA VERSIONE PIU' FORTE --- */
+/* Stile per i link della sidebar quando non sono attivi */
+.nav-pills .nav-link {
+    color: var(--napoli-light-text) !important;
+    background-color: transparent !important;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+/* Stile al passaggio del mouse (hover) sui link non attivi della sidebar */
+.nav-pills .nav-link:hover, .nav-pills .nav-link:focus {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: white !important;
+}
+
+/* Stile per il NavLink ATTIVO nella sidebar */
+.nav-pills .nav-link.active {
+    background-color: var(--napoli-primary-blue) !important;
+    color: white !important;
+    font-weight: bold !important;
+}
+
+
+/* --- 2. Tab Interne (es. in Passing Analysis) --- */
+/* Stile per la tab attiva (quella cliccata) */
+.nav-tabs .nav-link.active {
+    background-color: var(--napoli-background-dark) !important; /* Sfondo uguale alla pagina */
+    border-color: #495057 #495057 var(--napoli-primary-blue) !important; /* Bordo sopra e lati grigio, sotto azzurro */
+    border-bottom-width: 3px !important;
+    color: white !important; /* Testo bianco per risaltare */
+}
+
+/* Stile per le tab non attive */
+.nav-tabs .nav-link {
+    color: var(--bs-body-color); /* Usa il colore del testo di default */
+    background-color: transparent;
+    border-color: transparent;
+}
+
+/* Stile al passaggio del mouse (hover) sulle tab non attive */
+.nav-tabs .nav-link:hover {
+    border-color: #495057; /* Mostra un bordo leggero al passaggio del mouse */
+    isolation: isolate;
+}
+
+/* =================================================== */
+/* ===         STILE PER LE CARD DI RIEPILOGO        === */
+/* =================================================== */
+
+/* Stile per ogni riga dentro le card di riepilogo */
+.summary-card-item {
+    background-color: var(--napoli-background-light) !important; /* Usa lo stesso sfondo delle altre card */
+    border-color: #454D55 !important; /* Un bordo leggero per separare le righe */
+    color: white !important; /* Mantiene il grigio chiaro, ma assicuriamoci che venga applicato */
+}
+
+/* Colore per il testo principale (es. il numero e la percentuale) */
+.summary-card-item .fw-bold {
+    color: var(--napoli-light-text) !important;
+}
+
+/* Colore per la descrizione (es. 'Goals', 'Shots', 'Right Flank') */
+.summary-card-item .small.text-muted {
+    color: white !important; /* Mantiene il grigio chiaro, ma assicuriamoci che venga applicato */
+}
+
+/* === STILE PER TABELLE DASH === */
+.dash-table-container .dash-spreadsheet-container {
+  background-color: var(--napoli-background-light) !important;
+  color: var(--napoli-light-text) !important;
+  border: 1px solid #495057;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-header {
+  background-color: var(--napoli-background-dark) !important;
+  color: var(--napoli-light-text) !important;
+  font-weight: bold;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-cell {
+  background-color: var(--napoli-background-light) !important;
+  color: var(--napoli-light-text) !important;
+  border-color: #495057 !important;
+}
+
+/* Righe alternate (zebra striping) */
+.dash-table-container .dash-spreadsheet-container .dash-cell:nth-child(even) {
+  background-color: #2b3035 !important;
+}
+
+.dash-table-container {
+  padding: 10px;
+  border-radius: 5px;
+}
+
+/* ===================================== */
+/* === STILE PER dbc.ListGroupItem === */
+/* ===================================== */
+
+.list-group-item {
+  background-color: var(--napoli-background-light) !important;
+  color: var(--napoli-light-text) !important;
+  border-color: #495057 !important;
+}
+
+.list-group-item:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+}
+
+.list-group-item.active {
+  background-color: var(--napoli-primary-blue) !important;
+  color: white !important;
+  border-color: var(--napoli-primary-blue) !important;
+  font-weight: bold;
+}
+
+/* Assicura che i badge siano leggibili */
+.list-group-item .badge {
+  background-color: #6c757d !important;
+  color: white !important;
+}
+
+/* === Fix per testo invisibile in ListGroupItems su tema scuro === */
+.card .list-group-item {
+  background-color: var(--napoli-background-light) !important;
+  color: white !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.card .list-group-item:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+}
+
+.card .list-group-item.active {
+  background-color: var(--napoli-primary-blue) !important;
+  color: white !important;
+  font-weight: bold;
+}
+
+.card .list-group-item .badge {
+  background-color: #6c757d !important;
+  color: white !important;
+}
+
+/* === Distinguere header della card dalle righe === */
+.card > .card-header {
+  background-color: var(--napoli-primary-blue) !important;
+  color: white !important;
+  font-weight: bold;
+  font-size: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
