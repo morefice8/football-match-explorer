@@ -1,6 +1,7 @@
 # pages/match_analysis.py
 from dash import html, dcc
 import dash_bootstrap_components as dbc
+from src.components.layout_components import app_signature
 
 def layout(match_id):
     sidebar_style = {
@@ -41,4 +42,4 @@ def layout(match_id):
         ], style=sidebar_style)
         
     content_area = html.Div(id="match-tab-content")
-    return html.Div([sidebar, content_area], style=content_style)
+    return html.Div([sidebar, content_area, app_signature()], style=content_style)

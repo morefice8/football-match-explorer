@@ -7,6 +7,7 @@ from dash import html, dcc, callback, Input, Output, State, dash_table, no_updat
 import dash_bootstrap_components as dbc
 from src.visualization import team_plots
 import plotly.graph_objects as go
+from src.components.layout_components import app_signature
 
 # --- CONFIGURATION & HELPER FUNCTIONS ---
 # ... (nessuna modifica qui)
@@ -416,7 +417,8 @@ def layout(team_name_url, season="2024-2025"):
         top_performers_row1,
         top_performers_row2,
         html.H2("Team Roster", className="text-white text-center my-4"),
-        roster_section
+        roster_section,
+        app_signature(),
     ], fluid=True, className="p-4")
 
 # --- CALLBACKS (invariati) ---

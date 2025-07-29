@@ -1,6 +1,7 @@
 # pages/upload.py
 from dash import html, dcc
 import dash_bootstrap_components as dbc
+from src.components.layout_components import app_signature
 
 def layout():
     """ Layout for the page dedicated to uploading a single match file. """
@@ -21,4 +22,5 @@ def layout():
             multiple=False
         ),
         html.Div(id='upload-status-output', className="text-center mt-3"),
+        app_signature(),
     ], className="mt-5")

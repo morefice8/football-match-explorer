@@ -7,6 +7,7 @@ from datetime import datetime
 import html
 import dash
 from dash.dependencies import ALL
+from src.utils.path_helpers import get_team_logo_path, get_player_photo_path
 
 import json
 import io
@@ -1189,3 +1190,206 @@ def generate_defender_layout_and_data(stored_data_json, player_stats_df_json, is
     except Exception as e:
         tb_str = traceback.format_exc()
         return dbc.Alert(f"Error in defender analysis: {e}\n{tb_str}", color="danger"), [], None
+
+
+def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert_y=False, quadrant_labels=None, template="plotly_white"):
+    """
+    Crea uno scatter plot a quadranti per i GIOCATORI, con sfondi colorati, linea di tendenza e FOTO.
+    """
+    if x_metric not in df.columns or y_metric not in df.columns:
+        return go.Figure().update_layout(title_text=f"Error: Metric not found")
+
+    df_plot = df.dropna(subset=[x_metric, y_metric]).copy()
+    if df_plot.empty:
+        return go.Figure().update_layout(title_text="No data for selected metrics.")
+
+    x_mean = df_plot[x_metric].mean()
+    y_mean = df_plot[y_metric].mean()
+    
+    fig = go.Figure()
+
+    # --- FIX: Marcatori resi invisibili, servono solo per l'hover ---
+    fig.add_trace(go.Scatter(
+        x=df_plot[x_metric], y=df_plot[y_metric],
+        mode='markers',
+        marker=dict(size=30, color='rgba(0,0,0,0)'), # Dimensione cliccabile, ma trasparente
+        hoverinfo='text',
+        hovertext=[f"<b>{row['Player']}</b><br>{row['Club']}<br>{x_label}: {row[x_metric]:.2f}<br>{y_label}: {row[y_metric]:.2f}" for _, row in df_plot.iterrows()]
+    ))
+
+    # Calcolo limiti assi
+    x_min, x_max = df_plot[x_metric].min(), df_plot[x_metric].max()
+    y_min, y_max = df_plot[y_metric].min(), df_plot[y_metric].max()
+    x_margin = (x_max - x_min) * 0.15
+    y_margin = (y_max - y_min) * 0.15
+    x_axis_range = [x_min - x_margin, x_max + x_margin]
+    y_axis_range = [y_min - y_margin, y_max + y_margin]
+
+    # --- FIX: Aggiungi le FOTO dei giocatori ---
+    images = []
+    for i, row in df_plot.iterrows():
+        photo_path = get_player_photo_path(row['Player'])
+        images.append(go.layout.Image(
+            source=photo_path,
+            xref="x", yref="y",
+            x=row[x_metric], y=row[y_metric],
+            sizex=(x_max - x_min) / 8, sizey=(y_max - y_min) / 8,
+            xanchor="center", yanchor="middle",
+            layer="above" # Assicura che le foto siano sopra i quadranti
+        ))
+    fig.update_layout(images=images)
+
+    # Quadranti colorati
+    colors = ['rgba(214, 39, 40, 0.1)', 'rgba(52, 152, 219, 0.1)', 'rgba(44, 160, 44, 0.1)', 'rgba(241, 196, 15, 0.1)']
+    if invert_y: colors = [colors[1], colors[0], colors[3], colors[2]]
+        
+    fig.add_shape(type="rect", x0=x_mean, y0=y_mean, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=colors[2], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_mean, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_mean, fillcolor=colors[3], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_mean, y1=y_mean, fillcolor=colors[0], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_mean, x1=x_mean, y1=y_axis_range[1], fillcolor=colors[1], layer="below", line_width=0)
+
+    # Linee medie
+    fig.add_hline(y=y_mean, line_dash="dash", line_color="grey")
+    fig.add_vline(x=x_mean, line_dash="dash", line_color="grey")
+
+    # Etichette dei quadranti
+    if quadrant_labels:
+        x_pos_right = x_axis_range[0] + 0.99 * (x_axis_range[1] - x_axis_range[0])
+        y_pos_top = y_axis_range[0] + 0.99 * (y_axis_range[1] - y_axis_range[0])
+        x_pos_left = x_axis_range[0] + 0.01 * (x_axis_range[1] - x_axis_range[0])
+        y_pos_bottom = y_axis_range[0] + 0.01 * (y_axis_range[1] - y_axis_range[0])
+        if invert_y: y_pos_top, y_pos_bottom = y_pos_bottom, y_pos_top
+
+        fig.add_annotation(x=x_pos_right, y=y_pos_top, xanchor='right', yanchor='top', text=f"<b>{quadrant_labels[0]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+        fig.add_annotation(x=x_pos_right, y=y_pos_bottom, xanchor='right', yanchor='bottom', text=f"<b>{quadrant_labels[1]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+        fig.add_annotation(x=x_pos_left, y=y_pos_bottom, xanchor='left', yanchor='bottom', text=f"<b>{quadrant_labels[2]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+        fig.add_annotation(x=x_pos_left, y=y_pos_top, xanchor='left', yanchor='top', text=f"<b>{quadrant_labels[3]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+
+    fig.update_layout(
+        title=f"<b>{title}</b>",
+        xaxis_title=x_label, yaxis_title=y_label,
+        template=template, showlegend=False,
+        font_color='white', paper_bgcolor='#2E3439', plot_bgcolor='#343A40',
+        height=700,
+        xaxis=dict(range=x_axis_range, showgrid=False, zeroline=False),
+        yaxis=dict(range=y_axis_range, autorange='reversed' if invert_y else None, showgrid=False, zeroline=False)
+    )
+    return fig
+
+def create_player_profile_radar(df_for_normalization, primary_player_series, comparison_player_series=None, template="plotly_dark"):
+    """
+    Crea un radar plot che si adatta al ruolo del giocatore (portiere o di movimento)
+    utilizzando le stesse metriche delle macro-card del profilo per coerenza.
+    La normalizzazione avviene tramite percentili per robustezza.
+    """
+    # --- DEFINIZIONE METRICHE PER RUOLO ---
+    CATEGORIES_OUTFIELD = {
+        '⚔️ Attacking': {'Goals': 'Gls', 'G-xG p90': 'G_minus_xG_per_90', 'SCA p90': 'SCA90', 'SoT p90': 'SoT/90'},
+        '⚽ Possession': {'Assists': 'Ast', 'Passes Final Third p90': 'Passes_F3_per_90', 'Progressive Passes p90': 'PrgP_per_90', 'Carries Final Third p90': 'Carries_F3_per_90'},
+        '🛡️ Defending': {'Tackles+Int p90': 'Tkl+Int_per_90', 'Aerials Won %': 'Aerial_Duels_perc', 'Clearances p90': 'Clr_per_90', 'Blocks p90': 'Blocks_per_90'}
+    }
+    
+    CATEGORIES_GK = {
+        '🧤 Goalkeeping': {'Save %': 'Save%', 'PSxG-GA': 'PSxG+/-', 'Crosses Stopped %': 'Stp%', 'Sweeper Actions p90': '#OPA/90'}
+    }
+
+    # --- DETERMINA IL RUOLO E SELEZIONA LE METRICHE CORRETTE ---
+    is_gk = 'GK' in primary_player_series.get('Pos', '')
+    
+    if is_gk:
+        CATEGORIES = CATEGORIES_GK
+        df_norm = df_for_normalization[df_for_normalization['Pos'].str.contains('GK', na=False)].copy()
+        category_colors = {'🧤 Goalkeeping': 'rgba(255, 193, 7, 0.2)'}
+    else:
+        CATEGORIES = CATEGORIES_OUTFIELD
+        df_norm = df_for_normalization[~df_for_normalization['Pos'].str.contains('GK', na=False)].copy()
+        category_colors = {
+            '⚔️ Attacking': 'rgba(220, 53, 69, 0.2)',
+            '⚽ Possession': 'rgba(13, 110, 253, 0.2)',
+            '🛡️ Defending': 'rgba(25, 135, 84, 0.2)'
+        }
+
+    # Se non ci sono dati per la normalizzazione, restituisci un grafico vuoto
+    if df_norm.empty:
+        return go.Figure(layout={"template": template, "title": "Not enough data for comparison"})
+
+    radar_metrics_ordered = [label for cat in CATEGORIES.values() for label in cat.keys()]
+    column_map = {label: col for cat in CATEGORIES.values() for label, col in cat.items()}
+
+    # --- NORMALIZZAZIONE TRAMITE PERCENTILI [0-1] ---
+    for display_name, col_name in column_map.items():
+        if col_name in df_norm.columns:
+            # Calcola il percentile. pct=True restituisce un valore tra 0 e 1.
+            df_norm[display_name] = df_norm[col_name].rank(pct=True)
+        else:
+            # Se la colonna non esiste, assegna un valore neutro
+            df_norm[display_name] = 0.5
+            
+    # --- PREPARA I DATI PER IL PLOT ---
+    players_to_plot = [primary_player_series]
+    if comparison_player_series is not None and comparison_player_series['Player'] != primary_player_series['Player']:
+        players_to_plot.append(comparison_player_series)
+
+    fig = go.Figure()
+
+    # --- SFONDO COLORATO PER CATEGORIA ---
+    bar_colors = []
+    bar_widths = []
+    for category, metrics in CATEGORIES.items():
+        bar_colors.extend([category_colors[category]] * len(metrics))
+        bar_widths.extend([1] * len(metrics))
+
+    fig.add_trace(go.Barpolar(
+        r=[1] * len(radar_metrics_ordered),
+        theta=radar_metrics_ordered,
+        width=bar_widths,
+        marker_color=bar_colors,
+        marker_line_width=0,
+        hoverinfo='none',
+        showlegend=False,
+        opacity=0.8
+    ))
+
+    # --- AGGIUNGI TRACCE PER OGNI GIOCATORE ---
+    for player_series in players_to_plot:
+        player_name = player_series['Player']
+        
+        # Trova i dati del giocatore nel dataframe normalizzato
+        player_norm_data = df_norm[df_norm['Player'] == player_name]
+        
+        if player_norm_data.empty:
+            # Se il giocatore non è nel set di normalizzazione (es. non ha abbastanza minuti)
+            # assegna valori neutri per plottarlo comunque
+            values = [0.5] * len(radar_metrics_ordered)
+        else:
+            values = [round(player_norm_data.iloc[0].get(label, 0.5), 2) for label in radar_metrics_ordered]
+
+        fig.add_trace(go.Scatterpolar(
+            r=values + [values[0]], # Aggiungi il primo valore alla fine per chiudere la forma
+            theta=radar_metrics_ordered + [radar_metrics_ordered[0]],
+            fill='toself',
+            name=player_name,
+            hovertemplate='<b>%{theta}</b><br>Percentile: %{r:.0%}<extra></extra>' # Mostra come %
+        ))
+
+    # --- LAYOUT FINALE ---
+    fig.update_layout(
+        height=600 if is_gk else 750, # Grafico più piccolo per i portieri (meno metriche)
+        template=template,
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 1], showticklabels=False, ticks=''),
+            angularaxis=dict(direction="clockwise", tickfont=dict(size=12))
+        ),
+        legend=dict(
+            x=1.05,  # Posiziona la legenda a destra del grafico (105% dell'area di plot)
+            y=1,     # Allinea la parte superiore della legenda con la parte superiore del grafico
+            xanchor='left', # Ancoraggio a sinistra della legenda
+            yanchor='top',  # Ancoraggio in alto della legenda
+            bgcolor='rgba(0,0,0,0)',
+            bordercolor='rgba(0,0,0,0.1)'
+        ),
+        margin=dict(l=80, r=80, t=100, b=40),
+        title='Player Skill Radar'
+    )
+
+    return fig

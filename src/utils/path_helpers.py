@@ -22,9 +22,15 @@ def get_team_logo_path(league_name, team_name):
     return f"/data/fbref/{league_folder}/{teams_folder_name}/{team_folder_name}/logo.png"
 
 def get_player_photo_path(player_name):
-    """Generates the URL path for a player's photo."""
-    player_folder = player_name.replace(' ', '_')
-    return f"/data/fbref/player_top5_europe/{player_folder}/{player_folder}.png"
+    player_folder = str(player_name).replace(' ', '_')
+    base_player_folder = os.path.join(DATA_PATH, "player_top5_europe", player_folder)
+    local_path = os.path.join(base_player_folder, f"{player_folder}.png")
+
+    if os.path.exists(local_path):
+        return f"/{local_path.replace(os.sep, '/')}"  # Percorso URL valido
+    else:
+        # Fallback immagine default (es. avatar generico)
+        return "/assets/avatar_placeholder.png" 
 
 def get_league_logo_path(league_name):
     """Generates the URL path for a league's logo."""

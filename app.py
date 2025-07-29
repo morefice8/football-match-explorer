@@ -23,11 +23,12 @@ from dash.dependencies import ALL
 import uuid
 from dash import ctx
 from flask import send_from_directory
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, unquote
+from src.utils.path_helpers import get_team_logo_path
 
 
 # Import dei layout dalle pagine separate
-from pages import home, upload, database, match_analysis, team_stats, player_stats, team_profile
+from pages import home, player_stats, upload, database, match_analysis, team_stats, team_profile, player_profile
 
 # Import delle funzioni di logica
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
@@ -153,16 +154,19 @@ def get_comment_key(pathname, plot_identifier):
 )
 def render_page_content(pathname, search):
     print(f"--- Router rendering for path: '{pathname}' ---")
-    if pathname == "/upload":
+    
+    # Decodifica l'intero percorso per gestire caratteri speciali ovunque
+    decoded_pathname = unquote(pathname)
+
+    if decoded_pathname == "/upload":
         return upload.layout()
-    elif pathname == "/database":
+    elif decoded_pathname == "/database":
         return database.layout()
-    elif pathname == "/team-stats":
+    elif decoded_pathname == "/team-stats":
         return team_stats.layout()
-    elif pathname.startswith("/team-stats/team/"):
-        team_name_url = pathname.split("/")[-1]
+    elif decoded_pathname.startswith("/team-stats/team/"):
+        team_name_url = decoded_pathname.split("/")[-1]
         
-        # Estrai la stagione dai parametri query, se presenti
         season = "2024-2025" # Default
         if search:
             query_params = parse_qs(search.lstrip('?'))
@@ -171,18 +175,27 @@ def render_page_content(pathname, search):
                 
         return team_profile.layout(team_name_url, season)
     
-    elif pathname.startswith("/team-stats/league/"):
-        league_name = pathname.split("/")[-1].replace('_', ' ')
-        return html.Div([
-            html.H1(f"League Detail Page: {league_name}"),
+    elif decoded_pathname.startswith("/team-stats/league/"):
+        league_name = decoded_pathname.split("/")[-1].replace('_', ' ')
+        return dash_html.Div([
+            dash_html.H1(f"League Detail Page: {league_name}"),
             dbc.Alert("This page is under construction.", color="info")
         ])
-    elif pathname == "/player-stats":
+    elif decoded_pathname == "/player-stats":
         return player_stats.layout()
-    elif pathname and pathname.startswith("/match/"):
-        match_id = pathname.split("/")[-1]
-        return match_analysis.layout(match_id)
+
+    elif decoded_pathname.startswith("/player-stats/"):
+        parts = decoded_pathname.strip('/').split('/')
+        if len(parts) > 1:
+            player_name_url = parts[1]
+            return player_profile.layout(player_name_url)
+        else:
+            return player_stats.layout()
     
+    elif decoded_pathname and decoded_pathname.startswith("/match/"):
+        match_id = decoded_pathname.split("/")[-1]
+        return match_analysis.layout(match_id)
+        
     return home.layout()
 
 @callback(
@@ -218,7 +231,7 @@ def handle_upload(contents, filename):
 
 @callback(
     Output('store-df-match', 'data'),
-    Output('store-uploaded-data', 'data', allow_duplicate=True),
+    Output('store-player-stats-df', 'data', allow_duplicate=True),
     Input('url', 'pathname'),
     State('store-uploaded-data', 'data'),
     prevent_initial_call=True
@@ -228,8 +241,8 @@ def populate_main_store(pathname, uploaded_data):
     
     # Se andiamo a una pagina che NON è di analisi, puliamo gli store per sicurezza
     if not (pathname and pathname.startswith('/match/')):
-        print("  Navigated to a non-match page. Clearing data stores.")
-        return None, None
+        print("  Navigated to a non-match page. Clearing match-specific stores.")
+        return None, no_update
 
     # Caso Upload: i dati sono nello store di sessione
     if 'upload-' in pathname:
@@ -457,7 +470,7 @@ def show_cards(league, season, team_filter, round_name_filter):
 @app.callback(
     Output("sidebar-match-header", "children"),
     Input("store-df-match", "data"),
-    Input("url", "pathname") # To get the raw match_id if store is not yet populated
+    Input("url", "pathname") 
 )
 def update_sidebar_header(stored_data_json, pathname):
     match_id_from_url = "Loading..."
@@ -469,93 +482,73 @@ def update_sidebar_header(stored_data_json, pathname):
         dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"),
         dash_html.P("Loading details...", className="small text-muted opacity-75 mb-0")
     ]
-    header_content = default_header_content
 
-    if stored_data_json:
-        try:
-            match_info_json_str = stored_data_json.get('match_info')
-            if match_info_json_str:
-                match_info = json.loads(match_info_json_str)
+    if not stored_data_json:
+        return dash_html.Div(default_header_content)
 
-                # --- Use specific names for display and codes for logos ---
-                hteam_display_name = match_info.get('hteamDisplayName', 'Home') # Use contestant.shortName
-                ateam_display_name = match_info.get('ateamDisplayName', 'Away')   # Use contestant.shortName
+    try:
+        match_info_json_str = stored_data_json.get('match_info')
+        if not match_info_json_str:
+            return dash_html.Div(default_header_content)
 
-                home_code_for_logo = match_info.get('hteamCode') # Use contestant.code
-                away_code_for_logo = match_info.get('ateamCode')   # Use contestant.code
-                # ----------------------------------------------------------
-                
-                home_score = match_info.get('home_score')
-                away_score = match_info.get('away_score')
-                
-                competition = match_info.get('competitionName', '')
-                round_name_from_file = match_info.get('roundNameFromFilename', '')
-                gw = match_info.get('gw', '')
-                
-                round_display = round_name_from_file
-                if not round_display and gw:
-                    round_display = f"GW {gw}"
-                
-                game_date = match_info.get('date_formatted', '')
+        match_info = json.loads(match_info_json_str)
 
-                home_logo_src = get_team_logo_src_by_code(home_code_for_logo) # Pass the code
-                away_logo_src = get_team_logo_src_by_code(away_code_for_logo) # Pass the code
-                
-                sidebar_logo_style = {"height": "28px", "width": "28px", "objectFit": "contain"}
-                team_name_style = {"fontSize": "0.9rem"}
-
-                line1_parts = []
-                if competition: line1_parts.append(competition)
-                if round_display:
-                    if line1_parts: line1_parts.append(f"- {round_display}")
-                    else: line1_parts.append(round_display)
-                line1_display_text = " ".join(line1_parts)
-
-                home_team_elements = [
-                    dbc.Col(dash_html.Img(src=home_logo_src, style=sidebar_logo_style), width="auto", className="pe-2 align-self-center"),
-                    dbc.Col(dash_html.Span(hteam_display_name, className="fw-bold", style=team_name_style), width=True, className="align-self-center text-start"), # text-start
-                ]
-                if home_score is not None:
-                    home_team_elements.append(dbc.Col(dash_html.Span(str(home_score), className="fw-bold fs-5"), width="auto", className="ps-2 align-self-center"))
-                home_team_display_row = dbc.Row(home_team_elements, align="center", className="mb-1 gx-2")
-
-                away_team_elements = [
-                    dbc.Col(dash_html.Img(src=away_logo_src, style=sidebar_logo_style), width="auto", className="pe-2 align-self-center"),
-                    dbc.Col(dash_html.Span(ateam_display_name, className="fw-bold", style=team_name_style), width=True, className="align-self-center text-start"), # text-start
-                ]
-                if away_score is not None:
-                    away_team_elements.append(dbc.Col(dash_html.Span(str(away_score), className="fw-bold fs-5"), width="auto", className="ps-2 align-self-center"))
-                away_team_display_row = dbc.Row(away_team_elements, align="center", className="gx-2")
-
-                separator = dash_html.Div()
-                if home_score is None or away_score is None:
-                    separator = dash_html.P("vs", className="text-center my-1 small text-muted")
-
-                line4_display_text = game_date if game_date else ""
-
-                header_content_list = []
-                if line1_display_text:
-                    header_content_list.append(dash_html.P(line1_display_text, className="mb-2 small text-muted opacity-75 text-center"))
-                
-                header_content_list.append(home_team_display_row)
-                if separator.children:
-                     header_content_list.append(separator)
-                header_content_list.append(away_team_display_row)
-
-                if line4_display_text:
-                    header_content_list.append(dash_html.P(line4_display_text, className="mt-2 small text-muted opacity-75 text-center mb-0"))
-                
-                header_content = dash_html.Div(header_content_list)
-            
-            else:
-                 header_content = dash_html.Div([dash_html.H5(f"Match: {match_id_from_url}", className="mb-1"), dash_html.P("Details loading...", className="small text-muted")])
+        hteam_display_name = match_info.get('hteamDisplayName', 'Home')
+        ateam_display_name = match_info.get('ateamDisplayName', 'Away')
         
-        except Exception as e:
-            tb_str = traceback.format_exc()
-            print(f"Error updating sidebar header: {e}\n{tb_str}")
-            header_content = dash_html.Div([dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"), dash_html.P("Error loading details.", className="small text-danger")])
-            
-    return header_content
+        home_score = match_info.get('home_score')
+        away_score = match_info.get('away_score')
+        
+        competition = match_info.get('competitionName', '')
+        round_name_from_file = match_info.get('roundNameFromFilename', '')
+        game_date = match_info.get('date_formatted', '')
+
+        # --- MODIFICA CHIAVE QUI ---
+        # Usiamo la nuova funzione helper che prende il nome della competizione e il nome della squadra
+        home_logo_src = get_team_logo_path(competition, hteam_display_name)
+        away_logo_src = get_team_logo_path(competition, ateam_display_name)
+        # ---------------------------
+        
+        sidebar_logo_style = {"height": "28px", "width": "28px", "objectFit": "contain"}
+        team_name_style = {"fontSize": "0.9rem"}
+
+        line1_display_text = f"{competition} - {round_name_from_file}" if competition and round_name_from_file else competition or round_name_from_file
+
+        home_team_elements = [
+            dbc.Col(dash_html.Img(src=home_logo_src, style=sidebar_logo_style), width="auto", className="pe-2 align-self-center"),
+            dbc.Col(dash_html.Span(hteam_display_name, className="fw-bold", style=team_name_style), width=True, className="align-self-center text-start"),
+        ]
+        if home_score is not None:
+            home_team_elements.append(dbc.Col(dash_html.Span(str(home_score), className="fw-bold fs-5"), width="auto", className="ps-2 align-self-center"))
+        home_team_display_row = dbc.Row(home_team_elements, align="center", className="mb-1 gx-2")
+
+        away_team_elements = [
+            dbc.Col(dash_html.Img(src=away_logo_src, style=sidebar_logo_style), width="auto", className="pe-2 align-self-center"),
+            dbc.Col(dash_html.Span(ateam_display_name, className="fw-bold", style=team_name_style), width=True, className="align-self-center text-start"),
+        ]
+        if away_score is not None:
+            away_team_elements.append(dbc.Col(dash_html.Span(str(away_score), className="fw-bold fs-5"), width="auto", className="ps-2 align-self-center"))
+        away_team_display_row = dbc.Row(away_team_elements, align="center", className="gx-2")
+
+        header_content_list = []
+        if line1_display_text:
+            header_content_list.append(dash_html.P(line1_display_text, className="mb-2 small text-muted opacity-75 text-center"))
+        
+        header_content_list.append(home_team_display_row)
+        header_content_list.append(away_team_display_row)
+
+        if game_date:
+            header_content_list.append(dash_html.P(game_date, className="mt-2 small text-muted opacity-75 text-center mb-0"))
+        
+        return dash_html.Div(header_content_list)
+    
+    except Exception as e:
+        tb_str = traceback.format_exc()
+        print(f"Error updating sidebar header: {e}\n{tb_str}")
+        return dash_html.Div([
+            dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"), 
+            dash_html.P("Error loading details.", className="small text-danger")
+        ])
 
 @app.callback(
     Output("match-tab-content", "children"),

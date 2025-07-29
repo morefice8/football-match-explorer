@@ -1,6 +1,7 @@
 import os
 from dash import html, dcc
 import dash_bootstrap_components as dbc
+from src.components.layout_components import app_signature
 
 def get_leagues():
     path = os.path.join("data", "matches")
@@ -21,4 +22,5 @@ def layout():
         ], className="mb-4"),
         html.H5("Matches found in database:", className="mt-4 mb-3 text-white"),
         dcc.Loading(type="circle", children=dbc.Row(id="match-list")),
+        app_signature()
     ], fluid=True, className="py-4")
