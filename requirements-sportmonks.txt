@@ -1,0 +1,4 @@
+# Supplemental dependencies for import_sportmonks.py
+requests>=2.32,<3
+python-dotenv>=1.0,<2
+pyarrow>=17

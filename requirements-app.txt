@@ -1,0 +1,16 @@
+# Runtime dependencies for the Dash app and Sportmonks importer.
+# Install this file in a clean virtual environment; do not mix it with Conda base.
+dash==3.0.4
+dash-bootstrap-components==2.0.3
+highlight-text==0.2
+matplotlib==3.10.1
+mplsoccer==1.4.0
+numpy==2.1.1
+pandas==2.2.3
+pillow==11.2.1
+plotly==6.1.2
+pyarrow>=19
+pycountry>=24.6.1
+python-dotenv>=1.0,<2
+requests>=2.32,<3
+scipy==1.15.2

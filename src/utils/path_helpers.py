@@ -1,18 +1,9 @@
 # --- START OF FILE src/utils/path_helpers.py ---
 import os
+from src.utils.league_config import LEAGUES, LEAGUE_NAME_TO_FOLDER
 
 # Definiamo le costanti qui, in modo che siano centralizzate
 DATA_PATH = os.path.join("data", "fbref")
-LEAGUES = {
-    "bundesliga": {"name": "Bundesliga", "logo": "/data/fbref/bundesliga/bundesliga.png"},
-    "la-liga": {"name": "La Liga", "logo": "/data/fbref/la-liga/la-liga.png"},
-    "ligue-1": {"name": "Ligue 1", "logo": "/data/fbref/ligue-1/ligue-1.png"},
-    "premier-league": {"name": "Premier League", "logo": "/data/fbref/premier-league/premier-league.png"},
-    "serie-a": {"name": "Serie A", "logo": "/data/fbref/serie-a/serie-a.png"}
-}
-LEAGUE_NAME_TO_FOLDER = {v['name']: k for k, v in LEAGUES.items()}
-
-
 def get_team_logo_path(league_name, team_name):
     """Generates the correct URL path for a team's logo."""
     league_folder = LEAGUE_NAME_TO_FOLDER.get(league_name)

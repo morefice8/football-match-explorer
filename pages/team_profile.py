@@ -8,10 +8,13 @@ import dash_bootstrap_components as dbc
 from src.visualization import team_plots
 import plotly.graph_objects as go
 from src.components.layout_components import app_signature
+from src.metrics.sportmonks import TEAM_METRIC_GROUPS
 
 # --- CONFIGURATION & HELPER FUNCTIONS ---
 # ... (nessuna modifica qui)
 DATA_PATH = os.path.join("data", "fbref")
+PROCESSED_DATA_PATH = os.path.join("data", "processed")
+SPORTMONKS_DATA_PATH = os.path.join("data", "sportmonks", "processed")
 LEAGUES = {
     "bundesliga": {"name": "Bundesliga"}, "la-liga": {"name": "La Liga"},
     "ligue-1": {"name": "Ligue 1"}, "premier-league": {"name": "Premier League"},
@@ -20,23 +23,116 @@ LEAGUES = {
 LEAGUE_NAME_TO_FOLDER = {v['name']: k for k, v in LEAGUES.items()}
 
 def get_available_seasons_for_team(team_folder_name, league_folder):
+    seasons = set()
+    if os.path.isdir(PROCESSED_DATA_PATH):
+        seasons.update(
+            filename[len("team_stats_"):-len(".parquet")]
+            for filename in os.listdir(PROCESSED_DATA_PATH)
+            if filename.startswith("team_stats_") and filename.endswith(".parquet")
+        )
     base_path = os.path.join(DATA_PATH, league_folder, f"{league_folder}_stats")
-    if not os.path.isdir(base_path): return ["2024-2025"]
-    seasons = [s for s in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, s)) and '-' in s]
+    if os.path.isdir(base_path):
+        seasons.update(s for s in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, s)) and '-' in s)
     return sorted(seasons, reverse=True) if seasons else ["2024-2025"]
 
 def get_all_teams_for_dropdown():
     options = []
+    if os.path.isdir(PROCESSED_DATA_PATH):
+        datasets = sorted(
+            (filename for filename in os.listdir(PROCESSED_DATA_PATH)
+             if filename.startswith("team_stats_") and filename.endswith(".parquet")),
+            reverse=True,
+        )
+        if datasets:
+            try:
+                teams = pd.read_parquet(os.path.join(PROCESSED_DATA_PATH, datasets[0]))
+                options.extend(
+                    {'label': f"{row['Squad']} ({row['League']})", 'value': row['Squad']}
+                    for _, row in teams[['Squad', 'League']].drop_duplicates().iterrows()
+                )
+            except Exception:
+                pass
     for league_folder, league_info in LEAGUES.items():
         teams_dir_path = os.path.join(DATA_PATH, league_folder, f"{league_folder}_teams")
         if os.path.isdir(teams_dir_path):
             for team_folder in os.listdir(teams_dir_path):
                 options.append({'label': f"{team_folder.replace('_', ' ')} ({league_info['name']})", 'value': team_folder.replace('_', ' ')})
-    return sorted(options, key=lambda x: x['label'])
+    unique = {option['value']: option for option in options}
+    return sorted(unique.values(), key=lambda x: x['label'])
+
+
+def _get_sportmonks_team_data(team_name, season):
+    team_stats_path = os.path.join(PROCESSED_DATA_PATH, f"team_stats_{season}.parquet")
+    player_stats_path = os.path.join(PROCESSED_DATA_PATH, f"player_stats_{season}.parquet")
+    matchlogs_path = os.path.join(SPORTMONKS_DATA_PATH, season, "team_matchlogs.parquet")
+    if not all(os.path.exists(path) for path in (team_stats_path, player_stats_path, matchlogs_path)):
+        return None
+
+    df_all_teams = pd.read_parquet(team_stats_path)
+    team_profile = df_all_teams[df_all_teams['Squad'] == team_name]
+    if team_profile.empty:
+        return None
+    league_name = team_profile.iloc[0]['League']
+    league_folder = LEAGUE_NAME_TO_FOLDER.get(league_name)
+    if not league_folder:
+        return None
+
+    roster = pd.read_parquet(player_stats_path)
+    roster = roster[roster['Club'] == team_name].copy()
+    aliases = {
+        'Interceptions': 'Int', 'Att': 'Passes', 'Cmp': 'Accurate_Passes',
+        'AerialsWon': 'Aerial_Won', 'AerialsLost': 'Aerial_Lost',
+        'TakeOns': 'Dribble_Attempts', 'TakeOnSucc': 'Successful_Dribbles',
+    }
+    for target, source in aliases.items():
+        roster[target] = pd.to_numeric(roster[source], errors='coerce').fillna(0) if source in roster else 0
+    numeric_cols = ['Gls', 'Ast', 'MP', 'Min', '90s', 'TklW', 'Interceptions', 'Att', 'Cmp', 'Sh', 'Chances_Created', 'AerialsWon', 'AerialsLost', 'TakeOns', 'TakeOnSucc', 'Age']
+    for column in numeric_cols:
+        roster[column] = pd.to_numeric(roster[column], errors='coerce').fillna(0) if column in roster else 0
+    roster['Pass_Completion_Perc'] = (roster['Cmp'] / roster['Att'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['Tkl_Int_per_90'] = ((roster['TklW'] + roster['Interceptions']) / roster['90s']).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['Shot_Conversion_Perc'] = (roster['Gls'] / roster['Sh'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['Chances_Created_per_90'] = (roster['Chances_Created'] / roster['90s']).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['Dribble_Success_Perc'] = (roster['TakeOnSucc'] / roster['TakeOns'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['Min_per_Match'] = (roster['Min'] / roster['MP']).replace([np.inf, -np.inf], 0).fillna(0)
+    roster['dominant_position'] = roster['Pos'].fillna('N/A')
+
+    matchlogs = pd.read_parquet(matchlogs_path)
+    matchlogs = matchlogs[matchlogs['team_name'] == team_name].copy()
+    matchlogs.rename(columns={
+        'starting_at': 'Date', 'result': 'Result', 'opponent': 'Opponent',
+        'goals_for': 'GF', 'goals_against': 'GA', 'formation': 'Formation',
+    }, inplace=True)
+
+    logo_path = ""
+    teams_path = os.path.join(SPORTMONKS_DATA_PATH, season, "teams.parquet")
+    if os.path.exists(teams_path):
+        teams = pd.read_parquet(teams_path)
+        team_row = teams[teams['team_name'] == team_name]
+        if not team_row.empty:
+            logo_path = team_row.iloc[0].get('image_path') or ""
+    return {
+        'profile_df': team_profile,
+        'roster_df': roster,
+        'matchlogs_df': matchlogs,
+        'league_name': league_name,
+        'league_folder': league_folder,
+        'folder_name': str(team_name).replace(' ', '_'),
+        'formation_analysis': [],
+        'logo_path': logo_path,
+        'data_source': 'Sportmonks',
+    }
 
 def get_team_data(team_name, season):
     from pages.team_stats import load_all_team_stats
     from src.utils import formation_layouts # Import per la mappa
+
+    try:
+        sportmonks_data = _get_sportmonks_team_data(team_name, season)
+        if sportmonks_data is not None:
+            return sportmonks_data
+    except Exception as exc:
+        print(f"Error loading Sportmonks team profile for {team_name}: {exc}")
     
     team_folder_name = str(team_name).replace(' ', '_')
     team_league_folder, team_league_name = None, None
@@ -122,7 +218,9 @@ def get_team_data(team_name, season):
     return {
         'profile_df': team_profile, 'roster_df': df_roster, 'matchlogs_df': df_matchlogs,
         'league_name': team_league_name, 'league_folder': team_league_folder, 
-        'folder_name': team_folder_name, 'formation_analysis': top_formations
+        'folder_name': team_folder_name, 'formation_analysis': top_formations,
+        'logo_path': get_team_logo_path(team_league_folder, team_folder_name),
+        'data_source': 'FBref',
     }
 
 def get_team_logo_path(league_folder, team_folder_name):
@@ -147,6 +245,24 @@ def create_summary_stat_card(title, value, icon, format_spec="{:,.1f}"):
         html.H5(display_value, className="fw-bold")
     ], className="text-center mb-3")
 
+
+def create_sportmonks_summary_column(title, specs, profile, *, border=True):
+    metrics = []
+    for spec in specs:
+        raw_value = pd.to_numeric(pd.Series([profile.get(spec.column)]), errors='coerce').iloc[0]
+        if pd.isna(raw_value):
+            display_value = "N/A"
+        else:
+            display_value = spec.format_spec.format(raw_value)
+            if spec.unit:
+                display_value = f"{display_value}{spec.unit}"
+        metrics.append(create_summary_stat_card(spec.title, display_value, spec.icon))
+    class_name = "border-end" if border else ""
+    return dbc.Col([
+        html.H5(title, className="text-center mb-3 border-bottom pb-2"),
+        *metrics,
+    ], md=4, className=class_name)
+
 def create_form_guide(matchlogs_df):
     df = matchlogs_df.dropna(subset=['Result']).tail(5)
     if df.empty: return html.P("No recent match data.", className="text-muted")
@@ -168,7 +284,7 @@ def create_player_ranking_row(player_series, metric_col, unit="", is_first=False
     player_info = f"{position} • {int(age)} years" if age else position
 
     return dbc.Row([
-        dbc.Col(html.Img(src=get_player_photo_path(player_name), style=photo_style), width="auto"),
+        dbc.Col(html.Img(src=player_series.get('image_path') or get_player_photo_path(player_name), style=photo_style), width="auto"),
         dbc.Col([
             dcc.Link(player_name, href=f"/player-stats/{str(player_name).replace(' ', '_')}", className=f"text-white text-decoration-none {name_class}"),
             html.Span(player_info, className="text-muted small d-block")
@@ -221,7 +337,7 @@ def create_player_card(player_series):
         dbc.Card([
             dbc.CardBody([
                 dbc.Row([
-                    dbc.Col(html.Img(src=get_player_photo_path(player_name), style=photo_style, className="img-fluid rounded-circle"), width="auto"),
+                    dbc.Col(html.Img(src=player_series.get('image_path') or get_player_photo_path(player_name), style=photo_style, className="img-fluid rounded-circle"), width="auto"),
                     dbc.Col([
                         dcc.Link(html.H5(player_name, className="card-title"), href=f"/player-stats/{str(player_name).replace(' ', '_')}"),
                         html.P(f"{player_series.get('Pos', 'N/A')} • {int(player_series.get('Age', 0))} years", className="card-text small text-muted"),
@@ -249,37 +365,46 @@ def layout(team_name_url, season="2024-2025"):
 
     header = dbc.Row([
         dbc.Col(dbc.Button([html.I(className="fas fa-arrow-left me-2"), "Back to Teams Overview"], href="/team-stats", color="secondary", outline=True), width="auto"),
-        dbc.Col(html.Img(src=get_team_logo_path(league_folder, folder_name), style={'height': '80px'}), width="auto"),
+        dbc.Col(html.Img(src=team_data.get('logo_path') or get_team_logo_path(league_folder, folder_name), style={'height': '80px'}), width="auto"),
         dbc.Col([html.H1(team_name, className="text-white mb-0"), html.H4(league_name, className="text-muted")], className="align-self-center"),
         dbc.Col(dcc.Dropdown(id='team-profile-season-dropdown', options=[{'label': s, 'value': s} for s in available_seasons], value=season, clearable=False, style={'width': '200px', 'color': 'black'}), width="auto", className="align-self-center")
     ], align="center", className="my-4")
 
+    if team_data.get('data_source') == 'Sportmonks':
+        summary_columns = [
+            create_sportmonks_summary_column("Attacking", TEAM_METRIC_GROUPS['attacking'], profile),
+            create_sportmonks_summary_column("Possession & Territory", TEAM_METRIC_GROUPS['possession'], profile),
+            create_sportmonks_summary_column("Defending", TEAM_METRIC_GROUPS['defending'], profile, border=False),
+        ]
+    else:
+        summary_columns = [
+            dbc.Col([
+                html.H5("Attacking", className="text-center mb-3 border-bottom pb-2"),
+                create_summary_stat_card("Goals", profile.get('Gls', 0), "fa-solid fa-futbol", format_spec="{:,.0f}"),
+                create_summary_stat_card("xG per Shot", profile.get('xG_per_Shot', 0), "fa-solid fa-bullseye", format_spec="{:.3f}"),
+                create_summary_stat_card("Goal Conversion", f"{profile.get('Goal_Conversion', 0):.1f}%", "fa-solid fa-percent"),
+                create_summary_stat_card("Ast vs xAG Ratio", profile.get('Ast_xAG_ratio', 0), "fa-solid fa-wand-magic-sparkles", format_spec="{:,.2f}"),
+            ], md=4, className="border-end"),
+            dbc.Col([
+                html.H5("Possession & Style", className="text-center mb-3 border-bottom pb-2"),
+                create_summary_stat_card("Passing Tempo", profile.get('Passing_Tempo', 0), "fa-solid fa-gauge-high", format_spec="{:,.2f}"),
+                create_summary_stat_card("Progressions / Touch", profile.get('Progressions_per_Touch', 0), "fa-solid fa-angles-up", format_spec="{:,.4f}"),
+                create_summary_stat_card("Cross / Touch Ratio", profile.get('Cross_Touch_Ratio', 0), "fa-solid fa-arrows-left-right", format_spec="{:,.4f}"),
+                create_summary_stat_card("Take-On Success", f"{profile.get('TakeOn_Success_Rate', 0):.1%}", "fa-solid fa-person-running"),
+            ], md=4, className="border-end"),
+            dbc.Col([
+                html.H5("Defending", className="text-center mb-3 border-bottom pb-2"),
+                create_summary_stat_card("Goals Against", profile.get('GA', 0), "fa-solid fa-shield-halved", format_spec="{:,.0f}"),
+                create_summary_stat_card("Shots Conceded / DA", profile.get('Shots_Conceded_per_DA', 0), "fa-solid fa-calculator", format_spec="{:,.2f}"),
+                create_summary_stat_card("Tkl+Int / 90", profile.get('Tkl_Int_per_90', 0), "fa-solid fa-person-falling-burst", format_spec="{:,.2f}"),
+                create_summary_stat_card("Errors / GA", profile.get('Errors_per_GA', 0), "fa-solid fa-bug", format_spec="{:,.3f}"),
+            ], md=4),
+        ]
+
     summary_card = dbc.Card([
         dbc.CardHeader(create_form_guide(matchlogs)),
         dbc.CardBody([
-            dbc.Row([
-                dbc.Col([
-                    html.H5("Attacking", className="text-center mb-3 border-bottom pb-2"),
-                    create_summary_stat_card("Goals", profile.get('Gls', 0), "fa-solid fa-futbol", format_spec="{:,.0f}"),
-                    create_summary_stat_card("xG per Shot", profile.get('xG_per_Shot', 0), "fa-solid fa-bullseye", format_spec="{:.3f}"),
-                    create_summary_stat_card("Goal Conversion", f"{profile.get('Goal_Conversion', 0):.1f}%", "fa-solid fa-percent"),
-                    create_summary_stat_card("Ast vs xAG Ratio", profile.get('Ast_xAG_ratio', 0), "fa-solid fa-wand-magic-sparkles", format_spec="{:,.2f}"),
-                ], md=4, className="border-end"),
-                dbc.Col([
-                    html.H5("Possession & Style", className="text-center mb-3 border-bottom pb-2"),
-                    create_summary_stat_card("Passing Tempo", profile.get('Passing_Tempo', 0), "fa-solid fa-gauge-high", format_spec="{:,.2f}"),
-                    create_summary_stat_card("Progressions / Touch", profile.get('Progressions_per_Touch', 0), "fa-solid fa-angles-up", format_spec="{:,.4f}"),
-                    create_summary_stat_card("Cross / Touch Ratio", profile.get('Cross_Touch_Ratio', 0), "fa-solid fa-arrows-left-right", format_spec="{:,.4f}"),
-                    create_summary_stat_card("Take-On Success", f"{profile.get('TakeOn_Success_Rate', 0):.1%}", "fa-solid fa-person-running"),
-                ], md=4, className="border-end"),
-                dbc.Col([
-                    html.H5("Defending", className="text-center mb-3 border-bottom pb-2"),
-                    create_summary_stat_card("Goals Against", profile.get('GA', 0), "fa-solid fa-shield-halved", format_spec="{:,.0f}"),
-                    create_summary_stat_card("Shots Conceded / DA", profile.get('Shots_Conceded_per_DA', 0), "fa-solid fa-calculator", format_spec="{:,.2f}"),
-                    create_summary_stat_card("Tkl+Int / 90", profile.get('Tkl_Int_per_90', 0), "fa-solid fa-person-falling-burst", format_spec="{:,.2f}"),
-                    create_summary_stat_card("Errors / GA", profile.get('Errors_per_GA', 0), "fa-solid fa-bug", format_spec="{:,.3f}"),
-                ], md=4),
-            ])
+            dbc.Row(summary_columns)
         ])
     ], className="mb-4")
 
@@ -399,12 +524,20 @@ def layout(team_name_url, season="2024-2025"):
         create_top_performer_card(roster, "Best Pass Completion", "Pass_Completion_Perc", "%", format_spec="{:,.1f}", icon="fa-solid fa-chart-line"),
         create_top_performer_card(roster, "Top Defenders (Tkl+Int)/90", "Tkl_Int_per_90", "", format_spec="{:,.2f}", icon="fa-solid fa-shield-halved"),
     ])
-    top_performers_row2 = dbc.Row([
-        create_top_performer_card(roster, "Best Shot Conversion", "Shot_Conversion_Perc", "%", format_spec="{:,.1f}", icon="fa-solid fa-bullseye"),
-        create_top_performer_card(roster, "Top Goal Creators (GCA/90)", "GCA_per_90", "", format_spec="{:,.2f}", icon="fa-solid fa-wand-magic-sparkles"),
-        create_top_performer_card(roster, "Best Dribblers (Take-On %)", "TakeOn_Success_Rate", "%", format_spec="{:,.1f}", icon="fa-solid fa-person-running"),
-        create_top_performer_card(roster, "Most Used Players", "Min", "mins", format_spec="{:,.0f}", icon="fa-solid fa-clock"),
-    ])
+    if team_data.get('data_source') == 'Sportmonks':
+        top_performers_row2 = dbc.Row([
+            create_top_performer_card(roster, "Best Shot Conversion", "Shot_Conversion_Perc", "%", format_spec="{:,.1f}", icon="fa-solid fa-bullseye"),
+            create_top_performer_card(roster, "Top Chance Creators p90", "Chances_Created_per_90", "", format_spec="{:,.2f}", icon="fa-solid fa-wand-magic-sparkles"),
+            create_top_performer_card(roster, "Best Dribblers", "Dribble_Success_Perc", "%", format_spec="{:,.1f}", icon="fa-solid fa-person-running"),
+            create_top_performer_card(roster, "Most Used Players", "Min", "mins", format_spec="{:,.0f}", icon="fa-solid fa-clock"),
+        ])
+    else:
+        top_performers_row2 = dbc.Row([
+            create_top_performer_card(roster, "Best Shot Conversion", "Shot_Conversion_Perc", "%", format_spec="{:,.1f}", icon="fa-solid fa-bullseye"),
+            create_top_performer_card(roster, "Top Goal Creators (GCA/90)", "GCA_per_90", "", format_spec="{:,.2f}", icon="fa-solid fa-wand-magic-sparkles"),
+            create_top_performer_card(roster, "Best Dribblers (Take-On %)", "TakeOn_Success_Rate", "%", format_spec="{:,.1f}", icon="fa-solid fa-person-running"),
+            create_top_performer_card(roster, "Most Used Players", "Min", "mins", format_spec="{:,.0f}", icon="fa-solid fa-clock"),
+        ])
 
     return dbc.Container([
         dcc.Store(id='team-profile-df-store', data=profile.to_json()),

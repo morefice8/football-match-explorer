@@ -9,6 +9,12 @@ from src.utils.path_helpers import get_team_logo_path, get_player_photo_path
 from src.visualization import player_plots
 from src.utils.player_helpers import LEAGUES, METRIC_TOOLTIPS
 from src.components.layout_components import app_signature
+from src.metrics.sportmonks import (
+    PLAYER_METRIC_GROUPS,
+    PLAYER_QUADRANTS,
+    card_definitions,
+    uses_sportmonks,
+)
 
 # --- CONFIGURATION ---
 PROCESSED_DATA_PATH = os.path.join("data", "processed")
@@ -43,7 +49,7 @@ def create_player_ranking_rows(top_players_df, metric_col, unit="", format_spec=
         photo_style = {'width': '60px', 'height': '60px', 'object-fit': 'cover', 'border-radius': '50%'} if is_first else {'width': '40px', 'height': '40px', 'object-fit': 'cover', 'border-radius': '50%'}
         name_class, metric_class = ("fs-5 fw-bold", "display-6 fw-bold") if is_first else ("fs-6", "fs-4")
         flag_img = html.Img(src=f"https://cdnjs.cloudflare.com/ajax/libs/flag-icon-css/7.2.1/flags/4x3/{nationality_code}.svg", style={'width': '16px', 'margin-right': '5px'}) if nationality_code else ""
-        club_logo_img = html.Img(src=get_team_logo_path(league_name, club_name), style={'height': '16px', 'margin-right': '5px', 'object-fit': 'contain'})
+        club_logo_img = html.Img(src=player.get('team_image_path') or get_team_logo_path(league_name, club_name), style={'height': '16px', 'margin-right': '5px', 'object-fit': 'contain'})
         
         player_details = html.Div([
             html.Span([flag_img, player.get('Nationality', 'N/A')], className="me-2 d-inline-flex align-items-center"),
@@ -59,7 +65,7 @@ def create_player_ranking_rows(top_players_df, metric_col, unit="", format_spec=
         )
         
         row_content = dbc.Row([
-            dbc.Col(html.Img(src=get_player_photo_path(player_name), style=photo_style), width="auto", className="pe-2"),
+            dbc.Col(html.Img(src=player.get('image_path') or get_player_photo_path(player_name), style=photo_style), width="auto", className="pe-2"),
             dbc.Col([
                 player_link_button,
                 player_details
@@ -73,7 +79,8 @@ def create_player_ranking_rows(top_players_df, metric_col, unit="", format_spec=
 
 # ... (tutte le altre funzioni create_metric_card, generate_tabs_content sono invariate) ...
 def create_metric_card(df, title, metric_col, icon, ascending=False, **kwargs):
-    if df.empty or metric_col not in df.columns or 'League_MP' not in df.columns:
+    if (df.empty or metric_col not in df.columns or 'League_MP' not in df.columns
+            or pd.to_numeric(df[metric_col], errors='coerce').notna().sum() == 0):
         return dbc.Col(dbc.Alert(f"Data not available for '{title}'", color="warning", className="h-100"))
     
     df_copy = df.copy()
@@ -95,12 +102,20 @@ def create_metric_card(df, title, metric_col, icon, ascending=False, **kwargs):
 def generate_tabs_content(df):
     if df.empty: return dbc.Alert("No data available for the current selection.", color="info", className="mt-4")
     df_outfield = df[~df['Pos'].str.contains('GK', na=False)] if 'Pos' in df.columns else df
-    attacking_metrics = [{'title': 'Top Scorers', 'metric_col': 'Gls', 'icon': 'fa-solid fa-futbol', 'format_spec': '{:,.0f}'}, {'title': 'Goals - xG per 90', 'metric_col': 'G_minus_xG_per_90', 'icon': 'fa-solid fa-chart-line', 'requires_min_minutes': True}, {'title': 'Shot-Creating Actions p90', 'metric_col': 'SCA90', 'icon': 'fa-solid fa-wand-magic-sparkles', 'requires_min_minutes': True}, {'title': 'Shots on Target p90', 'metric_col': 'SoT/90', 'icon': 'fa-solid fa-bullseye', 'requires_min_minutes': True}]
-    possession_metrics = [{'title': 'Top Playmakers', 'metric_col': 'Ast', 'icon': 'fa-solid fa-hands-helping', 'format_spec': '{:,.0f}'}, {'title': 'Passes into Final Third p90', 'metric_col': 'Passes_F3_per_90', 'icon': 'fa-solid fa-arrow-right-to-bracket', 'requires_min_minutes': True}, {'title': 'Progressive Passes p90', 'metric_col': 'PrgP_per_90', 'icon': 'fa-solid fa-angles-up', 'requires_min_minutes': True}, {'title': 'Carries into Final Third p90', 'metric_col': 'Carries_F3_per_90', 'icon': 'fa-solid fa-arrow-trend-up', 'requires_min_minutes': True}]
-    defensive_metrics = [{'title': 'Tackles + Interceptions p90', 'metric_col': 'Tkl+Int_per_90', 'icon': 'fa-solid fa-shield-halved', 'requires_min_minutes': True}, {'title': 'Aerial Duels Won %', 'metric_col': 'Aerial_Duels_perc', 'icon': 'fa-solid fa-plane-up', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True}, {'title': 'Clearances per 90', 'metric_col': 'Clr_per_90', 'icon': 'fa-solid fa-broom', 'requires_min_minutes': True}, {'title': 'Blocks per 90', 'metric_col': 'Blocks_per_90', 'icon': 'fa-solid fa-person-falling-burst', 'requires_min_minutes': True}]
+    has_sportmonks = uses_sportmonks(df)
+    if has_sportmonks:
+        attacking_metrics = card_definitions(PLAYER_METRIC_GROUPS['attacking'], 'metric_col')
+        possession_metrics = card_definitions(PLAYER_METRIC_GROUPS['creation'], 'metric_col')
+        defensive_metrics = card_definitions(PLAYER_METRIC_GROUPS['defending'], 'metric_col')
+        goalkeeping_metrics = card_definitions(PLAYER_METRIC_GROUPS['goalkeeping'], 'metric_col')
+    else:
+        attacking_metrics = [{'title': 'Top Scorers', 'metric_col': 'Gls', 'icon': 'fa-solid fa-futbol', 'format_spec': '{:,.0f}'}, {'title': 'Goals - xG per 90', 'metric_col': 'G_minus_xG_per_90', 'icon': 'fa-solid fa-chart-line'}, {'title': 'Shot-Creating Actions p90', 'metric_col': 'SCA90', 'icon': 'fa-solid fa-wand-magic-sparkles'}, {'title': 'Shots on Target p90', 'metric_col': 'SoT/90', 'icon': 'fa-solid fa-bullseye'}]
+        possession_metrics = [{'title': 'Top Playmakers', 'metric_col': 'Ast', 'icon': 'fa-solid fa-hands-helping', 'format_spec': '{:,.0f}'}, {'title': 'Passes into Final Third p90', 'metric_col': 'Passes_F3_per_90', 'icon': 'fa-solid fa-arrow-right-to-bracket', 'requires_min_minutes': True}, {'title': 'Progressive Passes p90', 'metric_col': 'PrgP_per_90', 'icon': 'fa-solid fa-angles-up', 'requires_min_minutes': True}, {'title': 'Carries into Final Third p90', 'metric_col': 'Carries_F3_per_90', 'icon': 'fa-solid fa-arrow-trend-up', 'requires_min_minutes': True}]
+        defensive_metrics = [{'title': 'Tackles + Interceptions p90', 'metric_col': 'Tkl+Int_per_90', 'icon': 'fa-solid fa-shield-halved', 'requires_min_minutes': True}, {'title': 'Aerial Duels Won %', 'metric_col': 'Aerial_Duels_perc', 'icon': 'fa-solid fa-plane-up', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True}, {'title': 'Clearances per 90', 'metric_col': 'Clr_per_90', 'icon': 'fa-solid fa-broom', 'requires_min_minutes': True}, {'title': 'Blocks per 90', 'metric_col': 'Blocks_per_90', 'icon': 'fa-solid fa-person-falling-burst', 'requires_min_minutes': True}]
+        goalkeeping_metrics = [{'title': 'Save %', 'metric_col': 'Save%', 'icon': 'fa-solid fa-mitten', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True}, {'title': 'PSxG - Goals Against', 'metric_col': 'PSxG+/-', 'icon': 'fa-solid fa-chart-line', 'requires_min_minutes': True}, {'title': 'Crosses Stopped %', 'metric_col': 'Stp%', 'icon': 'fa-solid fa-plane-slash', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True}, {'title': 'Sweeper Actions p90', 'metric_col': '#OPA/90', 'icon': 'fa-solid fa-shoe-prints', 'requires_min_minutes': True}]
     df_gk = df[df['Pos'].str.contains('GK', na=False)] if 'Pos' in df.columns else pd.DataFrame()
-    goalkeeping_metrics = [{'title': 'Save %', 'metric_col': 'Save%', 'icon': 'fa-solid fa-mitten', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True, 'df': df_gk}, {'title': 'PSxG - Goals Against', 'metric_col': 'PSxG+/-', 'icon': 'fa-solid fa-chart-line', 'requires_min_minutes': True, 'df': df_gk}, {'title': 'Crosses Stopped %', 'metric_col': 'Stp%', 'icon': 'fa-solid fa-plane-slash', 'unit': '%', 'format_spec': '{:,.1f}', 'requires_min_minutes': True, 'df': df_gk}, {'title': 'Sweeper Actions p90', 'metric_col': '#OPA/90', 'icon': 'fa-solid fa-shoe-prints', 'requires_min_minutes': True, 'df': df_gk}]
-    return dbc.Tabs([dbc.Tab(label="⚔️ Attacking", tab_id="tab-attacking", children=dbc.Row([create_metric_card(df_outfield, **m) for m in attacking_metrics], className="mt-4")), dbc.Tab(label="⚽ Possession", tab_id="tab-possession", children=dbc.Row([create_metric_card(df_outfield, **m) for m in possession_metrics], className="mt-4")), dbc.Tab(label="🛡️ Defending", tab_id="tab-defending", children=dbc.Row([create_metric_card(df_outfield, **m) for m in defensive_metrics], className="mt-4")), dbc.Tab(label="🧤 Goalkeeping", tab_id="tab-goalkeeping", children=dbc.Row([create_metric_card(m.pop('df', df_gk), **m) for m in goalkeeping_metrics], className="mt-4"))], id="player-stats-tabs", active_tab="tab-attacking")
+    possession_label = "⚽ Creation & Ball Use" if has_sportmonks else "⚽ Possession"
+    return dbc.Tabs([dbc.Tab(label="⚔️ Attacking", tab_id="tab-attacking", children=dbc.Row([create_metric_card(df_outfield, **m) for m in attacking_metrics], className="mt-4")), dbc.Tab(label=possession_label, tab_id="tab-possession", children=dbc.Row([create_metric_card(df_outfield, **m) for m in possession_metrics], className="mt-4")), dbc.Tab(label="🛡️ Defending", tab_id="tab-defending", children=dbc.Row([create_metric_card(df_outfield, **m) for m in defensive_metrics], className="mt-4")), dbc.Tab(label="🧤 Goalkeeping", tab_id="tab-goalkeeping", children=dbc.Row([create_metric_card(df_gk, **m) for m in goalkeeping_metrics], className="mt-4"))], id="player-stats-tabs", active_tab="tab-attacking")
 
 def layout(player_name_url=None):
     if player_name_url:
@@ -167,10 +182,19 @@ def update_player_quadrant_plots(active_tab, selected_league, df_json):
         source_df = df_copy[df_copy['Min'] >= df_copy['min_threshold']]
     df_outfield = source_df[~source_df['Pos'].str.contains('GK', na=False)]
     df_gk = source_df[source_df['Pos'].str.contains('GK', na=False)]
-    plot_definitions = {"tab-attacking": {"df": df_outfield, "title": f"{title_prefix} Attacking Contribution", "x_metric": "SoT/90", "y_metric": "SCA90", "x_label": "Shots on Target p90", "y_label": "Shot Creating Actions p90", "quadrant_labels": ['Elite Attacker', 'Finisher', 'Low Output', 'Creator']}, "tab-possession": {"df": df_outfield, "title": f"{title_prefix} Possession & Progression", "x_metric": "Carries_F3_per_90", "y_metric": "PrgP_per_90", "x_label": "Carries into Final Third p90", "y_label": "Progressive Passes p90", "quadrant_labels": ['Dual Threat', 'Primary Passer', 'Low Progression', 'Primary Carrier']}, "tab-defending": {"df": df_outfield, "title": f"{title_prefix} Defensive Activity", "x_metric": "Tkl+Int_per_90", "y_metric": "Aerial_Duels_perc", "x_label": "Tackles + Interceptions p90", "y_label": "Aerial Duels Won %", "quadrant_labels": ['Dominant Defender', 'Ground Warrior', 'Low Activity', 'Aerial Specialist']}, "tab-goalkeeping": {"df": df_gk, "title": f"{title_prefix} Goalkeeping Performance", "x_metric": "Save%", "y_metric": "PSxG+/-", "x_label": "Save Percentage", "y_label": "Post-Shot xG - GA", "quadrant_labels": ['Elite Shot-Stopper', 'Reliable', 'Under-performing', 'Saves the Impossible']}}
+    has_sportmonks = uses_sportmonks(source_df)
+    if has_sportmonks:
+        plot_definitions = {
+            key: {**dict(value), 'df': df_gk if key == 'tab-goalkeeping' else df_outfield}
+            for key, value in PLAYER_QUADRANTS.items()
+        }
+    else:
+        plot_definitions = {"tab-attacking": {"df": df_outfield, "title": "Attacking Contribution", "x_metric": "SoT/90", "y_metric": "SCA90", "x_label": "Shots on Target p90", "y_label": "Shot Creating Actions p90", "quadrant_labels": ['Elite Attacker', 'Finisher', 'Low Output', 'Creator']}, "tab-possession": {"df": df_outfield, "title": "Possession & Progression", "x_metric": "Carries_F3_per_90", "y_metric": "PrgP_per_90", "x_label": "Carries into Final Third p90", "y_label": "Progressive Passes p90", "quadrant_labels": ['Dual Threat', 'Primary Passer', 'Low Progression', 'Primary Carrier']}, "tab-defending": {"df": df_outfield, "title": "Defensive Activity", "x_metric": "Tkl+Int_per_90", "y_metric": "Aerial_Duels_perc", "x_label": "Tackles + Interceptions p90", "y_label": "Aerial Duels Won %", "quadrant_labels": ['Dominant Defender', 'Ground Warrior', 'Low Activity', 'Aerial Specialist']}, "tab-goalkeeping": {"df": df_gk, "title": "Goalkeeping Performance", "x_metric": "Save%", "y_metric": "PSxG+/-", "x_label": "Save Percentage", "y_label": "Post-Shot xG - GA", "quadrant_labels": ['Elite Shot-Stopper', 'Reliable', 'Under-performing', 'Saves the Impossible']}}
     if active_tab not in plot_definitions: return None
-    plot_params = plot_definitions[active_tab]
+    plot_params = dict(plot_definitions[active_tab])
     plot_df = plot_params.pop('df')
+    plot_params['title'] = f"{title_prefix} {plot_params['title']}"
+    if any(metric not in plot_df.columns or pd.to_numeric(plot_df[metric], errors='coerce').notna().sum() == 0 for metric in (plot_params['x_metric'], plot_params['y_metric'])): return None
     plot_df = plot_df.sort_values(by=plot_params['y_metric'], ascending=False).head(20)
     if plot_df.empty: return None
     graph = dcc.Graph(figure=player_plots.create_quadrant_plot(plot_df, **plot_params))

@@ -84,10 +84,14 @@ Follow these steps to set up and run the project locally.
     source venv/bin/activate
     ```
 
-3.  **Install the dependencies:**
+3.  **Install the application dependencies:**
     ```bash
-    pip install -r requirements.txt
+    python -m pip install -r requirements-app.txt
     ```
+
+    `requirements.txt` is the historical development environment and includes
+    large optional packages. `requirements-app.txt` is the clean, supported
+    runtime set for the Dash application and Sportmonks importer.
 
 4.  **Unzip the Match Data (Crucial Step):**
     The raw match data files are too large to be stored directly in the repository. They have been compressed into zip archives. You need to extract them for the app to work.
@@ -106,6 +110,63 @@ Follow these steps to set up and run the project locally.
     ```
 
 6.  Open your browser and navigate to `http://127.0.0.1:8050/`.
+
+### Sportmonks data import
+
+The team and player overview pages can use licensed Sportmonks Football API v3
+data instead of the legacy FBref scraper. The API token is read only from the
+local `.env` file and is never placed in request URLs or cached JSON.
+
+1. Install the supplemental importer dependencies:
+
+    ```powershell
+    python -m pip install -r .\requirements-sportmonks.txt
+    ```
+
+2. Create the local environment file and add your token. If `.env.example` is
+   not present in an older copy of the project, simply create `.env` directly:
+
+    ```powershell
+    Copy-Item .\.env.example .\.env
+    notepad .\.env
+    ```
+
+    The resulting file must contain:
+
+    ```text
+    SPORTMONKS_API_TOKEN=your_real_token
+    ```
+
+3. Run a short smoke test on one league:
+
+    ```powershell
+    python .\import_sportmonks.py --season 2025-2026 --league serie-a --max-fixtures 2
+    ```
+
+4. Import one complete league, then the remaining leagues:
+
+    ```powershell
+    python .\import_sportmonks.py --season 2025-2026 --league serie-a
+    python .\import_sportmonks.py --season 2025-2026
+    ```
+
+The importer is resumable. Every successful response is cached under
+`data/sportmonks/raw/<season>/`; rerunning the same command reuses it and only
+requests missing data. Use `--refresh` only when you intentionally want to
+download the selected scope again. Use `--skip-xg` for a faster import without
+expected-goal relationships.
+
+Canonical CSV and Parquet tables are written to
+`data/sportmonks/processed/<season>/`. The importer also writes application-ready
+`data/processed/player_stats_<season>.*` and
+`data/processed/team_stats_<season>.*`. The raw cache, processed datasets and
+token remain untracked because `data/` and `.env` are ignored.
+
+Sportmonks supplies the audited team/player match statistics and xG data, but
+not Opta-style event coordinates or pass-by-pass sequences. The existing Opta
+match-analysis workflow therefore remains a separate data source. Metrics that
+exist only in FBref (such as progressive passes, carries into the final third,
+crosses stopped and sweeper actions) are left missing rather than estimated.
 
 > **Note:** The `data/` folder is listed in the `.gitignore` file. This is intentional to prevent large data files from being tracked by Git. The setup process requires you to manually unzip the provided data archives after cloning the repository.
 

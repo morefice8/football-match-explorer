@@ -20,6 +20,7 @@ import matplotlib.patheffects as path_effects
 import plotly.graph_objects as go
 from . import pitch_plots
 from src.metrics import player_metrics 
+from src.metrics.sportmonks import LOWER_IS_BETTER, PLAYER_RADAR_GROUPS
 
 # Import config for colors if not passed directly
 from src import config
@@ -1228,7 +1229,7 @@ def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert
     # --- FIX: Aggiungi le FOTO dei giocatori ---
     images = []
     for i, row in df_plot.iterrows():
-        photo_path = get_player_photo_path(row['Player'])
+        photo_path = row.get('image_path') or get_player_photo_path(row['Player'])
         images.append(go.layout.Image(
             source=photo_path,
             xref="x", yref="y",
@@ -1283,15 +1284,19 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
     La normalizzazione avviene tramite percentili per robustezza.
     """
     # --- DEFINIZIONE METRICHE PER RUOLO ---
-    CATEGORIES_OUTFIELD = {
-        '⚔️ Attacking': {'Goals': 'Gls', 'G-xG p90': 'G_minus_xG_per_90', 'SCA p90': 'SCA90', 'SoT p90': 'SoT/90'},
-        '⚽ Possession': {'Assists': 'Ast', 'Passes Final Third p90': 'Passes_F3_per_90', 'Progressive Passes p90': 'PrgP_per_90', 'Carries Final Third p90': 'Carries_F3_per_90'},
-        '🛡️ Defending': {'Tackles+Int p90': 'Tkl+Int_per_90', 'Aerials Won %': 'Aerial_Duels_perc', 'Clearances p90': 'Clr_per_90', 'Blocks p90': 'Blocks_per_90'}
-    }
-    
-    CATEGORIES_GK = {
-        '🧤 Goalkeeping': {'Save %': 'Save%', 'PSxG-GA': 'PSxG+/-', 'Crosses Stopped %': 'Stp%', 'Sweeper Actions p90': '#OPA/90'}
-    }
+    is_sportmonks = primary_player_series.get('Data_Source') == 'Sportmonks'
+    if is_sportmonks:
+        CATEGORIES_OUTFIELD = PLAYER_RADAR_GROUPS['outfield']
+        CATEGORIES_GK = PLAYER_RADAR_GROUPS['goalkeeping']
+    else:
+        CATEGORIES_OUTFIELD = {
+            '⚔️ Attacking': {'Goals': 'Gls', 'G-xG p90': 'G_minus_xG_per_90', 'SCA p90': 'SCA90', 'SoT p90': 'SoT/90'},
+            '⚽ Possession': {'Assists': 'Ast', 'Passes Final Third p90': 'Passes_F3_per_90', 'Progressive Passes p90': 'PrgP_per_90', 'Carries Final Third p90': 'Carries_F3_per_90'},
+            '🛡️ Defending': {'Tackles+Int p90': 'Tkl+Int_per_90', 'Aerials Won %': 'Aerial_Duels_perc', 'Clearances p90': 'Clr_per_90', 'Blocks p90': 'Blocks_per_90'}
+        }
+        CATEGORIES_GK = {
+            '🧤 Goalkeeping': {'Save %': 'Save%', 'PSxG-GA': 'PSxG+/-', 'Crosses Stopped %': 'Stp%', 'Sweeper Actions p90': '#OPA/90'}
+        }
 
     # --- DETERMINA IL RUOLO E SELEZIONA LE METRICHE CORRETTE ---
     is_gk = 'GK' in primary_player_series.get('Pos', '')
@@ -1304,9 +1309,12 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
         CATEGORIES = CATEGORIES_OUTFIELD
         df_norm = df_for_normalization[~df_for_normalization['Pos'].str.contains('GK', na=False)].copy()
         category_colors = {
-            '⚔️ Attacking': 'rgba(220, 53, 69, 0.2)',
-            '⚽ Possession': 'rgba(13, 110, 253, 0.2)',
-            '🛡️ Defending': 'rgba(25, 135, 84, 0.2)'
+            category: (
+                'rgba(220, 53, 69, 0.2)' if category.startswith('⚔️')
+                else 'rgba(13, 110, 253, 0.2)' if category.startswith('⚽')
+                else 'rgba(25, 135, 84, 0.2)'
+            )
+            for category in CATEGORIES
         }
 
     # Se non ci sono dati per la normalizzazione, restituisci un grafico vuoto
@@ -1320,7 +1328,9 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
     for display_name, col_name in column_map.items():
         if col_name in df_norm.columns:
             # Calcola il percentile. pct=True restituisce un valore tra 0 e 1.
-            df_norm[display_name] = df_norm[col_name].rank(pct=True)
+            df_norm[display_name] = df_norm[col_name].rank(
+                pct=True, ascending=col_name not in LOWER_IS_BETTER
+            )
         else:
             # Se la colonna non esiste, assegna un valore neutro
             df_norm[display_name] = 0.5

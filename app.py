@@ -167,7 +167,8 @@ def render_page_content(pathname, search):
     elif decoded_pathname.startswith("/team-stats/team/"):
         team_name_url = decoded_pathname.split("/")[-1]
         
-        season = "2024-2025" # Default
+        available_team_seasons = team_stats.get_available_seasons()
+        season = available_team_seasons[0] if available_team_seasons else "2024-2025"
         if search:
             query_params = parse_qs(search.lstrip('?'))
             if 'season' in query_params:

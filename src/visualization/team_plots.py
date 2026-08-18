@@ -2,17 +2,22 @@
 import plotly.graph_objects as go
 import pandas as pd
 from src.utils import formation_layouts 
+from src.metrics.sportmonks import LOWER_IS_BETTER, TEAM_RADAR_GROUPS, uses_sportmonks
 
 def create_team_profile_radar(df_for_normalization, primary_team_name, comparison_team_name=None, template="plotly_dark"):
     """
     Creates a comparative radar plot using a robust Barpolar background and a clean layout.
     """
-    CATEGORIES = {
-        'Attacking': {'Goals': 'Gls', 'Goal Conversion %': 'Goal_Conversion', 'Total Shots': 'Sh', 'xG per Shot': 'xG_per_Shot'},
-        'Possession & Style': {'Possession %': 'Poss', 'Passing Tempo': 'Passing_Tempo', 'Progressions / Touch': 'Progressions_per_Touch', 'Take-On Success %': 'TakeOn_Success_Rate'},
-        'Defending': {'Goals Conceded': 'GA', 'Tackles Won': 'TklW', 'Interceptions': 'Int', 'Aerial Duels Won %': 'Aerial_Duels_Won_Perc'}
-    }
-    inverted_metrics = ['Goals Conceded']
+    if uses_sportmonks(df_for_normalization):
+        CATEGORIES = TEAM_RADAR_GROUPS
+        inverted_columns = LOWER_IS_BETTER
+    else:
+        CATEGORIES = {
+            'Attacking': {'Goals': 'Gls', 'Goal Conversion %': 'Goal_Conversion', 'Total Shots': 'Sh', 'xG per Shot': 'xG_per_Shot'},
+            'Possession & Style': {'Possession %': 'Poss', 'Passing Tempo': 'Passing_Tempo', 'Progressions / Touch': 'Progressions_per_Touch', 'Take-On Success %': 'TakeOn_Success_Rate'},
+            'Defending': {'Goals Conceded': 'GA', 'Tackles Won': 'TklW', 'Interceptions': 'Int', 'Aerial Duels Won %': 'Aerial_Duels_Won_Perc'}
+        }
+        inverted_columns = {'GA'}
     radar_metrics_ordered = [metric for category in CATEGORIES.values() for metric in category.keys()]
     
     # Data Normalization
@@ -35,7 +40,7 @@ def create_team_profile_radar(df_for_normalization, primary_team_name, compariso
                 # Avoid division by zero if all values are equal
                 df_norm[display_name] = 0.5
             else:
-                if display_name in inverted_metrics:
+                if col_name in inverted_columns:
                     normed = (col_data.max() - col_data) / (col_data.max() - col_data.min())
                 else:
                     normed = (col_data - col_data.min()) / (col_data.max() - col_data.min())
@@ -53,9 +58,12 @@ def create_team_profile_radar(df_for_normalization, primary_team_name, compariso
 
     # --- Add Background Sectors using Barpolar ---
     category_colors = {
-        'Attacking': 'rgba(214, 39, 40, 0.2)',
-        'Possession & Style': 'rgba(31, 119, 180, 0.2)',
-        'Defending': 'rgba(44, 160, 44, 0.2)'
+        category: (
+            'rgba(214, 39, 40, 0.2)' if category == 'Attacking'
+            else 'rgba(31, 119, 180, 0.2)' if category.startswith('Possession')
+            else 'rgba(44, 160, 44, 0.2)'
+        )
+        for category in CATEGORIES
     }
     # bar_colors = [color for category, metrics in CATEGORIES.items() for color in [category_colors[category]] * len(metrics)]
     # bar_widths = [360 / len(radar_metrics_ordered)] * len(radar_metrics_ordered)

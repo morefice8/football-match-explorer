@@ -2,15 +2,10 @@
 import os
 import pandas as pd
 import pycountry
+from src.metrics.sportmonks import SPORTMONKS_TOOLTIPS
+from src.utils.league_config import LEAGUES
 
 # --- COSTANTI CONDIVISE ---
-LEAGUES = {
-    "bundesliga": {"name": "Bundesliga", "logo": "/data/fbref/bundesliga/bundesliga.png"},
-    "la-liga": {"name": "La Liga", "logo": "/data/fbref/la-liga/la-liga.png"},
-    "ligue-1": {"name": "Ligue 1", "logo": "/data/fbref/ligue-1/ligue-1.png"},
-    "premier-league": {"name": "Premier League", "logo": "/data/fbref/premier-league/premier-league.png"},
-    "serie-a": {"name": "Serie A", "logo": "/data/fbref/serie-a/serie-a.png"}
-}
 TEAM_NAME_EXCEPTIONS = {
     "manchester_united": "manchester_utd", "newcastle_united": "newcastle_utd",
     "manchester_city": "manchester_city", "Manchester City": "manchester_city",
@@ -42,6 +37,16 @@ METRIC_TOOLTIPS = {
     "Stp%": "Crosses Stopped %: Percentage of opponents' crosses into the penalty area that are intercepted by the goalkeeper. Measures the goalkeeper's dominance of the penalty area on high balls.",
     "#OPA/90": "Sweeper Actions per 90: The goalkeeper's defensive actions outside his own penalty area per 90 minutes. Indicates his proactivity and ability to play as a sweeper."
 }
+
+# Sportmonks-native alternatives used when FBref-only definitions are absent.
+METRIC_TOOLTIPS.update({
+    "Chances_Created_per_90": "Chances created per 90 minutes, as provided by Sportmonks.",
+    "Key_Passes_per_90": "Passes that directly lead to a shot, per 90 minutes.",
+    "Successful_Dribbles_per_90": "Successful dribbles per 90 minutes.",
+    "Saves_per_90": "Goalkeeper saves per 90 minutes.",
+    "GA_per_90": "Goals conceded by the goalkeeper per 90 minutes.",
+})
+METRIC_TOOLTIPS.update(SPORTMONKS_TOOLTIPS)
 
 # --- FUNZIONI DI SUPPORTO CONDIVISE ---
 def build_team_name_map():

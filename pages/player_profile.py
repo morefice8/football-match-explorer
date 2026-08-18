@@ -14,10 +14,12 @@ from src.utils.path_helpers import get_player_photo_path, get_team_logo_path
 from src.utils.player_helpers import LEAGUES, METRIC_TOOLTIPS
 from src.visualization import player_plots
 from src.components.layout_components import app_signature
+from src.metrics.sportmonks import PLAYER_METRIC_GROUPS, uses_sportmonks
 
 # --- CONFIGURATION ---
 DATA_PATH = os.path.join("data", "fbref")
 PROCESSED_DATA_PATH = os.path.join("data", "processed")
+SPORTMONKS_DATA_PATH = os.path.join("data", "sportmonks", "processed")
 MIN_AVG_MINUTES_PER_GAME = 60
 
 # --- METRIC DEFINITIONS (invariate) ---
@@ -26,6 +28,40 @@ POSSESSION_METRICS = [{'title': 'Assists', 'metric_col': 'Ast', 'icon': 'fa-soli
 DEFENSIVE_METRICS = [{'title': 'Tackles + Int p90', 'metric_col': 'Tkl+Int_per_90', 'icon': 'fa-solid fa-shield-halved'}, {'title': 'Aerial Duels Won %', 'metric_col': 'Aerial_Duels_perc', 'icon': 'fa-solid fa-plane-up', 'format_spec': '{:,.1f}%'}, {'title': 'Clearances p90', 'metric_col': 'Clr_per_90', 'icon': 'fa-solid fa-broom'}, {'title': 'Blocks p90', 'metric_col': 'Blocks_per_90', 'icon': 'fa-solid fa-person-falling-burst'}]
 GOALKEEPING_METRICS = [{'title': 'Save %', 'metric_col': 'Save%', 'icon': 'fa-solid fa-mitten', 'format_spec': '{:,.1f}%'}, {'title': 'PSxG-GA', 'metric_col': 'PSxG+/-', 'icon': 'fa-solid fa-chart-line'}, {'title': 'Crosses Stopped %', 'metric_col': 'Stp%', 'icon': 'fa-solid fa-plane-slash', 'format_spec': '{:,.1f}%'}, {'title': 'Sweeper Actions p90', 'metric_col': '#OPA/90', 'icon': 'fa-solid fa-shoe-prints'}]
 ALL_METRICS = ATTACKING_METRICS + POSSESSION_METRICS + DEFENSIVE_METRICS + GOALKEEPING_METRICS
+
+
+def _profile_metric_definitions(group):
+    definitions = []
+    for spec in PLAYER_METRIC_GROUPS[group]:
+        item = spec.card_kwargs('metric_col')
+        if spec.unit:
+            item['format_spec'] = f"{spec.format_spec}{spec.unit}"
+        definitions.append(item)
+    return definitions
+
+
+SPORTMONKS_ATTACKING_METRICS = _profile_metric_definitions('attacking')
+SPORTMONKS_POSSESSION_METRICS = _profile_metric_definitions('creation')
+SPORTMONKS_DEFENSIVE_METRICS = _profile_metric_definitions('defending')
+SPORTMONKS_GOALKEEPING_METRICS = _profile_metric_definitions('goalkeeping')
+
+
+def get_metric_definitions(data):
+    is_sportmonks = uses_sportmonks(data)
+    attacking = SPORTMONKS_ATTACKING_METRICS if is_sportmonks else ATTACKING_METRICS
+    possession = SPORTMONKS_POSSESSION_METRICS if is_sportmonks else POSSESSION_METRICS
+    defending = SPORTMONKS_DEFENSIVE_METRICS if is_sportmonks else DEFENSIVE_METRICS
+    goalkeeping = SPORTMONKS_GOALKEEPING_METRICS if is_sportmonks else GOALKEEPING_METRICS
+    return attacking, possession, defending, goalkeeping
+
+
+def get_available_player_seasons():
+    if not os.path.isdir(PROCESSED_DATA_PATH): return []
+    return sorted({
+        filename[len('player_stats_'):-len('.parquet')]
+        for filename in os.listdir(PROCESSED_DATA_PATH)
+        if filename.startswith('player_stats_') and filename.endswith('.parquet')
+    }, reverse=True)
 
 # --- DATA LOADING & HELPER FUNCTIONS (invariate) ---
 # ... (il codice di get_all_players_for_dropdown, get_player_data, get_dominant_role_and_usage, get_player_archetype, create_metric_stat_card, create_metric_category_card è identico) ...
@@ -47,9 +83,38 @@ def get_player_data(player_name, season):
     df_all_players = pd.read_parquet(stats_file_path)
     player_stats = df_all_players[df_all_players['Player'] == player_name]
     if player_stats.empty: return {'error': f'Stats for {player_name} in season {season} not found.'}
-    return {'profile_info': profile_info, 'stats_df': player_stats.iloc[0]}
+    stats_row = player_stats.iloc[0]
+    if not profile_info and stats_row.get('Data_Source') == 'Sportmonks':
+        players_path = os.path.join(SPORTMONKS_DATA_PATH, season, 'players.parquet')
+        if os.path.exists(players_path):
+            players = pd.read_parquet(players_path)
+            profile = players[players['player_id'] == stats_row.get('sportmonks_player_id')]
+            if not profile.empty:
+                item = profile.iloc[0]
+                profile_info = {
+                    'height_cm': item.get('height'), 'weight_kg': item.get('weight'),
+                    'image_path': item.get('image_path'), 'birth_date': item.get('date_of_birth'),
+                }
+    if stats_row.get('Data_Source') == 'Sportmonks':
+        teams_path = os.path.join(SPORTMONKS_DATA_PATH, season, 'teams.parquet')
+        if os.path.exists(teams_path):
+            teams = pd.read_parquet(teams_path)
+            team = teams[teams['team_id'] == stats_row.get('sportmonks_team_id')]
+            if not team.empty:
+                profile_info['team_logo_path'] = team.iloc[0].get('image_path')
+    return {'profile_info': profile_info, 'stats_df': stats_row}
 
 def get_dominant_role_and_usage(player_name, season):
+    sportmonks_path = os.path.join(SPORTMONKS_DATA_PATH, season, 'player_matchlogs.parquet')
+    if os.path.exists(sportmonks_path):
+        try:
+            logs = pd.read_parquet(sportmonks_path)
+            played = logs[(logs['player_name'] == player_name) & (pd.to_numeric(logs['minutes_played'], errors='coerce').fillna(0) > 0)]
+            if not played.empty:
+                position = played['position'].mode()[0] if not played['position'].dropna().empty else 'N/A'
+                return position, len(played), int(played['minutes_played'].sum())
+        except Exception:
+            pass
     player_folder_name = str(player_name).replace(' ', '_')
     matchlog_path = os.path.join(DATA_PATH, "player_top5_europe", player_folder_name, season, "player_matchlogs.csv")
     if not os.path.exists(matchlog_path): return 'N/A', 0, 0
@@ -65,38 +130,47 @@ def get_dominant_role_and_usage(player_name, season):
 
 def get_player_archetype(player_stats, df_comp, dominant_pos):
     player_name = player_stats['Player']
+    attacking_metrics, possession_metrics, defensive_metrics, goalkeeping_metrics = get_metric_definitions(player_stats)
+    all_metrics = attacking_metrics + possession_metrics + defensive_metrics + goalkeeping_metrics
+    is_sportmonks = player_stats.get('Data_Source') == 'Sportmonks'
+    goals_col = 'Gls_per_90' if is_sportmonks else 'Gls'
+    creative_col = 'Chances_Created_per_90' if is_sportmonks else 'SCA90'
+    progression_col = 'Passes_F3_per_90' if is_sportmonks else 'PrgP_per_90'
+    carry_col = 'Successful_Dribbles_per_90' if is_sportmonks else 'Carries_F3_per_90'
     percentiles = {}
-    for metric in ALL_METRICS:
+    for metric in all_metrics:
         col = metric['metric_col']
         if col in df_comp.columns:
-            is_gk_metric = col in [m['metric_col'] for m in GOALKEEPING_METRICS]
+            is_gk_metric = col in [m['metric_col'] for m in goalkeeping_metrics]
             df_role_comp = df_comp[df_comp['Pos'].str.contains('GK', na=False)] if is_gk_metric else df_comp[~df_comp['Pos'].str.contains('GK', na=False)]
             if not df_role_comp.empty and col in df_role_comp.columns:
-                ranks = df_role_comp[col].rank(pct=True)
+                lower_is_better = bool(metric.get('ascending', False))
+                ranks = df_role_comp[col].rank(pct=True, ascending=not lower_is_better)
                 player_rank_index = df_role_comp[df_role_comp['Player'] == player_name].index
                 if not player_rank_index.empty: percentiles[col] = ranks.loc[player_rank_index[0]]
     p = lambda col, default=0: percentiles.get(col, default)
     if 'GK' in dominant_pos:
-        if p('PSxG+/-') > 0.9 and p('Save%') > 0.85: return "Elite Shot-Stopper", "fa-solid fa-star"
-        if p('#OPA/90') > 0.9: return "Sweeper Keeper", "fa-solid fa-shoe-prints"
-        if p('Stp%') > 0.85: return "Cross Dominator", "fa-solid fa-plane-slash"
+        shot_stopping_col = 'xGoT_minus_GA_per_90' if is_sportmonks else 'PSxG+/-'
+        if p(shot_stopping_col) > 0.9 and p('Save%') > 0.85: return "Elite Shot-Stopper", "fa-solid fa-star"
+        if not is_sportmonks and p('#OPA/90') > 0.9: return "Sweeper Keeper", "fa-solid fa-shoe-prints"
+        if not is_sportmonks and p('Stp%') > 0.85: return "Cross Dominator", "fa-solid fa-plane-slash"
         return "Goalkeeper", "fa-solid fa-mitten"
     if 'FW' in dominant_pos or 'W' in dominant_pos:
-        if p('Gls') > 0.9 and p('G_minus_xG_per_90') > 0.8: return "Lethal Finisher", "fa-solid fa-bullseye"
-        if p('SCA90') > 0.9 and p('Ast') > 0.8: return "Elite Creator", "fa-solid fa-gears"
-        if p('Gls') > 0.85 and p('SCA90') > 0.85: return "Complete Forward", "fa-solid fa-star-of-life"
-        if p('Carries_F3_per_90') > 0.9: return "Dynamic Dribbler", "fa-solid fa-bolt"
+        if p(goals_col) > 0.9 and p('G_minus_xG_per_90') > 0.8: return "Lethal Finisher", "fa-solid fa-bullseye"
+        if p(creative_col) > 0.9 and p('Ast') > 0.8: return "Elite Creator", "fa-solid fa-gears"
+        if p(goals_col) > 0.85 and p(creative_col) > 0.85: return "Complete Forward", "fa-solid fa-star-of-life"
+        if p(carry_col) > 0.9: return "Dynamic Dribbler", "fa-solid fa-bolt"
         return "Forward", "fa-solid fa-person-running"
     if 'MF' in dominant_pos or 'M' in dominant_pos:
-        is_creative = p('SCA90') > 0.85 and p('Ast') > 0.7
-        is_engine = p('Tkl+Int_per_90') > 0.75 and p('PrgP_per_90') > 0.75
+        is_creative = p(creative_col) > 0.85 and p('Ast') > 0.7
+        is_engine = p('Tkl+Int_per_90') > 0.75 and p(progression_col) > 0.75
         if is_creative and is_engine: return "Box-to-Box Maestro", "fa-solid fa-arrows-up-down"
         if is_creative: return "Creative Playmaker", "fa-solid fa-wand-magic-sparkles"
-        if p('PrgP_per_90') > 0.9: return "Deep-Lying Playmaker", "fa-solid fa-compass-drafting"
+        if p(progression_col) > 0.9: return "Deep-Lying Playmaker", "fa-solid fa-compass-drafting"
         if p('Tkl+Int_per_90') > 0.85: return "Defensive Midfielder", "fa-solid fa-anchor"
         return "Midfielder", "fa-solid fa-arrows-left-right"
     if 'DF' in dominant_pos or 'B' in dominant_pos:
-        is_ball_player = p('PrgP_per_90') > 0.8 and p('Passes_F3_per_90') > 0.75
+        is_ball_player = p(progression_col) > 0.8 and p('Passes_F3_per_90') > 0.75
         is_dominant = p('Tkl+Int_per_90') > 0.8 and p('Aerial_Duels_perc') > 0.75
         if is_ball_player and is_dominant: return "Complete Defender", "fa-solid fa-chess-king"
         if is_ball_player: return "Ball-Playing Defender", "fa-solid fa-feather-pointed"
@@ -123,15 +197,15 @@ def create_metric_category_card(title, metrics_list, player_stats, ranks, card_c
 # --- LAYOUT (invariato) ---
 def layout(player_name_url):
     player_name = unquote(player_name_url).replace('_', ' ')
-    available_seasons = ["2024-2025", "2023-2024"]
-    default_season = available_seasons[0]
+    available_seasons = get_available_player_seasons()
+    default_season = available_seasons[0] if available_seasons else "2024-2025"
     player_data = get_player_data(player_name, default_season)
     if 'error' in player_data: return dbc.Container(dbc.Alert(player_data['error'], color="danger"), className="mt-4")
     profile_info, stats = player_data['profile_info'], player_data['stats_df']
     header = dbc.Row([
         dbc.Col(dbc.Button([html.I(className="fas fa-arrow-left me-2"), "Hub"], href="/player-stats", color="secondary", outline=True, size="sm"), width="auto", className="align-self-start"),
-        dbc.Col(html.Img(src=get_player_photo_path(player_name), style={'height': '120px', 'width': '120px', 'object-fit': 'cover', 'border-radius': '50%'}), width="auto"),
-        dbc.Col([html.H1(player_name, className="text-white mb-0"), html.H4([html.Img(src=get_team_logo_path(stats.get('League'), stats.get('Club')), style={'height': '24px', 'margin-right': '8px'}), stats.get('Club', 'N/A')], className="text-muted"), html.H6([html.Img(src=f"https://cdnjs.cloudflare.com/ajax/libs/flag-icon-css/7.2.1/flags/4x3/{stats.get('Nationality_Code', '')}.svg", style={'width': '20px', 'margin-right': '8px'}), stats.get('Nationality', 'N/A')], className="text-white d-flex align-items-center"), html.Div(id='player-archetype-badge', className="mt-2")], width=True, className="align-self-center"),
+        dbc.Col(html.Img(src=profile_info.get('image_path') or get_player_photo_path(player_name), style={'height': '120px', 'width': '120px', 'object-fit': 'cover', 'border-radius': '50%'}), width="auto"),
+        dbc.Col([html.H1(player_name, className="text-white mb-0"), html.H4([html.Img(src=profile_info.get('team_logo_path') or get_team_logo_path(stats.get('League'), stats.get('Club')), style={'height': '24px', 'margin-right': '8px'}), stats.get('Club', 'N/A')], className="text-muted"), html.H6([html.Img(src=f"https://cdnjs.cloudflare.com/ajax/libs/flag-icon-css/7.2.1/flags/4x3/{stats.get('Nationality_Code', '')}.svg", style={'width': '20px', 'margin-right': '8px'}), stats.get('Nationality', 'N/A')], className="text-white d-flex align-items-center"), html.Div(id='player-archetype-badge', className="mt-2")], width=True, className="align-self-center"),
         dbc.Col([dbc.Row([dbc.Col(html.Div([html.Strong("Pos:"), f" {stats.get('Pos', 'N/A')}"]), width=12), dbc.Col(html.Div([html.Strong("Age:"), f" {int(stats.get('Age', 0)) if pd.notna(stats.get('Age')) else 'N/A'}"]), width=6), dbc.Col(html.Div([html.Strong("Foot:"), f" {profile_info.get('footed', 'N/A')}"]), width=6), dbc.Col(html.Div([html.Strong("Height:"), f" {profile_info.get('height_cm', 'N/A')}"]), width=6), dbc.Col(html.Div([html.Strong("Weight:"), f" {profile_info.get('weight_kg', 'N/A')}"]), width=6), dbc.Col(html.Div([html.Strong("Wages:"), f"{profile_info.get('wages_weekly_euro', 'N/A')}"]), width=12), dbc.Col(html.Div([html.Strong("Expires:"), f" {profile_info.get('contract_expires', 'N/A')}"]), width=12)], className="text-white small g-1")], lg=3, md=12, className="align-self-center border-start border-secondary ps-3"),
     ], align="center", className="my-4 p-3 bg-dark rounded shadow-lg")
     return dbc.Container([
@@ -193,18 +267,23 @@ def update_kpi_rankings(normalization_scope, player_name, season):
     player_stats_row = df_all[df_all['Player'] == player_name]
     if player_stats_row.empty: return {}
     player_stats = player_stats_row.iloc[0]
+    attacking_metrics, possession_metrics, defensive_metrics, goalkeeping_metrics = get_metric_definitions(player_stats)
+    all_metrics = attacking_metrics + possession_metrics + defensive_metrics + goalkeeping_metrics
     if normalization_scope == 'league':
         df_comp = df_all[df_all['League'] == player_stats['League']]
     else: df_comp = df_all
+    metric_by_column = {metric['metric_col']: metric for metric in all_metrics}
     def get_rank(df, column, p_name):
         if column not in df.columns or df[column].isnull().all(): return None
-        is_gk_metric = column in [m['metric_col'] for m in GOALKEEPING_METRICS]
+        is_gk_metric = column in [m['metric_col'] for m in goalkeeping_metrics]
         df_filtered = df[df['Pos'].str.contains('GK', na=False)] if is_gk_metric else df[~df['Pos'].str.contains('GK', na=False)]
         if df_filtered.empty: return None
-        df_sorted = df_filtered.sort_values(by=column, ascending=False).reset_index()
+        df_sorted = df_filtered.sort_values(
+            by=column, ascending=bool(metric_by_column[column].get('ascending', False))
+        ).reset_index()
         rank_series = df_sorted[df_sorted['Player'] == p_name].index
         return rank_series[0] + 1 if len(rank_series) > 0 else None
-    ranks = {metric['metric_col']: get_rank(df_comp, metric['metric_col'], player_name) for metric in ALL_METRICS}
+    ranks = {metric['metric_col']: get_rank(df_comp, metric['metric_col'], player_name) for metric in all_metrics}
     return ranks
 
 @callback(
@@ -218,14 +297,17 @@ def render_metric_macro_cards(ranks, player_name, season):
     player_data = get_player_data(player_name, season)
     if 'error' in player_data: return dbc.Alert(player_data['error'], color="danger")
     stats = player_data['stats_df']
+    attacking_metrics, possession_metrics, defensive_metrics, goalkeeping_metrics = get_metric_definitions(stats)
+    is_sportmonks = uses_sportmonks(stats)
     dominant_pos, _, _ = get_dominant_role_and_usage(player_name, season)
     is_gk = 'GK' in dominant_pos
     cards_to_render = []
     colors = {"goalkeeping": "rgba(255, 193, 7, 0.15)", "attacking": "rgba(220, 53, 69, 0.15)", "possession": "rgba(13, 110, 253, 0.15)", "defending": "rgba(25, 135, 84, 0.15)"}
-    if is_gk: cards_to_render.append(create_metric_category_card("🧤 Goalkeeping", GOALKEEPING_METRICS, stats, ranks, colors['goalkeeping']))
-    cards_to_render.append(create_metric_category_card("⚔️ Attacking", ATTACKING_METRICS, stats, ranks, colors['attacking']))
-    cards_to_render.append(create_metric_category_card("⚽ Possession", POSSESSION_METRICS, stats, ranks, colors['possession']))
-    cards_to_render.append(create_metric_category_card("🛡️ Defending", DEFENSIVE_METRICS, stats, ranks, colors['defending']))
+    if is_gk: cards_to_render.append(create_metric_category_card("🧤 Goalkeeping", goalkeeping_metrics, stats, ranks, colors['goalkeeping']))
+    cards_to_render.append(create_metric_category_card("⚔️ Attacking", attacking_metrics, stats, ranks, colors['attacking']))
+    possession_title = "⚽ Creation & Ball Use" if is_sportmonks else "⚽ Possession"
+    cards_to_render.append(create_metric_category_card(possession_title, possession_metrics, stats, ranks, colors['possession']))
+    cards_to_render.append(create_metric_category_card("🛡️ Defending", defensive_metrics, stats, ranks, colors['defending']))
     return html.Div(cards_to_render)
 
 @callback(
