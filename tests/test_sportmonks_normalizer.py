@@ -2,11 +2,115 @@ import unittest
 
 import pandas as pd
 
-from src.providers.sportmonks.normalizer import SeasonNormalizer, metric_value
-from src.metrics.sportmonks import PLAYER_METRIC_GROUPS, TEAM_METRIC_GROUPS
+from src.providers.sportmonks.normalizer import (
+    SeasonNormalizer,
+    coach_from_team,
+    formation_from_lineups,
+    metric_value,
+)
+from src.metrics.sportmonks import PLAYER_METRIC_GROUPS, TEAM_METRIC_GROUPS, TEAM_RADAR_GROUPS
 
 
 class SportmonksNormalizerTests(unittest.TestCase):
+    def test_team_coach_relation_is_normalized(self):
+        team = {
+            "id": 8,
+            "name": "Liverpool",
+            "coaches": [
+                {
+                    "id": 9001,
+                    "team_id": 8,
+                    "coach_id": 100,
+                    "position_id": 221,
+                    "active": False,
+                    "start": "2024-07-01",
+                    "end": "2025-05-31",
+                },
+                {
+                    "id": 9002,
+                    "team_id": 8,
+                    "coach_id": 200,
+                    "position_id": 221,
+                    "active": False,
+                    "start": "2025-06-01",
+                    "end": "2026-06-10",
+                },
+                {
+                    "id": 9003,
+                    "team_id": 8,
+                    "coach_id": 300,
+                    "position_id": 221,
+                    "active": True,
+                    "start": "2026-06-11",
+                    "end": None,
+                },
+            ],
+        }
+        profiles = {
+            200: {
+                "id": 200,
+                "display_name": "Arne Slot",
+                "image_path": "https://example.test/slot.png",
+            }
+        }
+        coach = coach_from_team(team, profiles, as_of="2026-05-24")
+        self.assertEqual(coach["coach_name"], "Arne Slot")
+        self.assertEqual(coach["coach_image_path"], "https://example.test/slot.png")
+
+        normalizer = SeasonNormalizer("2025-2026")
+        normalizer.add_teams(
+            {"data": [team]},
+            {"league_id": 8, "league": "Premier League", "season_id": 25583},
+            coach_profiles=profiles,
+            coach_as_of="2026-05-24",
+        )
+        team_row = normalizer.frames()["teams"].iloc[0]
+        self.assertEqual(team_row["coach_id"], 200)
+        self.assertEqual(team_row["coach_name"], "Arne Slot")
+
+    def test_formation_is_derived_from_starting_lineup_fields(self):
+        fields = [
+            "1:1",
+            "2:1", "2:2", "2:3", "2:4",
+            "3:1", "3:2",
+            "4:1", "4:2", "4:3",
+            "5:1",
+        ]
+        lineups = [
+            {"team_id": 10, "formation_field": field}
+            for field in fields
+        ]
+        lineups.append({"team_id": 20, "formation_field": "1:1"})
+        self.assertEqual(formation_from_lineups(lineups, 10), "4-2-3-1")
+        self.assertIsNone(formation_from_lineups(lineups, 20))
+
+        normalizer = SeasonNormalizer("2025-2026")
+        normalizer.add_fixture(
+            {
+                "data": {
+                    "id": 99,
+                    "participants": [
+                        {"id": 10, "name": "Home", "meta": {"location": "home"}},
+                        {"id": 20, "name": "Away", "meta": {"location": "away"}},
+                    ],
+                    "lineups": [
+                        {
+                            "id": index,
+                            "player_id": 1000 + index,
+                            "player_name": f"Player {index}",
+                            "team_id": 10,
+                            "type_id": 11,
+                            "formation_field": field,
+                        }
+                        for index, field in enumerate(fields, start=1)
+                    ],
+                }
+            },
+            {"league_id": 8, "league": "Premier League", "season_id": 25583},
+        )
+        home_row = next(row for row in normalizer.team_matchlogs if row["team_id"] == 10)
+        self.assertEqual(home_row["formation"], "4-2-3-1")
+
     def test_metric_value_supports_fixture_and_season_shapes(self):
         self.assertEqual(metric_value({"data": {"value": 3}}), 3)
         self.assertEqual(metric_value({"value": {"total": 12}}), 12)
@@ -133,6 +237,24 @@ class SportmonksNormalizerTests(unittest.TestCase):
         )
         lower_goalkeeper = {spec.column for spec in PLAYER_METRIC_GROUPS["goalkeeping"] if spec.ascending}
         self.assertEqual(lower_goalkeeper, {"GA_per_90"})
+
+        self.assertEqual(
+            set(TEAM_RADAR_GROUPS),
+            {"Attacking", "Possession & Territory", "Defending & Pressing", "Set Pieces"},
+        )
+        radar_columns = {
+            column
+            for group in TEAM_RADAR_GROUPS.values()
+            for column in group.values()
+        }
+        self.assertFalse(unsupported.intersection(radar_columns))
+        self.assertTrue(
+            {
+                "Global_PPDA_Proxy",
+                "Set_Piece_xG_per_90",
+                "Set_Piece_xGA_per_90",
+            }.issubset(radar_columns)
+        )
 
 
 if __name__ == "__main__":

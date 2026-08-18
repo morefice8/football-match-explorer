@@ -150,7 +150,7 @@ def get_comment_key(pathname, plot_identifier):
 @callback(
     Output("page-content", "children"),
     Input("url", "pathname"),
-    State("url", "search")
+    Input("url", "search")
 )
 def render_page_content(pathname, search):
     print(f"--- Router rendering for path: '{pathname}' ---")

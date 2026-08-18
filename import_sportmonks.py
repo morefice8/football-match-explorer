@@ -62,6 +62,22 @@ def build_parser() -> argparse.ArgumentParser:
             "using an API token or making any Sportmonks requests."
         ),
     )
+    parser.add_argument(
+        "--refresh-coaches",
+        action="store_true",
+        help=(
+            "Refresh the season team-coach relations and download only missing coach "
+            "profiles. All squads, fixtures and statistics must already be cached."
+        ),
+    )
+    parser.add_argument(
+        "--hydrate-coaches",
+        action="store_true",
+        help=(
+            "Use the cached season teams payload and download only missing coach "
+            "profiles. No team, squad, fixture or statistics request is made."
+        ),
+    )
     return parser
 
 
@@ -82,6 +98,10 @@ def main() -> int:
             incompatible.append("--max-fixtures")
         if args.league:
             incompatible.append("--league")
+        if args.refresh_coaches:
+            incompatible.append("--refresh-coaches")
+        if args.hydrate_coaches:
+            incompatible.append("--hydrate-coaches")
         if incompatible:
             print(
                 "ERROR: --normalize-only rebuilds the complete cached season and cannot be "
@@ -102,6 +122,24 @@ def main() -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
         return 0
+
+    if args.refresh_coaches or args.hydrate_coaches:
+        incompatible = []
+        if args.refresh:
+            incompatible.append("--refresh")
+        if args.skip_xg:
+            incompatible.append("--skip-xg")
+        if args.max_fixtures is not None:
+            incompatible.append("--max-fixtures")
+        if args.refresh_coaches and args.hydrate_coaches:
+            incompatible.append("using --refresh-coaches together with --hydrate-coaches")
+        if incompatible:
+            print(
+                "ERROR: the coach-only modes reuse the complete fixture cache and cannot be "
+                f"combined with {', '.join(incompatible)}.",
+                file=sys.stderr,
+            )
+            return 2
 
     # The project-local file is authoritative even when Conda/base defines a
     # stale variable with the same name.
@@ -124,6 +162,8 @@ def main() -> int:
                 refresh=args.refresh,
                 skip_xg=args.skip_xg,
                 max_fixtures=args.max_fixtures,
+                refresh_coaches=args.refresh_coaches,
+                hydrate_coaches=args.hydrate_coaches,
             )
             importer.run(leagues)
     except (ValueError, RuntimeError) as exc:

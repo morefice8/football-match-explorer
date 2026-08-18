@@ -44,6 +44,26 @@ def _number(value: Any) -> float | int | None:
     return None
 
 
+def formation_from_lineups(lineups: Iterable[dict[str, Any]], team_id: Any) -> str | None:
+    """Derive a conventional shape such as 4-2-3-1 from formation fields."""
+    slots_by_row: dict[int, set[str]] = defaultdict(set)
+    for lineup in lineups:
+        if not isinstance(lineup, dict) or lineup.get("team_id") != team_id:
+            continue
+        formation_field = lineup.get("formation_field")
+        if not formation_field:
+            continue
+        try:
+            row_number = int(str(formation_field).split(":", 1)[0])
+        except (TypeError, ValueError):
+            continue
+        if row_number > 1:
+            slots_by_row[row_number].add(str(formation_field))
+    if sum(len(slots) for slots in slots_by_row.values()) != 10:
+        return None
+    return "-".join(str(len(slots_by_row[row])) for row in sorted(slots_by_row))
+
+
 def metric_value(detail: dict[str, Any]) -> float | int | None:
     """Extract the most useful scalar from fixture or season statistic data."""
     value: Any = detail.get("data", detail.get("value"))
@@ -137,6 +157,133 @@ def _player_record(player: dict[str, Any], season_end_year: int) -> dict[str, An
     }
 
 
+def _iso_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _coach_candidate(team: dict[str, Any], as_of: Any = None) -> dict[str, Any] | None:
+    """Select the appointment that applies on ``as_of`` from a team relation."""
+    relation = response_data(team.get("coaches"))
+    candidates = [item for item in _as_list(relation) if isinstance(item, dict)]
+    if not candidates:
+        return None
+
+    target = _iso_date(as_of)
+    if target is not None:
+        overlapping = []
+        for item in candidates:
+            start = _iso_date(item.get("start") or item.get("start_at") or item.get("starting_at"))
+            end = _iso_date(item.get("end") or item.get("end_at") or item.get("ending_at"))
+            if (start is None or start <= target) and (end is None or end >= target):
+                overlapping.append(item)
+        if overlapping:
+            candidates = overlapping
+        else:
+            # A provider can leave a short gap between two appointments. Prefer
+            # the most recent appointment that had already started, rather than
+            # accidentally selecting a future coach marked as active.
+            started = [
+                item
+                for item in candidates
+                if (_iso_date(item.get("start") or item.get("start_at") or item.get("starting_at")) or date.min)
+                <= target
+            ]
+            if started:
+                candidates = started
+
+    def candidate_score(item: dict[str, Any]) -> tuple[int, int, int, str]:
+        coach = item.get("coach") if isinstance(item.get("coach"), dict) else item
+        role_value = item.get("position") or item.get("role") or item.get("type") or ""
+        if isinstance(role_value, dict):
+            role_value = role_value.get("name") or role_value.get("code") or ""
+        role = str(role_value).casefold()
+        is_assistant = "assistant" in role
+        active_value = item.get("active", coach.get("active"))
+        end_value = (
+            item.get("end")
+            or item.get("end_at")
+            or item.get("ending_at")
+            or coach.get("end")
+            or coach.get("end_at")
+            or coach.get("ending_at")
+        )
+        start_value = (
+            item.get("start")
+            or item.get("start_at")
+            or item.get("starting_at")
+            or coach.get("start")
+            or coach.get("start_at")
+            or coach.get("starting_at")
+            or ""
+        )
+        active = active_value is True or str(active_value).casefold() in {"1", "true", "yes"}
+        current = active or not end_value
+        temporary = item.get("temporary") is True
+        return (
+            0 if is_assistant else 1,
+            1 if current else 0,
+            0 if temporary else 1,
+            str(start_value),
+        )
+
+    return max(candidates, key=candidate_score)
+
+
+def coach_from_team(
+    team: dict[str, Any],
+    coach_profiles: dict[int, dict[str, Any]] | None = None,
+    *,
+    as_of: Any = None,
+) -> dict[str, Any]:
+    """Return the season-relevant coach, enriched with a coach profile when available.
+
+    ``teams?...include=coaches`` returns appointment/pivot records. Their ``id``
+    is the appointment ID, while ``coach_id`` identifies the actual coach.
+    """
+    selected = _coach_candidate(team, as_of=as_of)
+    if selected is None:
+        return {}
+
+    nested = selected.get("coach") if isinstance(selected.get("coach"), dict) else {}
+    coach_id = selected.get("coach_id") or nested.get("id")
+    if coach_id is None and any(
+        selected.get(key) for key in ("display_name", "common_name", "name", "firstname", "lastname")
+    ):
+        coach_id = selected.get("id")
+    try:
+        lookup_id = int(coach_id) if coach_id is not None else None
+    except (TypeError, ValueError):
+        lookup_id = coach_id
+    profile = (coach_profiles or {}).get(lookup_id, {})
+    coach = profile if isinstance(profile, dict) and profile else (nested or selected)
+    name = (
+        coach.get("display_name")
+        or coach.get("common_name")
+        or coach.get("name")
+        or " ".join(
+            part for part in (coach.get("firstname"), coach.get("lastname")) if part
+        )
+    )
+    if not name:
+        return {"coach_id": coach_id} if coach_id is not None else {}
+    return {
+        "coach_id": coach.get("id") or coach_id,
+        "coach_name": name,
+        "coach_image_path": coach.get("image_path"),
+        "coach_nationality_id": coach.get("nationality_id"),
+        "coach_date_of_birth": coach.get("date_of_birth"),
+    }
+
+
 class SeasonNormalizer:
     """Incrementally normalise one or more leagues from cached API payloads."""
 
@@ -163,10 +310,18 @@ class SeasonNormalizer:
     def add_league(self, league: dict[str, Any]) -> None:
         self.leagues.append({**league, "season": self.season_name})
 
-    def add_teams(self, payload: Any, league: dict[str, Any]) -> None:
+    def add_teams(
+        self,
+        payload: Any,
+        league: dict[str, Any],
+        *,
+        coach_profiles: dict[int, dict[str, Any]] | None = None,
+        coach_as_of: Any = None,
+    ) -> None:
         for team in _as_list(response_data(payload)):
             if not isinstance(team, dict):
                 continue
+            coach = coach_from_team(team, coach_profiles, as_of=coach_as_of)
             self.teams.append(
                 {
                     "league_id": league["league_id"],
@@ -180,6 +335,7 @@ class SeasonNormalizer:
                     "venue_id": team.get("venue_id"),
                     "founded": team.get("founded"),
                     "image_path": team.get("image_path"),
+                    **coach,
                 }
             )
 
@@ -400,6 +556,14 @@ class SeasonNormalizer:
             if isinstance(formation, dict):
                 team_id = formation.get("participant_id") or formation.get("team_id")
                 formations[team_id] = formation.get("formation") or formation.get("formation_name")
+        fixture_lineups = [
+            lineup
+            for lineup in _as_list(fixture.get("lineups"))
+            if isinstance(lineup, dict)
+        ]
+        for team_id in participant_by_id:
+            if not formations.get(team_id):
+                formations[team_id] = formation_from_lineups(fixture_lineups, team_id)
 
         fixture_team_rows: list[dict[str, Any]] = []
         for team_id, participant in participant_by_id.items():

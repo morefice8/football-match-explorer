@@ -152,6 +152,10 @@ def create_team_ranking_rows(top_teams_df, metric_column, unit="", format_spec="
     rows = []
     for i, row in top_teams_df.iterrows():
         team_name, league_name, metric_value = row['Squad'], row['League'], row[metric_column]
+        team_href = f"/team-stats/team/{team_name.replace(' ', '_')}"
+        season = row.get('Season')
+        if pd.notna(season) and str(season):
+            team_href = f"{team_href}?season={season}"
         is_first = (i == top_teams_df.index[0])
         logo_style = {'height': '60px', 'width': '60px', 'object-fit': 'contain'} if is_first else {'height': '30px', 'width': '30px', 'object-fit': 'contain'}
         team_font_size = "fs-5" if is_first else "fs-6"
@@ -161,7 +165,7 @@ def create_team_ranking_rows(top_teams_df, metric_column, unit="", format_spec="
         row_content = dbc.Row([
             dbc.Col(html.Img(src=logo_path, style=logo_style, title=team_name), width="auto", className="pe-3"),
             dbc.Col([
-                dcc.Link(team_name, href=f"/team-stats/team/{team_name.replace(' ', '_')}", className=f"team-ranking-name fw-bold text-decoration-none {team_font_size}"),
+                dcc.Link(team_name, href=team_href, className=f"team-ranking-name fw-bold text-decoration-none {team_font_size}"),
                 dcc.Link(league_name, href=f"/team-stats/league/{league_name.replace(' ', '_')}", className="team-ranking-league small text-decoration-none d-block")
             ], width=True, className="align-self-center"),
             dbc.Col(html.Span(f"{metric_display} {unit}", className=f"team-ranking-value fw-bold text-end {metric_font_size}"), width="auto", className="align-self-center")

@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterable
 
 from .client import SportmonksAPIError, SportmonksClient
 from .config import LEAGUES, LeagueConfig, season_name_matches
-from .normalizer import SeasonNormalizer, response_data
+from .normalizer import SeasonNormalizer, coach_from_team, response_data
 
 
 CORE_FIXTURE_INCLUDE = (
@@ -46,17 +46,24 @@ class JsonCache:
         self.refresh = refresh
         self.cache_only = cache_only
 
-    def get(self, relative: str | Path, fetch: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    def get(
+        self,
+        relative: str | Path,
+        fetch: Callable[[], dict[str, Any]],
+        *,
+        force_refresh: bool = False,
+        allow_fetch_in_cache_only: bool = False,
+    ) -> dict[str, Any]:
         path = self.root / relative
-        if path.exists() and not self.refresh:
+        if path.exists() and not self.refresh and not force_refresh:
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
-                if self.cache_only:
+                if self.cache_only and not allow_fetch_in_cache_only:
                     raise RuntimeError(f"Invalid cached Sportmonks payload: {path}") from exc
                 # An interrupted write or manual edit should repair itself.
                 pass
-        if self.cache_only:
+        if self.cache_only and not allow_fetch_in_cache_only:
             raise RuntimeError(f"Missing cached Sportmonks payload: {path}")
         payload = fetch()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -77,17 +84,39 @@ class SportmonksImporter:
         skip_xg: bool = False,
         max_fixtures: int | None = None,
         cache_only: bool = False,
+        refresh_coaches: bool = False,
+        hydrate_coaches: bool = False,
     ):
         if refresh and cache_only:
             raise ValueError("refresh and cache_only cannot be enabled together")
+        if refresh_coaches and hydrate_coaches:
+            raise ValueError("refresh_coaches cannot be combined with hydrate_coaches")
+        if (refresh_coaches or hydrate_coaches) and (refresh or cache_only):
+            raise ValueError(
+                "refresh_coaches/hydrate_coaches cannot be combined with refresh or cache_only"
+            )
         self.client = client
         self.project_root = project_root.resolve()
         self.season = season
         self.raw_root = self.project_root / "data" / "sportmonks" / "raw" / season
-        self.cache = JsonCache(self.raw_root, refresh=refresh, cache_only=cache_only)
+        # Coach-only modes are intentionally cache-only for every other resource.
+        # Refresh updates one teams payload per league; hydration reuses that payload.
+        self.cache = JsonCache(
+            self.raw_root,
+            refresh=refresh,
+            cache_only=cache_only or refresh_coaches or hydrate_coaches,
+        )
+        # Names and photos are season-independent, so one cached coach profile
+        # can be reused by every league and every imported season.
+        self.coach_cache = JsonCache(
+            self.project_root / "data" / "sportmonks" / "raw" / "_shared",
+            cache_only=cache_only or refresh_coaches or hydrate_coaches,
+        )
         self.skip_xg = skip_xg
         self.max_fixtures = max_fixtures
         self.cache_only = cache_only
+        self.refresh_coaches = refresh_coaches
+        self.hydrate_coaches = hydrate_coaches
         self.normalizer = SeasonNormalizer(season)
         self.errors: list[dict[str, Any]] = []
 
@@ -223,6 +252,50 @@ class SportmonksImporter:
 
         return self.cache.get(relative, fetch)
 
+    def _coach_profiles(
+        self,
+        league: LeagueConfig,
+        teams: list[dict[str, Any]],
+        *,
+        as_of: Any,
+    ) -> dict[int, dict[str, Any]]:
+        """Load only the one season-relevant coach profile for each team."""
+        coach_ids: set[int] = set()
+        for team in teams:
+            selected = coach_from_team(team, as_of=as_of)
+            raw_id = selected.get("coach_id")
+            try:
+                if raw_id is not None:
+                    coach_ids.add(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+
+        profiles: dict[int, dict[str, Any]] = {}
+        for coach_id in sorted(coach_ids):
+            try:
+                payload = self.coach_cache.get(
+                    Path("coaches") / f"{coach_id}.json",
+                    lambda coach_id=coach_id: self.client.get(f"coaches/{coach_id}"),
+                    # Coach profiles are stable and reusable. Refreshing the
+                    # team relation must not spend requests on profiles already cached.
+                    allow_fetch_in_cache_only=self.refresh_coaches or self.hydrate_coaches,
+                )
+            except SportmonksAPIError as exc:
+                self._record_error(league, f"coach {coach_id}", exc)
+                continue
+            except RuntimeError:
+                # Old raw caches can still be normalised without coach photos.
+                if self.cache_only:
+                    continue
+                raise
+            except Exception as exc:
+                self._record_error(league, f"coach {coach_id}", exc)
+                continue
+            profile = response_data(payload)
+            if isinstance(profile, dict):
+                profiles[coach_id] = profile
+        return profiles
+
     def import_league(self, league: LeagueConfig) -> dict[str, Any]:
         print(f"\n[{league.name}] Resolving season...")
         season = self._resolve_season(league)
@@ -247,11 +320,26 @@ class SportmonksImporter:
 
         teams_payload = self.cache.get(
             Path(league.slug) / "teams.json",
-            lambda: self.client.get(f"teams/seasons/{season_id}"),
+            lambda: self.client.get(f"teams/seasons/{season_id}", include="coaches"),
+            force_refresh=self.refresh_coaches,
+            allow_fetch_in_cache_only=self.refresh_coaches,
         )
-        self.normalizer.add_teams(teams_payload, league_context)
         teams = _items(teams_payload)
+        coach_as_of = season.get("ending_at") or f"{self.end_year}-06-30"
+        coach_profiles = self._coach_profiles(
+            league,
+            teams,
+            as_of=coach_as_of,
+        )
+        self.normalizer.add_teams(
+            teams_payload,
+            league_context,
+            coach_profiles=coach_profiles,
+            coach_as_of=coach_as_of,
+        )
         print(f"[{league.name}] Teams: {len(teams)}")
+        if coach_profiles:
+            print(f"[{league.name}] Coach profiles: {len(coach_profiles)}")
         for index, team in enumerate(teams, start=1):
             team_id = team.get("id")
             if team_id is None:

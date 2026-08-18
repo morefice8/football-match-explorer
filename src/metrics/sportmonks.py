@@ -212,21 +212,27 @@ PLAYER_QUADRANTS = {
 TEAM_RADAR_GROUPS = {
     "Attacking": {
         "Goals p90": "Gls_per_90",
-        "xG p90": "xG_per_90",
-        "Conversion %": "Goal_Conversion_Perc",
+        "Non-Penalty xG p90": "npxG_per_90",
         "xG / Shot": "xG_per_Shot",
+        "Shooting Performance p90": "Shooting_Performance_per_90",
     },
     "Possession & Territory": {
         "Possession %": "Poss",
         "Pass Completion %": "Pass_Completion_Perc",
         "Final Third Passes p90": "FinalThird_per_90",
-        "Dribble Success %": "TakeOn_Success_Perc",
+        "Chances Created p90": "Chances_Created_per_90",
     },
-    "Defending": {
-        "GA p90": "GA_per_90",
+    "Defending & Pressing": {
         "xGA p90": "xGA_per_90",
         "Shots Against p90": "Shots_Against_per_90",
-        "Defensive Actions p90": "Defensive_Actions_per_90",
+        "xGA / Shot Against": "xGA_per_Shot_Against",
+        "Global PPDA Proxy": "Global_PPDA_Proxy",
+    },
+    "Set Pieces": {
+        "Set-Piece xG p90": "Set_Piece_xG_per_90",
+        "Corner xG / Corner": "Corner_xG_per_Corner",
+        "Set-Piece xGA p90": "Set_Piece_xGA_per_90",
+        "Set-Piece xG Difference p90": "Set_Piece_xG_Difference_per_90",
     },
 }
 
