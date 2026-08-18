@@ -221,3 +221,432 @@ body {
   font-size: 1rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* =================================================== */
+/* === TEAM STATISTICS — LIGHT ANALYTICS WORKSPACE  === */
+/* =================================================== */
+
+.team-stats-page {
+  --team-ink: #172b4d;
+  --team-muted: #62748a;
+  --team-accent: #087ea4;
+  --team-accent-dark: #075f7b;
+  --team-surface: #ffffff;
+  --team-border: #dce5ee;
+  min-height: 100vh;
+  color: var(--team-ink);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(0, 160, 210, 0.12), transparent 28rem),
+    linear-gradient(145deg, #e8eef5 0%, #f7f9fc 52%, #edf4f8 100%);
+}
+
+.team-stats-heading {
+  padding-top: 0.5rem;
+}
+
+.team-stats-page .team-stats-title,
+.team-stats-page .quadrant-section-title {
+  color: var(--team-ink) !important;
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+
+.team-stats-title {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.team-stats-subtitle {
+  color: var(--team-muted);
+  font-size: 1rem;
+}
+
+.team-stats-filter-bar {
+  position: relative;
+  z-index: 1200;
+  overflow: visible;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 32px rgba(31, 54, 78, 0.09);
+  backdrop-filter: blur(10px);
+}
+
+.team-stats-filter-bar:focus-within {
+  z-index: 2000;
+}
+
+.team-stats-page .season-filter-dropdown {
+  position: relative;
+  z-index: 2100;
+}
+
+.team-stats-page .league-filter-btn {
+  overflow: hidden;
+  color: var(--team-ink) !important;
+  background: #ffffff !important;
+  border-color: #cbd7e3 !important;
+  box-shadow: none !important;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.team-stats-page .league-filter-btn:hover {
+  z-index: 2;
+  transform: translateY(-2px);
+  border-color: #58a9c3 !important;
+  box-shadow: 0 7px 16px rgba(8, 126, 164, 0.14) !important;
+}
+
+.team-stats-page .league-filter-btn.active {
+  z-index: 3;
+  color: white !important;
+  background: linear-gradient(145deg, var(--team-accent), var(--team-accent-dark)) !important;
+  border-color: var(--team-accent-dark) !important;
+  box-shadow: 0 8px 18px rgba(8, 126, 164, 0.25) !important;
+}
+
+.team-stats-page .league-filter-btn.active img {
+  filter: drop-shadow(0 1px 1px rgba(255, 255, 255, 0.25));
+}
+
+.team-stats-page .season-filter-dropdown .Select-control,
+.team-stats-page .season-filter-dropdown .Select__control {
+  min-height: 46px;
+  color: var(--team-ink) !important;
+  background: #ffffff !important;
+  border: 1px solid #cbd7e3 !important;
+  border-radius: 0.65rem !important;
+  box-shadow: 0 3px 10px rgba(31, 54, 78, 0.06);
+}
+
+.team-stats-page .season-filter-dropdown.Select--single > .Select-control .Select-value,
+.team-stats-page .season-filter-dropdown.Select--single > .Select-control .Select-value .Select-value-label,
+.team-stats-page .season-filter-dropdown .Select--single > .Select-control .Select-value,
+.team-stats-page .season-filter-dropdown .Select--single > .Select-control .Select-value .Select-value-label,
+.team-stats-page .season-filter-dropdown .Select-placeholder,
+.team-stats-page .season-filter-dropdown .Select__single-value,
+.team-stats-page .season-filter-dropdown .Select__placeholder {
+  color: var(--team-ink) !important;
+  opacity: 1 !important;
+  font-weight: 650 !important;
+  line-height: 44px !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-input > input,
+.team-stats-page .season-filter-dropdown .Select__input-container,
+.team-stats-page .season-filter-dropdown .Select__input {
+  color: var(--team-ink) !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-arrow {
+  border-top-color: var(--team-accent-dark) !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-menu-outer,
+.team-stats-page .season-filter-dropdown .Select__menu {
+  color: var(--team-ink) !important;
+  background: #ffffff !important;
+  border-color: #cbd7e3 !important;
+  z-index: 2200 !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-option,
+.team-stats-page .season-filter-dropdown .Select__option {
+  color: var(--team-ink) !important;
+  background: #ffffff !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-option.is-focused,
+.team-stats-page .season-filter-dropdown .Select__option--is-focused {
+  background: #e9f5f9 !important;
+}
+
+.team-stats-page .season-filter-dropdown .Select-option.is-selected,
+.team-stats-page .season-filter-dropdown .Select__option--is-selected {
+  color: #ffffff !important;
+  background: var(--team-accent) !important;
+}
+
+.team-stats-page .back-home-btn {
+  color: var(--team-accent-dark) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: #b9cbd9 !important;
+  border-radius: 0.65rem;
+}
+
+.team-stats-page .back-home-btn:hover {
+  color: white !important;
+  background: var(--team-accent) !important;
+  border-color: var(--team-accent) !important;
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs,
+.team-stats-page .team-metric-tabs > .nav-tabs,
+.team-stats-page .team-metric-tabs .nav-tabs {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  max-width: 100%;
+  margin: 1.5rem auto 0;
+  padding: 0.38rem;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  border: 1px solid rgba(203, 215, 227, 0.92) !important;
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 10px 28px rgba(31, 54, 78, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-link,
+.team-stats-page .team-metric-tabs > .nav-tabs .nav-link,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-link {
+  min-width: 9rem;
+  color: #53677e !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 0.68rem !important;
+  padding: 0.74rem 1.2rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-link:hover,
+.team-stats-page .team-metric-tabs > .nav-tabs .nav-link:hover,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-link:hover {
+  color: var(--team-accent-dark) !important;
+  background: #eef7fa !important;
+  border-color: #c6e1ea !important;
+  transform: translateY(-1px);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-link.active,
+.team-stats-page .team-metric-tabs > .nav-tabs .nav-link.active,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-link.active {
+  color: white !important;
+  border-bottom-width: 1px !important;
+  transform: translateY(-1px);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-item:nth-child(1) .nav-link.active,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-item:nth-child(1) .nav-link.active {
+  background: linear-gradient(135deg, #e96a4a 0%, #c84b35 100%) !important;
+  border-color: #c84b35 !important;
+  box-shadow: 0 7px 18px rgba(200, 75, 53, 0.24);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-item:nth-child(2) .nav-link.active,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-item:nth-child(2) .nav-link.active {
+  background: linear-gradient(135deg, #1597c2 0%, #08749a 100%) !important;
+  border-color: #08749a !important;
+  box-shadow: 0 7px 18px rgba(8, 116, 154, 0.24);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-item:nth-child(3) .nav-link.active,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-item:nth-child(3) .nav-link.active {
+  background: linear-gradient(135deg, #2d9b70 0%, #207754 100%) !important;
+  border-color: #207754 !important;
+  box-shadow: 0 7px 18px rgba(32, 119, 84, 0.24);
+}
+
+.team-stats-page .team-metric-tabs.nav-tabs .nav-item:nth-child(4) .nav-link.active,
+.team-stats-page .team-metric-tabs .nav-tabs .nav-item:nth-child(4) .nav-link.active {
+  background: linear-gradient(135deg, #8b6bd6 0%, #6849a8 100%) !important;
+  border-color: #6849a8 !important;
+  box-shadow: 0 7px 18px rgba(104, 73, 168, 0.24);
+}
+
+.team-stats-page .metric-card {
+  overflow: hidden;
+  background: var(--team-surface) !important;
+  border: 1px solid var(--team-border) !important;
+  border-radius: 1rem;
+  box-shadow: 0 12px 30px rgba(31, 54, 78, 0.09);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.team-stats-page .metric-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 17px 38px rgba(31, 54, 78, 0.14);
+}
+
+.team-stats-page .metric-card > .metric-card-header {
+  padding: 1rem 1.1rem;
+  color: white !important;
+  background: linear-gradient(135deg, #087ea4 0%, #0b6685 100%) !important;
+  border: 0;
+}
+
+.team-stats-page .metric-card > .metric-card-header h5 {
+  color: white !important;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.team-stats-page .metric-card .team-ranking-item {
+  color: var(--team-ink) !important;
+  background: #ffffff !important;
+  border-color: #e7edf3 !important;
+}
+
+.team-stats-page .metric-card .team-ranking-item:hover {
+  background: #f4f8fb !important;
+}
+
+.team-stats-page .metric-card .ranking-winner {
+  background: linear-gradient(90deg, #edf8fb 0%, #ffffff 76%) !important;
+  box-shadow: inset 4px 0 0 #f5b51b;
+}
+
+.team-stats-page .team-ranking-name {
+  color: var(--team-ink) !important;
+}
+
+.team-stats-page .team-ranking-name:hover {
+  color: var(--team-accent) !important;
+}
+
+.team-stats-page .team-ranking-league {
+  color: var(--team-muted) !important;
+}
+
+.team-stats-page .team-ranking-value {
+  color: var(--team-accent-dark) !important;
+  white-space: nowrap;
+}
+
+.team-stats-page .quadrant-section {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 1.1rem;
+  box-shadow: 0 14px 36px rgba(31, 54, 78, 0.1);
+}
+
+.team-stats-page .quadrant-graph {
+  overflow: hidden;
+  border: 1px solid var(--team-border);
+  border-radius: 0.9rem;
+  background: white;
+}
+
+.team-stats-page .quadrant-guide-intro {
+  margin: 0 0 0.9rem;
+  padding: 0.8rem 1rem;
+  color: #40556d;
+  background: #eef5fa;
+  border: 1px solid #d5e4ef;
+  border-radius: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.team-stats-page .quadrant-guide-card {
+  height: 100%;
+  min-height: 9.5rem;
+  padding: 1rem;
+  color: var(--team-ink);
+  background: #ffffff;
+  border: 1px solid var(--team-border);
+  border-top-width: 4px;
+  border-radius: 0.85rem;
+  box-shadow: 0 7px 18px rgba(31, 54, 78, 0.06);
+}
+
+.team-stats-page .quadrant-guide-card.top_right {
+  border-top-color: #2ca02c;
+  background: linear-gradient(180deg, rgba(44, 160, 44, 0.08), #ffffff 44%);
+}
+
+.team-stats-page .quadrant-guide-card.bottom_right {
+  border-top-color: #e0ad00;
+  background: linear-gradient(180deg, rgba(241, 196, 15, 0.1), #ffffff 44%);
+}
+
+.team-stats-page .quadrant-guide-card.bottom_left {
+  border-top-color: #d62728;
+  background: linear-gradient(180deg, rgba(214, 39, 40, 0.07), #ffffff 44%);
+}
+
+.team-stats-page .quadrant-guide-card.top_left {
+  border-top-color: #3498db;
+  background: linear-gradient(180deg, rgba(52, 152, 219, 0.08), #ffffff 44%);
+}
+
+.team-stats-page .quadrant-guide-swatch {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 0.72rem;
+  border-radius: 50%;
+}
+
+.team-stats-page .quadrant-guide-swatch.top_right { background: #2ca02c; }
+.team-stats-page .quadrant-guide-swatch.bottom_right { background: #e0ad00; }
+.team-stats-page .quadrant-guide-swatch.bottom_left { background: #d62728; }
+.team-stats-page .quadrant-guide-swatch.top_left { background: #3498db; }
+
+.team-stats-page .quadrant-guide-position {
+  color: var(--team-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.team-stats-page .quadrant-guide-title {
+  display: block;
+  margin: 0 0 0.55rem;
+  padding: 0.48rem 0.62rem;
+  color: #ffffff !important;
+  background: #172b4d !important;
+  border: 1px solid #0f2038;
+  border-radius: 0.48rem;
+  box-shadow: 0 3px 8px rgba(23, 43, 77, 0.16);
+  font-size: 0.96rem;
+  font-weight: 800;
+  line-height: 1.25;
+  opacity: 1 !important;
+  text-shadow: none !important;
+}
+
+.team-stats-page .quadrant-guide-description {
+  color: #53677e;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 767.98px) {
+  .team-stats-filter-bar {
+    width: 100%;
+  }
+
+  .team-stats-page .league-filter-col,
+  .team-stats-page .season-filter-dropdown {
+    width: 100% !important;
+  }
+
+  .team-stats-page #league-filter-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .team-stats-page .team-metric-tabs.nav-tabs,
+  .team-stats-page .team-metric-tabs > .nav-tabs,
+  .team-stats-page .team-metric-tabs .nav-tabs {
+    width: 100%;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .team-stats-page .team-metric-tabs.nav-tabs .nav-link,
+  .team-stats-page .team-metric-tabs > .nav-tabs .nav-link,
+  .team-stats-page .team-metric-tabs .nav-tabs .nav-link {
+    min-width: 8.4rem;
+  }
+}
