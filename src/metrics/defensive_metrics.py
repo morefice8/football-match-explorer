@@ -8,6 +8,12 @@ DEFAULT_DEFENSIVE_TYPES = [
     'Clearance', 'Error', 'Foul', 'Interception', 'Tackle'
 ]
 
+PPDA_ACTION_TYPES = {
+    'tackle', 'challenge', 'interception', 'blocked pass', 'foul'
+}
+PPDA_PASS_ZONE_THRESHOLD = 60.0
+PPDA_DEFENSIVE_ZONE_THRESHOLD = 40.0
+
 def get_defensive_actions(df_processed, defensive_action_types=None):
     """
     Filters the DataFrame for relevant defensive actions, allowing dynamic selection.
@@ -249,93 +255,267 @@ def get_defensive_block_data(df_processed, team_name):
     return df_def_actions, df_player_agg
 
 
-def calculate_ppda_data(df_processed, team_name, opponent_name, zone_threshold=40.0):
-    """
-    Calcola il PPDA e restituisce i dati per la visualizzazione.
-    - Tackle e Challenge sono in formato "successi/totale".
-    - Interception, Blocked Pass e Foul sono mostrati come conteggio totale.
-    """
-    # Azioni che hanno un esito variabile (successo/fallimento)
-    ACTIONS_WITH_OUTCOME = ['Tackle', 'Challenge']
-    # Azioni che per natura sono "riuscite" o di cui contiamo solo il totale
-    ACTIONS_AS_COUNT = ['Interception', 'Blocked Pass', 'Foul']
-    
-    # Filtro per le azioni con esito
-    base_actions_filter = (
-        (df_processed['team_name'] == team_name) &
-        (df_processed['type_name'].isin(ACTIONS_WITH_OUTCOME)) &
-        (df_processed['x'] >= zone_threshold)
-    )
-    
-    # Filtro per le azioni da contare
-    count_actions_filter = (
-        (df_processed['team_name'] == team_name) &
-        (df_processed['type_name'].isin(ACTIONS_AS_COUNT)) &
-        # Per i falli, contiamo solo quelli commessi (Unsuccessful)
-        (~((df_processed['type_name'] == 'Foul') & (df_processed['outcome'] == 'Successful'))) &
-        (df_processed['x'] >= zone_threshold)
-    )
-    
-    defensive_actions_filter = base_actions_filter | count_actions_filter
-    df_defensive_actions = df_processed[defensive_actions_filter].copy()
-    num_defensive_actions = len(df_defensive_actions)
+def _truthy_qualifier(value):
+    """Return True for Opta flag qualifiers without treating zero/NaN as flags."""
+    if pd.isna(value):
+        return False
+    return str(value).strip().lower() not in {'', '0', '0.0', 'false', 'nan', 'none'}
 
-    # ... (logica per opponent_passes e ppda_value invariata) ...
+
+def _ppda_snapshot(
+    df_processed,
+    team_name,
+    opponent_name,
+    row_mask=None,
+    pass_zone_threshold=PPDA_PASS_ZONE_THRESHOLD,
+    defensive_zone_threshold=PPDA_DEFENSIVE_ZONE_THRESHOLD,
+):
+    """Calculate one PPDA sample and retain its numerator/denominator events."""
+    if df_processed is None or df_processed.empty:
+        return {
+            'ppda': float('inf'),
+            'opponent_passes': 0,
+            'defensive_actions': 0,
+            'df_opponent_passes': pd.DataFrame(),
+            'df_defensive_actions': pd.DataFrame(),
+        }
+
+    df = df_processed.copy()
+    if row_mask is not None:
+        aligned_mask = pd.Series(row_mask, index=df_processed.index).fillna(False).astype(bool)
+        df = df.loc[aligned_mask].copy()
+
+    x_numeric = pd.to_numeric(df.get('x'), errors='coerce')
+    type_normalized = df.get('type_name', pd.Series('', index=df.index)).fillna('').astype(str).str.strip().str.lower()
+    outcome_normalized = df.get('outcome', pd.Series('', index=df.index)).fillna('').astype(str).str.strip().str.lower()
+
+    # Numerator: passes attempted by the opponent while building in its first 60%.
     opponent_passes_filter = (
-        (df_processed['team_name'] == opponent_name) &
-        (df_processed['type_name'] == 'Pass') &
-        (df_processed['x'] >= zone_threshold)
+        (df.get('team_name') == opponent_name)
+        & (type_normalized == 'pass')
+        & (x_numeric < float(pass_zone_threshold))
     )
-    df_opponent_passes = df_processed[opponent_passes_filter]
-    num_opponent_passes = len(df_opponent_passes)
-    ppda_value = (num_opponent_passes / num_defensive_actions) if num_defensive_actions > 0 else float('inf')
 
-    df_player_stats = pd.DataFrame()
-    if not df_defensive_actions.empty:
-        df_defensive_actions['successful_action'] = (df_defensive_actions['outcome'] == 'Successful').astype(int)
-        
-        pivot = df_defensive_actions.pivot_table(
-            index=['playerName', 'Mapped Jersey Number'],
-            columns='type_name',
-            values='successful_action',
-            aggfunc=['sum', 'count'],
-            fill_value=0
-        )
-        pivot.columns = [f'{level1}_{level0}' for level0, level1 in pivot.columns]
-        
-        # --- START: LOGICA DI FORMATTAZIONE SEPARATA ---
-        # Azioni con formato "success/total"
-        for action_type in ACTIONS_WITH_OUTCOME:
-            sum_col, count_col = f'{action_type}_sum', f'{action_type}_count'
-            if sum_col in pivot.columns and count_col in pivot.columns:
-                pivot[action_type] = pivot.apply(lambda row: f"{int(row[sum_col])}/{int(row[count_col])}", axis=1)
-            else:
-                pivot[action_type] = "0/0"
-        
-        # Azioni con formato "conteggio totale"
-        for action_type in ACTIONS_AS_COUNT:
-            count_col = f'{action_type}_count'
-            if count_col in pivot.columns:
-                pivot[action_type] = pivot[count_col]
-            else:
-                pivot[action_type] = 0
-        # --- END: LOGICA DI FORMATTAZIONE SEPARATA ---
+    # Denominator: pressing actions made by the team in the corresponding zone.
+    defensive_actions_filter = (
+        (df.get('team_name') == team_name)
+        & type_normalized.isin(PPDA_ACTION_TYPES)
+        & (x_numeric >= float(defensive_zone_threshold))
+    )
+    # Opta logs committed fouls as unsuccessful and fouls suffered as successful.
+    defensive_actions_filter &= ~((type_normalized == 'foul') & (outcome_normalized == 'successful'))
 
-        pivot['Total_Actions'] = pivot.filter(regex='_count$').sum(axis=1)
-        pivot['Successful_Actions'] = pivot.filter(regex='_sum$').sum(axis=1)
-        pivot['Success Rate'] = (pivot['Successful_Actions'] / pivot['Total_Actions'] * 100).round(1).fillna(0)
-        
-        df_player_stats = pivot.reset_index()
-        df_player_stats['Player'] = "#" + df_player_stats['Mapped Jersey Number'].astype(int).astype(str) + " - " + df_player_stats['playerName']
-        
-        df_player_stats = df_player_stats.rename(columns={
-            "Total_Actions": "Tot", "Successful_Actions": "Succ", "Success Rate": "Succ %",
-            "Tackle": "Tkl", "Interception": "Int", "Blocked Pass": "Blk", "Challenge": "Chl", "Foul": "Fls"
+    df_opponent_passes = df.loc[opponent_passes_filter].copy()
+    df_defensive_actions = df.loc[defensive_actions_filter].copy()
+    num_passes = len(df_opponent_passes)
+    num_actions = len(df_defensive_actions)
+
+    return {
+        'ppda': num_passes / num_actions if num_actions else float('inf'),
+        'opponent_passes': num_passes,
+        'defensive_actions': num_actions,
+        'df_opponent_passes': df_opponent_passes,
+        'df_defensive_actions': df_defensive_actions,
+    }
+
+
+def _build_ppda_player_stats(df_defensive_actions):
+    """Create an interpretable action-count table without a synthetic success rate."""
+    columns = ['Player', 'Actions', 'Tackles', 'Interceptions', 'Challenges', 'Blocks', 'Fouls']
+    if df_defensive_actions is None or df_defensive_actions.empty:
+        return pd.DataFrame(columns=columns)
+
+    actions = df_defensive_actions.copy()
+    actions['_action'] = actions['type_name'].fillna('').astype(str).str.strip().str.lower()
+    actions['_count'] = 1
+
+    index_cols = ['playerName']
+    if 'Mapped Jersey Number' in actions.columns:
+        index_cols.append('Mapped Jersey Number')
+
+    pivot = actions.pivot_table(
+        index=index_cols,
+        columns='_action',
+        values='_count',
+        aggfunc='sum',
+        fill_value=0,
+    ).reset_index()
+
+    for action in PPDA_ACTION_TYPES:
+        if action not in pivot.columns:
+            pivot[action] = 0
+
+    def player_label(row):
+        jersey = row.get('Mapped Jersey Number')
+        if pd.notna(jersey):
+            try:
+                return f"#{int(float(jersey))} - {row.get('playerName', 'Unknown')}"
+            except (TypeError, ValueError):
+                pass
+        return str(row.get('playerName', 'Unknown'))
+
+    pivot['Player'] = pivot.apply(player_label, axis=1)
+    pivot['Actions'] = pivot[list(PPDA_ACTION_TYPES)].sum(axis=1).astype(int)
+    pivot = pivot.rename(columns={
+        'tackle': 'Tackles',
+        'interception': 'Interceptions',
+        'challenge': 'Challenges',
+        'blocked pass': 'Blocks',
+        'foul': 'Fouls',
+    })
+    return pivot[columns].sort_values(['Actions', 'Player'], ascending=[False, True]).reset_index(drop=True)
+
+
+def calculate_ppda_data(
+    df_processed,
+    team_name,
+    opponent_name,
+    pass_zone_threshold=PPDA_PASS_ZONE_THRESHOLD,
+    defensive_zone_threshold=PPDA_DEFENSIVE_ZONE_THRESHOLD,
+):
+    """
+    Calculate full-match PPDA.
+
+    PPDA = opponent passes starting in its first 60% / pressing actions by the
+    defending team from x=40 onward. All coordinates are expected to be
+    normalised so that each team attacks from left to right.
+
+    The four-item return value is kept for compatibility with existing callers.
+    """
+    snapshot = _ppda_snapshot(
+        df_processed,
+        team_name,
+        opponent_name,
+        pass_zone_threshold=pass_zone_threshold,
+        defensive_zone_threshold=defensive_zone_threshold,
+    )
+    player_stats = _build_ppda_player_stats(snapshot['df_defensive_actions'])
+    return (
+        snapshot['ppda'],
+        snapshot['df_defensive_actions'],
+        snapshot['df_opponent_passes'],
+        player_stats,
+    )
+
+
+def calculate_ppda_profile(
+    df_processed,
+    team_name,
+    opponent_name,
+    pass_zone_threshold=PPDA_PASS_ZONE_THRESHOLD,
+    defensive_zone_threshold=PPDA_DEFENSIVE_ZONE_THRESHOLD,
+    interval_minutes=15,
+):
+    """Return full-match, half-by-half and fixed-interval PPDA information."""
+    df = df_processed.copy()
+    time_min = pd.to_numeric(df.get('timeMin'), errors='coerce')
+    period_id = pd.to_numeric(df.get('periodId'), errors='coerce') if 'periodId' in df.columns else None
+
+    if period_id is not None and period_id.notna().any():
+        first_half_mask = period_id == 1
+        second_half_mask = period_id == 2
+    else:
+        first_half_mask = time_min < 45
+        second_half_mask = time_min >= 45
+
+    overall = _ppda_snapshot(
+        df, team_name, opponent_name,
+        pass_zone_threshold=pass_zone_threshold,
+        defensive_zone_threshold=defensive_zone_threshold,
+    )
+    first_half = _ppda_snapshot(
+        df, team_name, opponent_name, first_half_mask,
+        pass_zone_threshold, defensive_zone_threshold,
+    )
+    second_half = _ppda_snapshot(
+        df, team_name, opponent_name, second_half_mask,
+        pass_zone_threshold, defensive_zone_threshold,
+    )
+
+    timeline_rows = []
+    period_specs = [
+        ('1H', first_half_mask, 0.0, max(45.0, float(time_min[first_half_mask].max()) if first_half_mask.any() else 45.0)),
+        ('2H', second_half_mask, 45.0, max(90.0, float(time_min[second_half_mask].max()) if second_half_mask.any() else 90.0)),
+    ]
+
+    for period_label, base_mask, period_start, period_end in period_specs:
+        interval_starts = list(np.arange(period_start, period_start + 3 * interval_minutes, interval_minutes))
+        for interval_index, interval_start in enumerate(interval_starts):
+            nominal_end = interval_start + interval_minutes
+            interval_end = period_end if interval_index == len(interval_starts) - 1 else nominal_end
+            if interval_index == len(interval_starts) - 1:
+                interval_mask = base_mask & (time_min >= interval_start) & (time_min <= interval_end)
+            else:
+                interval_mask = base_mask & (time_min >= interval_start) & (time_min < interval_end)
+            snapshot = _ppda_snapshot(
+                df, team_name, opponent_name, interval_mask,
+                pass_zone_threshold, defensive_zone_threshold,
+            )
+            raw_ppda = snapshot['ppda']
+            pressure_rate = (
+                snapshot['defensive_actions'] / snapshot['opponent_passes'] * 100
+                if snapshot['opponent_passes'] > 0
+                else 0.0
+            )
+            timeline_rows.append({
+                'team_name': team_name,
+                'period': period_label,
+                'interval_label': f"{interval_start:.0f}'–{nominal_end:.0f}'",
+                'window_start': round(interval_start, 1),
+                'window_end': round(interval_end, 1),
+                'minute': round(interval_start + interval_minutes / 2, 1),
+                'ppda': raw_ppda,
+                'pressure_rate': pressure_rate,
+                'opponent_passes': snapshot['opponent_passes'],
+                'defensive_actions': snapshot['defensive_actions'],
+                'low_sample': snapshot['defensive_actions'] < 2,
+            })
+
+    return {
+        'team_name': team_name,
+        'opponent_name': opponent_name,
+        'pass_zone_threshold': float(pass_zone_threshold),
+        'defensive_zone_threshold': float(defensive_zone_threshold),
+        'interval_minutes': int(interval_minutes),
+        'overall': overall,
+        'first_half': first_half,
+        'second_half': second_half,
+        'timeline': pd.DataFrame(timeline_rows),
+        'player_stats': _build_ppda_player_stats(overall['df_defensive_actions']),
+    }
+
+
+def extract_ppda_key_events(df_processed):
+    """Extract goals and dismissals to contextualise the PPDA timeline."""
+    columns = ['minute', 'event_type', 'team_name', 'playerName', 'label']
+    if df_processed is None or df_processed.empty:
+        return pd.DataFrame(columns=columns)
+
+    df = df_processed.copy()
+    type_id = pd.to_numeric(df.get('typeId'), errors='coerce')
+    type_name = df.get('type_name', pd.Series('', index=df.index)).fillna('').astype(str).str.lower()
+    goal_mask = (type_id == 16) | (type_name == 'goal')
+
+    dismissal_mask = pd.Series(False, index=df.index)
+    for column in ('Red card', 'Second yellow'):
+        if column in df.columns:
+            dismissal_mask |= df[column].map(_truthy_qualifier)
+    dismissal_mask &= (type_id == 17) | (type_name == 'card')
+
+    events = []
+    for _, row in df.loc[goal_mask | dismissal_mask].sort_values(['timeMin', 'timeSec']).iterrows():
+        minute = pd.to_numeric(pd.Series([row.get('timeMin')]), errors='coerce').iloc[0]
+        if pd.isna(minute):
+            continue
+        is_goal = bool(goal_mask.loc[row.name])
+        event_type = 'goal' if is_goal else 'red_card'
+        player = row.get('playerName') or 'Unknown player'
+        team = row.get('team_name') or 'Unknown team'
+        events.append({
+            'minute': float(minute),
+            'event_type': event_type,
+            'team_name': team,
+            'playerName': player,
+            'label': f"Goal · {player} ({team})" if is_goal else f"Red card · {player} ({team})",
         })
-        
-        final_cols = ['Player', 'Tot', 'Succ', 'Succ %', 'Tkl', 'Int', 'Blk', 'Chl', 'Fls']
-        final_cols_exist = [col for col in final_cols if col in df_player_stats.columns]
-        
-        df_player_stats = df_player_stats[final_cols_exist].sort_values(by='Tot', ascending=False)
-
-    return ppda_value, df_defensive_actions, df_opponent_passes, df_player_stats
+    return pd.DataFrame(events, columns=columns)

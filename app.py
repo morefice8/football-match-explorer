@@ -137,11 +137,33 @@ def get_team_logo_src_by_code(team_short_code):
     logo_filename = f"{LOGO_PREFIX}{str(team_short_code).upper()}{LOGO_EXTENSION}"
     return f"/assets/logos/{logo_filename}"
 
-def get_comment_key(pathname, plot_identifier):
-    if pathname and pathname.startswith("/match/"):
-        match_id = pathname.split("/")[-1]
-        if match_id: return f"comments_{match_id}_{plot_identifier}"
-    return None
+def match_section_header(title, description, icon, eyebrow="MATCH MODULE", actions=None):
+    """Shared editorial header used by every Match Analysis module."""
+    return dash_html.Div([
+        dash_html.Div([
+            dash_html.Div([
+                dash_html.I(className=f"{icon} match-module-heading-icon"),
+                dash_html.Div([
+                    dash_html.Span(eyebrow, className="match-module-eyebrow"),
+                    dash_html.H2(title, className="match-module-title"),
+                    dash_html.P(description, className="match-module-description"),
+                ]),
+            ], className="match-module-heading-copy"),
+            dash_html.Div(actions, className="match-module-heading-actions") if actions else None,
+        ], className="match-module-heading-row")
+    ], className="match-module-heading")
+
+
+def match_kpi_card(icon, label, value, note=None, accent="blue"):
+    """Small, reusable KPI card for the match workspace."""
+    return dash_html.Div([
+        dash_html.Div(dash_html.I(className=icon), className=f"match-kpi-icon match-kpi-icon--{accent}"),
+        dash_html.Div([
+            dash_html.Span(label, className="match-kpi-label"),
+            dash_html.Strong(value, className="match-kpi-value"),
+            dash_html.Small(note, className="match-kpi-note") if note else None,
+        ], className="match-kpi-copy")
+    ], className="match-kpi-card")
 
 # -----------------------------------------------------------------------------
 # CALLBACKS DI ROUTING E CARICAMENTO DATI
@@ -599,8 +621,7 @@ def render_match_tab_content(search_query, stored_data_json):
     # print(f"Rendering tab: {active_tab}") # Moved this print after active_tab is definitely set
 
     if active_tab == "overview":
-        # ... (rest of your overview logic)
-        if not stored_data_json: # This check is a bit redundant if already done above
+        if not stored_data_json:
             return dash_html.P("⚠ No data in store for overview.", style={"color": "orange"})
         try:
             df_json_str = stored_data_json.get('df')
@@ -608,36 +629,116 @@ def render_match_tab_content(search_query, stored_data_json):
             df = pd.read_json(io.StringIO(df_json_str), orient='split')
             if df.empty: return dash_html.P("⚠ The DataFrame is empty.", style={"color": "orange"})
 
+            match_info = json.loads(stored_data_json.get('match_info', '{}'))
+            home_name = match_info.get('hteamName', 'Home')
+            away_name = match_info.get('ateamName', 'Away')
+            home_score = match_info.get('home_score', 0)
+            away_score = match_info.get('away_score', 0)
+
+            event_names = df.get('type_name', pd.Series(index=df.index, dtype='object'))
+            teams = df.get('team_name', pd.Series(index=df.index, dtype='object'))
+            shot_names = ['Goal', 'Miss', 'Attempt Saved', 'Post']
+            home_passes = int(((teams == home_name) & (event_names == 'Pass')).sum())
+            away_passes = int(((teams == away_name) & (event_names == 'Pass')).sum())
+            home_shots = int(((teams == home_name) & event_names.isin(shot_names)).sum())
+            away_shots = int(((teams == away_name) & event_names.isin(shot_names)).sum())
+            home_recoveries = int(((teams == home_name) & (event_names == 'Ball recovery')).sum())
+            away_recoveries = int(((teams == away_name) & (event_names == 'Ball recovery')).sum())
+
+            column_labels = {
+                'timeMin': 'Min', 'timeSec': 'Sec', 'team_name': 'Team',
+                'playerName': 'Player', 'type_name': 'Event', 'outcome': 'Outcome',
+                'x': 'Start X', 'y': 'Start Y', 'end_x': 'End X', 'end_y': 'End Y',
+                'Mapped Jersey Number': '#', 'positional_role': 'Role',
+            }
+            visible_columns = [column for column in column_labels if column in df.columns]
+            table_df = df[visible_columns].copy()
+
             datatable_component = dash_table.DataTable(
-                id='overview-datatable',  
-                data=df.to_dict("records"), 
-                columns=[{"name": i, "id": i} for i in df.columns],
-                page_size=15,
-                filter_action="native", 
-                sort_action="native",   
-                style_table={"overflowX": "scroll", "maxWidth":"100%"},
-                style_cell={"backgroundColor": "#343A40", "color": "white", "textAlign": "left", 
-                            "minWidth": "120px", "maxWidth":"250px", "whiteSpace":"normal", "border": "1px solid #454D55"},
-                style_header={"backgroundColor": "#454D55", "color": "white", "fontWeight": "bold", "borderBottom": "2px solid #6C757D"}
+                id='overview-datatable',
+                data=table_df.to_dict("records"),
+                columns=[{"name": column_labels[column], "id": column} for column in visible_columns],
+                page_size=20,
+                filter_action="native",
+                filter_options={"case": "insensitive"},
+                sort_action="native",
+                sort_mode="multi",
+                page_action="native",
+                fixed_rows={'headers': True},
+                style_table={"overflowX": "auto", "maxWidth": "100%", "maxHeight": "640px"},
+                style_cell={
+                    "backgroundColor": "#ffffff", "color": "#233b53", "textAlign": "left",
+                    "minWidth": "74px", "maxWidth": "180px", "whiteSpace": "normal",
+                    "border": "0", "borderBottom": "1px solid #e7eef3",
+                    "fontFamily": "Inter, Arial, sans-serif", "fontSize": "12px", "padding": "11px 10px",
+                },
+                style_cell_conditional=[
+                    {'if': {'column_id': 'timeMin'}, 'width': '54px', 'textAlign': 'center'},
+                    {'if': {'column_id': 'timeSec'}, 'width': '54px', 'textAlign': 'center'},
+                    {'if': {'column_id': 'Mapped Jersey Number'}, 'width': '44px', 'textAlign': 'center'},
+                    {'if': {'column_id': 'playerName'}, 'minWidth': '145px'},
+                    {'if': {'column_id': 'type_name'}, 'minWidth': '125px'},
+                ],
+                style_header={
+                    "backgroundColor": "#f5f9fb", "color": "#526b7d", "fontWeight": "800",
+                    "border": "0", "borderBottom": "1px solid #dbe7ed", "padding": "12px 10px",
+                    "fontSize": "10px", "textTransform": "uppercase", "letterSpacing": ".06em",
+                },
+                style_data_conditional=[
+                    {'if': {'filter_query': '{outcome} = "Successful"', 'column_id': 'outcome'}, 'color': '#17805f', 'fontWeight': '700'},
+                    {'if': {'filter_query': '{outcome} = "Unsuccessful"', 'column_id': 'outcome'}, 'color': '#c75147', 'fontWeight': '700'},
+                    {'if': {'state': 'active'}, 'backgroundColor': '#edf8fb', 'border': '1px solid #7bc9db'},
+                ],
             )
 
             return dash_html.Div([
-                dbc.Row([
-                    dbc.Col(dash_html.H4("Match Events Overview", className="text-white mb-3"), width='auto'),
-                    dbc.Col(dbc.Button([dash_html.I(className="fas fa-download me-2"), "Download Full CSV"], id="btn-download-csv", color="info", size="sm"), width='auto', className="ms-auto")
-                ], align="center"),
-                
-                dash_html.P(f"Displaying all {df.shape[0]} events:", className="text-muted small"),
-                datatable_component,
-                dcc.Download(id="download-dataframe-csv"), # Componente per gestire il download
-            ], className="p-3")
+                match_section_header(
+                    "Match overview",
+                    "A compact summary of the game and a searchable view of the underlying event feed.",
+                    "fa-solid fa-chart-simple",
+                    eyebrow="GAME STATE",
+                    actions=[dbc.Button(
+                        [dash_html.I(className="fas fa-download me-2"), "Download full CSV"],
+                        id="btn-download-csv", className="match-action-button", size="sm"
+                    )],
+                ),
+                dash_html.Div([
+                    match_kpi_card("fa-solid fa-futbol", "Final score", f"{home_score} – {away_score}", f"{home_name} vs {away_name}", "coral"),
+                    match_kpi_card("fa-solid fa-arrow-right-arrow-left", "Passes", f"{home_passes} – {away_passes}", "Home – Away", "blue"),
+                    match_kpi_card("fa-solid fa-bullseye", "Shots", f"{home_shots} – {away_shots}", "Home – Away", "gold"),
+                    match_kpi_card("fa-solid fa-rotate", "Ball recoveries", f"{home_recoveries} – {away_recoveries}", "Home – Away", "green"),
+                ], className="match-kpi-grid"),
+                dash_html.Section([
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span("EVENT FEED", className="match-panel-eyebrow"),
+                            dash_html.H3("Event explorer", className="match-panel-title"),
+                            dash_html.P(
+                                f"{df.shape[0]:,} processed events. Filter any column or combine multiple sorts.",
+                                className="match-panel-description",
+                            ),
+                        ]),
+                        dash_html.Div([
+                            dash_html.I(className="fa-solid fa-circle-info"),
+                            dash_html.Span("The CSV download retains every technical field."),
+                        ], className="match-panel-hint"),
+                    ], className="match-panel-header"),
+                    dash_html.Div(datatable_component, className="match-event-table"),
+                ], className="match-panel"),
+                dcc.Download(id="download-dataframe-csv"),
+            ], className="match-module match-overview-module")
             
         except Exception as e:
             return dbc.Alert(f"Error loading overview: {e}", color="danger")
 
     elif active_tab == "formation":            
             return dash_html.Div([
-                dash_html.H4("Formation & Shape Analysis", className="text-white mb-3"),
+                match_section_header(
+                    "Formation & shape",
+                    "Compare the starting structures, tactical changes and territorial occupation of both teams.",
+                    "fa-solid fa-people-group",
+                    eyebrow="TEAM STRUCTURE",
+                ),
                 dbc.Tabs(
                     id="formation-primary-tabs", # Un ID per questo gruppo di tab
                     active_tab="formation_timeline", # La tab predefinita
@@ -645,18 +746,23 @@ def render_match_tab_content(search_query, stored_data_json):
                         dbc.Tab(label="Formation Timeline", tab_id="formation_timeline"),
                         dbc.Tab(label="Mean Positions", tab_id="mean_positions")
                     ],
-                    className="mt-3"
+                    className="match-analysis-tabs"
                 ),
                 # Un contenitore vuoto che verrà riempito dal callback sottostante
                 dcc.Loading(
                     type="circle",
                     children=dash_html.Div(id="formation-tab-content")
                 )
-            ], className="p-3")
+            ], className="match-module")
     
     elif active_tab == "passes":
         passes_content = dash_html.Div([
-            dash_html.H4("Passing Analysis", style={"color": "white"}, className="mb-3"),
+            match_section_header(
+                "Passing analysis",
+                "Explore connections, progression, territorial access and delivery patterns.",
+                "fa-solid fa-arrow-right-arrow-left",
+                eyebrow="IN POSSESSION",
+            ),
             dbc.Tabs(
                 id="passes-nested-tabs",
                 active_tab="pass_network",
@@ -718,15 +824,20 @@ def render_match_tab_content(search_query, stored_data_json):
                         dash_html.Div(id="crosses-content-wrapper")
                     ]),
                 ],
-                className="mt-3"
+                className="match-analysis-tabs"
             )
-        ], className="p-3")
+        ], className="match-module")
         return passes_content
 
     elif active_tab == "player_analysis":
         print("--- render_match_tab_content: RENDERING NEW 'player_analysis' PRIMARY TAB STRUCTURE ---")
         return dash_html.Div([
-            dash_html.H4("Player Analysis", style={"color": "white"}, className="mb-3"),
+            match_section_header(
+                "Player analysis",
+                "Identify the main individual contributors in possession, shooting and defending.",
+                "fa-solid fa-user-group",
+                eyebrow="INDIVIDUAL PERFORMANCE",
+            ),
             
             # 1. The new PRIMARY tabs
             dbc.Tabs(
@@ -737,16 +848,21 @@ def render_match_tab_content(search_query, stored_data_json):
                     dbc.Tab(label="Shooting Analysis", tab_id="pa_primary_shooting"),
                     dbc.Tab(label="Defending Analysis", tab_id="pa_primary_defending"),
                 ],
-                className="mt-3"
+                className="match-analysis-tabs"
             ),
             
             # 2. A single content area that will be filled by our new "router" callback
             dcc.Loading(type="circle", children=dash_html.Div(id="player-analysis-primary-tab-content"))
-        ], className="p-3")
+        ], className="match-module")
     
     elif active_tab == "buildup":
         return dash_html.Div([
-             dash_html.H4("Buildup Analysis", style={"color": "white"}, className="mb-3"),
+             match_section_header(
+                 "Buildup analysis",
+                 "Review how each team progresses from the first phase and where its possessions break down.",
+                 "fa-solid fa-diagram-project",
+                 eyebrow="FIRST PHASE",
+             ),
              # Primary tabs for Home/Away
              dbc.Tabs(
                  id="buildup-primary-tabs",
@@ -755,18 +871,23 @@ def render_match_tab_content(search_query, stored_data_json):
                      dbc.Tab(label="Home Team Buildups", tab_id="buildup_home"),
                      dbc.Tab(label="Away Team Buildups", tab_id="buildup_away"),
                  ],
-                 className="mt-3"
+                 className="match-analysis-tabs"
              ),
              # A single content area to be filled by the new callback
              dcc.Loading(
                  type="circle",
                  children=dash_html.Div(id="buildup-tab-content")
              )
-        ], className="p-3")
+        ], className="match-module")
     
     elif active_tab == "defensive-transition":
         return dash_html.Div([
-            dash_html.H4("Defensive Transition Analysis", style={"color": "white"}, className="mb-3"),
+            match_section_header(
+                "Defending & transition",
+                "Assess defensive height, pressure and the response immediately after losing possession.",
+                "fa-solid fa-shield-halved",
+                eyebrow="OUT OF POSSESSION",
+            ),
             dbc.Tabs(
                 id="def-transition-primary-tabs",
                 active_tab="def_shape",
@@ -777,17 +898,22 @@ def render_match_tab_content(search_query, stored_data_json):
                     dbc.Tab(label="Home Defensive Transitions", tab_id="def_transitions_home"),
                     dbc.Tab(label="Away Defensive Transitions", tab_id="def_transitions_away"),
                  ],
-                 className="mt-3"
+                 className="match-analysis-tabs"
             ),
             dcc.Loading(
                  type="circle",
                  children=dash_html.Div(id="def-transition-tab-content")
              )
-        ], className="p-3")
+        ], className="match-module")
     
     elif active_tab == "offensive-transition":
         return dash_html.Div([
-            dash_html.H4("Offensive Transition Analysis", style={"color": "white"}, className="mb-3"),
+            match_section_header(
+                "Offensive transition",
+                "Explore the speed, direction and outcome of attacks launched after regaining possession.",
+                "fa-solid fa-bolt",
+                eyebrow="CHANGE OF POSSESSION",
+            ),
             dbc.Tabs(
                 id="off-transition-primary-tabs",
                 active_tab="off_transitions_home",
@@ -795,17 +921,22 @@ def render_match_tab_content(search_query, stored_data_json):
                      dbc.Tab(label="Home Offensive Transitions", tab_id="off_transitions_home"),
                      dbc.Tab(label="Away Offensive Transitions", tab_id="off_transitions_away"),
                  ],
-                 className="mt-3"
+                 className="match-analysis-tabs"
             ),
             dcc.Loading(
                  type="circle",
                  children=dash_html.Div(id="off-transition-tab-content")
              )
-        ], className="p-3")
+        ], className="match-module")
     
     elif active_tab == "set-piece":
         return dash_html.Div([
-            dash_html.H4("Set Piece Analysis", style={"color": "white"}, className="mb-3"),
+            match_section_header(
+                "Set-piece analysis",
+                "Inspect deliveries, target zones and the attacking outcome of dead-ball situations.",
+                "fa-solid fa-flag",
+                eyebrow="RESTARTS",
+            ),
             dbc.Tabs(
                 id="set-piece-primary-tabs",
                 active_tab="set_piece_home",
@@ -813,13 +944,13 @@ def render_match_tab_content(search_query, stored_data_json):
                      dbc.Tab(label="Home Set Pieces", tab_id="set_piece_home"),
                      dbc.Tab(label="Away Set Pieces", tab_id="set_piece_away"),
                  ],
-                 className="mt-3"
+                 className="match-analysis-tabs"
             ),
             dcc.Loading(
                  type="circle",
                  children=dash_html.Div(id="set-piece-tab-content")
              )
-        ], className="p-3")
+        ], className="match-module")
 
 ### Formaion Tab Content Callbacks
 @app.callback(
@@ -891,7 +1022,15 @@ def render_formation_content(active_tab, stored_data_json):
                 title = f"0' | Starting XI"
                 home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, {}, player_data_map, HCOL, title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
                 away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, {}, player_data_map, ACOL, title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-                timeline_items.append(dbc.ListGroupItem([dash_html.H5("Match Timeline", className="text-white"), dash_html.P("0' - Kick Off")], className="bg-dark text-white text-center"))
+                timeline_items.append(
+                    dbc.ListGroupItem(
+                        [
+                            dash_html.Span("MATCH TIMELINE", className="match-panel-eyebrow"),
+                            dash_html.Strong("0' · Kick off"),
+                        ],
+                        className="formation-event-item formation-event-item--kickoff",
+                    )
+                )
                 
                 
                 
@@ -932,27 +1071,72 @@ def render_formation_content(active_tab, stored_data_json):
                 # Usa la timeline unificata solo per la colonna centrale
                 central_timeline_events = formations.create_unified_timeline(df_processed, home_id, away_id, player_data_map)
                 for event in central_timeline_events:
-                    timeline_items.append(dbc.ListGroupItem([dash_html.Strong(f"{event['time_str']} "), event['description_component']], className="bg-transparent text-white border-secondary"))
+                    timeline_items.append(
+                        dbc.ListGroupItem(
+                            [
+                                dash_html.Span(event['time_str'], className="formation-event-time"),
+                                dash_html.Div(event['description_component'], className="formation-event-description"),
+                            ],
+                            className="formation-event-item",
+                        )
+                    )
 
                 # --- 3. COSTRUZIONE LAYOUT FINALE ---
-                # ... (il layout flexbox rimane identico alla mia risposta precedente) ...
                 final_layout = dash_html.Div([
                     dash_html.Div([
-                        dash_html.H4(home_name, className="text-center text-white", style={'flex': '0 0 38%'}),
-                        dash_html.H4("Key Events", className="text-center text-white", style={'flex': '0 0 24%'}),
-                        dash_html.H4(away_name, className="text-center text-white", style={'flex': '0 0 38%'}),
-                    ], style={'display': 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'margin-bottom': '1rem'}),
+                        dash_html.I(className="fa-solid fa-circle-info"),
+                        dash_html.Span("Cyan highlights identify players whose formation slot changed at that moment."),
+                    ], className="match-analysis-note"),
                     dash_html.Div([
-                        dash_html.Div(home_plots, style={'flex': '0 0 38%', 'paddingRight': '10px'}),
-                        dash_html.Div(dbc.ListGroup(timeline_items, flush=True), style={'flex': '0 0 24%'}),
-                        dash_html.Div(away_plots, style={'flex': '0 0 38%', 'paddingLeft': '10px'}),
-                    ], style={'display': 'flex', 'flex-direction': 'row', 'align-items': 'flex-start'}),
-                    dash_html.Hr(className="my-4"),
-                    dash_html.H6("Comments for Formation Analysis:", className="mt-3 text-white"),
-                    dcc.Textarea(id="comment-formation", placeholder="Enter your summary analysis here...", style={'width': '100%', 'height': 120, 'backgroundColor': '#495057', 'color': 'white'}),
-                    dbc.Button("Save Comment", id="save-comment-formation", color="info", size="sm", className="mt-2"),
-                    dash_html.Div(id="save-status-formation", className="small d-inline-block ms-2")
-                ])
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span("HOME TEAM", className="match-panel-eyebrow"),
+                                dash_html.H3(home_name, className="match-panel-title"),
+                                dash_html.P("Shape snapshots throughout the match.", className="match-panel-description"),
+                            ], className="match-panel-header"),
+                            dash_html.Div(home_plots, className="formation-snapshot-stack"),
+                        ], className="match-panel formation-team-panel"),
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span("MATCH FLOW", className="match-panel-eyebrow"),
+                                dash_html.H3("Key events", className="match-panel-title"),
+                                dash_html.P("Goals, substitutions and structural changes.", className="match-panel-description"),
+                            ], className="match-panel-header"),
+                            dbc.ListGroup(timeline_items, flush=True, className="formation-event-list"),
+                        ], className="match-panel formation-timeline-panel"),
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span("AWAY TEAM", className="match-panel-eyebrow"),
+                                dash_html.H3(away_name, className="match-panel-title"),
+                                dash_html.P("Shape snapshots throughout the match.", className="match-panel-description"),
+                            ], className="match-panel-header"),
+                            dash_html.Div(away_plots, className="formation-snapshot-stack"),
+                        ], className="match-panel formation-team-panel"),
+                    ], className="formation-timeline-grid"),
+                    dash_html.Section([
+                        dash_html.Div([
+                            dash_html.I(className="fa-regular fa-note-sticky"),
+                            dash_html.Div([
+                                dash_html.H3("Analyst notes", className="match-panel-title"),
+                                dash_html.P("Summarise the most meaningful structural changes.", className="match-panel-description"),
+                            ]),
+                        ], className="match-comment-heading"),
+                        dcc.Textarea(
+                            id="comment-formation",
+                            placeholder="Write your formation analysis...",
+                            className="match-comment-input",
+                        ),
+                        dash_html.Div([
+                            dbc.Button(
+                                [dash_html.I(className="fa-solid fa-floppy-disk me-2"), "Save note"],
+                                id="save-comment-formation",
+                                className="match-action-button",
+                                size="sm",
+                            ),
+                            dash_html.Div(id="save-status-formation", className="small"),
+                        ], className="match-comment-actions"),
+                    ], className="match-panel match-comment-panel"),
+                ], className="match-tab-body")
                 return final_layout
             except Exception as e:
                 tb_str = traceback.format_exc()
@@ -968,16 +1152,42 @@ def render_formation_content(active_tab, stored_data_json):
             fig_home = formation_plotly.plot_mean_positions_plotly(df_home_touches, df_home_agg, HCOL, is_away=False)
             fig_away = formation_plotly.plot_mean_positions_plotly(df_away_touches, df_away_agg, ACOL, is_away=True)
             
-            return dbc.Row([
-                dbc.Col([
-                    dash_html.H5(f"{HTEAM_NAME} - Mean Positions", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_home, config={'displayModeBar': False})
-                ], md=6),
-                dbc.Col([
-                    dash_html.H5(f"{ATEAM_NAME} - Mean Positions", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_away, config={'displayModeBar': False})
-                ], md=6)
-            ], className="mt-4")
+            return dash_html.Div([
+                dash_html.Div([
+                    dash_html.I(className="fa-solid fa-circle-info"),
+                    dash_html.Span("Circles represent starters; diamonds represent substitutes. The dashed line marks the average team height."),
+                ], className="match-analysis-note"),
+                dbc.Row([
+                    dbc.Col([
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span("HOME TEAM", className="match-panel-eyebrow"),
+                                dash_html.H3(HTEAM_NAME, className="match-panel-title"),
+                                dash_html.P("Average player locations with the team's territorial touch density.", className="match-panel-description"),
+                            ], className="match-panel-header"),
+                            dcc.Graph(
+                                figure=fig_home,
+                                config={'displayModeBar': False, 'responsive': True},
+                                className="match-analysis-graph",
+                            )
+                        ], className="match-panel match-viz-panel")
+                    ], lg=6),
+                    dbc.Col([
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span("AWAY TEAM", className="match-panel-eyebrow"),
+                                dash_html.H3(ATEAM_NAME, className="match-panel-title"),
+                                dash_html.P("Average player locations, mirrored to support a direct visual comparison.", className="match-panel-description"),
+                            ], className="match-panel-header"),
+                            dcc.Graph(
+                                figure=fig_away,
+                                config={'displayModeBar': False, 'responsive': True},
+                                className="match-analysis-graph",
+                            )
+                        ], className="match-panel match-viz-panel")
+                    ], lg=6)
+                ], className="g-3")
+            ], className="match-tab-body")
 
     except Exception as e:
         return dbc.Alert(f"Error rendering formation/shape content: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
@@ -3513,13 +3723,24 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
         # --- 6. Compute stats and build layout ---
         buildup_stats = buildup_metrics.calculate_buildup_stats(filtered_sequences, not is_away)
         summary_layout = dash_html.Div([
-            dbc.Button("❌ Reset Filter", id="buildup-reset-filter-btn", color="danger", size="sm", className="mb-2"),
+            dash_html.Div([
+                dash_html.Div([
+                    dash_html.Span("SEQUENCE PROFILE", className="match-panel-eyebrow"),
+                    dash_html.H3("Buildup summary", className="match-panel-title"),
+                    dash_html.P("Select a value to filter the sequence explorer below.", className="match-panel-description"),
+                ]),
+                dbc.Button(
+                    [dash_html.I(className="fa-solid fa-filter-circle-xmark me-2"), "Reset filters"],
+                    id="buildup-reset-filter-btn",
+                    size="sm",
+                    className="match-secondary-button",
+                ),
+            ], className="match-panel-header"),
             active_filters_badge,
             buildup_metrics.create_buildup_summary_cards(buildup_stats, active_filter)
-        ])
+        ], className="match-summary-content")
 
         return dash_html.Div([
-            dash_html.H4(f"Analysis for {attacking_team}", className="text-white mt-4"),
             dcc.Store(id='buildup-sequence-store', data={
                 'sequences': stored_sequence_data,
                 'team_color': team_color,
@@ -3527,50 +3748,75 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
             }),
             dcc.Store(id='buildup-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
 
-            dbc.Button(
-                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Analysis Summary"],
-                id="buildup-summary-toggle-button",
-                className="mb-3 w-100",
-                color="info",
-                outline=True
-            ),
+            dash_html.Div([
+                dash_html.Div([
+                    dash_html.Span("TEAM IN POSSESSION", className="match-panel-eyebrow"),
+                    dash_html.H3(attacking_team, className="match-panel-title"),
+                    dash_html.P(
+                        f"{num_items} sequences available after the current filters.",
+                        className="match-panel-description",
+                    ),
+                ]),
+                dbc.Button(
+                    [dash_html.I(className="fas fa-chart-bar me-2"), "Show / hide summary"],
+                    id="buildup-summary-toggle-button",
+                    className="match-secondary-button",
+                    size="sm",
+                ),
+            ], className="match-tab-intro"),
 
             dbc.Collapse(
-                summary_layout,
+                dash_html.Section(summary_layout, className="match-panel match-summary-panel"),
                 id="buildup-summary-collapse",
                 is_open=True,
             ),
 
-            dash_html.Div([
-                dcc.Store(id='buildup-sequence-store', data={
-                    'sequences': stored_sequence_data, 'team_color': team_color, 'is_away': is_away
-                }),
-                dcc.Store(id='buildup-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
-
+            dash_html.Section([
+                dash_html.Div([
+                    dash_html.Span("SEQUENCE EXPLORER", className="match-panel-eyebrow"),
+                    dash_html.H3("Possession chain", className="match-panel-title"),
+                    dash_html.P("Use the controls to inspect every selected buildup in chronological detail.", className="match-panel-description"),
+                ], className="match-panel-header"),
                 dash_html.Div(
                     id='carousel-content-wrapper',
-                    style={'position': 'relative', 'minHeight': '550px'},
+                    className="match-sequence-plot",
                     children=[dcc.Loading(type="circle", children=dash_html.Div(id='buildup-carousel-content'))]
                 ),
+                dash_html.Div([
+                    dbc.Button(
+                        [dash_html.I(className="fa-solid fa-chevron-left me-2"), "Previous"],
+                        id="buildup-prev-button", className="match-carousel-button", size="sm",
+                    ),
+                    dash_html.Div(id="buildup-indicator-text", className="match-carousel-indicator"),
+                    dbc.Button(
+                        ["Next", dash_html.I(className="fa-solid fa-chevron-right ms-2")],
+                        id="buildup-next-button", className="match-carousel-button", size="sm",
+                    ),
+                ], className="match-carousel-controls"),
+            ], className="match-panel match-sequence-panel"),
 
-                dbc.Row([
-                    dbc.Col(dbc.Button("‹ Prev", id="buildup-prev-button", color="secondary", outline=True), width="auto"),
-                    dbc.Col(dash_html.Div(id="buildup-indicator-text", className="text-center text-muted align-self-center"), width=True),
-                    dbc.Col(dbc.Button("Next ›", id="buildup-next-button", color="secondary", outline=True), width="auto"),
-                ], justify="between", align="center", className="mt-2"),
-            ], className="mt-4"),
-
-            dash_html.Hr(className="my-4"),
-            dash_html.H6(f"Comments for {attacking_team} Buildup Analysis:", className="mt-3 text-white"),
-            dcc.Textarea(
-                id="comment-buildup",
-                placeholder=f"Enter your analysis for {attacking_team}...",
-                style={'width': '100%', 'height': 120, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'},
-                className="mb-2"
-            ),
-            dbc.Button("Save Comment", id="save-comment-buildup", color="info", size="sm", className="me-2"),
-            dash_html.Div(id="save-status-buildup", className="small d-inline-block")
-        ])
+            dash_html.Section([
+                dash_html.Div([
+                    dash_html.I(className="fa-regular fa-note-sticky"),
+                    dash_html.Div([
+                        dash_html.H3("Analyst notes", className="match-panel-title"),
+                        dash_html.P(f"Save your interpretation of {attacking_team}'s buildup.", className="match-panel-description"),
+                    ]),
+                ], className="match-comment-heading"),
+                dcc.Textarea(
+                    id="comment-buildup",
+                    placeholder=f"Write your analysis for {attacking_team}...",
+                    className="match-comment-input",
+                ),
+                dash_html.Div([
+                    dbc.Button(
+                        [dash_html.I(className="fa-solid fa-floppy-disk me-2"), "Save note"],
+                        id="save-comment-buildup", className="match-action-button", size="sm",
+                    ),
+                    dash_html.Div(id="save-status-buildup", className="small"),
+                ], className="match-comment-actions"),
+            ], className="match-panel match-comment-panel")
+        ], className="match-tab-body")
 
     except Exception as e:
         tb_str = traceback.format_exc()
@@ -3644,7 +3890,11 @@ def update_buildup_plot_and_indicator(controller_data, stored_sequence_data):
             metric_to_analyze='buildup_phases',
         )
         
-        plot_component = dcc.Graph(figure=fig, config={'displayModeBar': False}, style={'height': '550px'})
+        plot_component = dcc.Graph(
+            figure=fig,
+            config={'displayModeBar': False, 'responsive': True},
+            className="match-analysis-graph match-sequence-graph",
+        )
         return plot_component, indicator_text
         
     except Exception as e:
@@ -3752,52 +4002,176 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
             ], className="mt-4")
         
         elif active_tab == 'def_ppda':
-            # Calcola i dati per il Liverpool (Home Team)
-            ppda_home, home_def, home_opp_pass, home_player_stats = defensive_metrics.calculate_ppda_data(df_processed, HTEAM_NAME, ATEAM_NAME)
-            ppda_away, away_def, away_opp_pass, away_player_stats = defensive_metrics.calculate_ppda_data(df_processed, ATEAM_NAME, HTEAM_NAME)
-            
-            # Crea i grafici
-            fig_home = defensive_transitions_plotly.plot_ppda_plotly(ppda_home, home_def, home_opp_pass, HTEAM_NAME, HCOL, ACOL, is_away=False)
-            fig_away = defensive_transitions_plotly.plot_ppda_plotly(ppda_away, away_def, away_opp_pass, ATEAM_NAME, ACOL, HCOL, is_away=True)
-
-            # Crea le tabelle
-            table_home = dash_table.DataTable(
-                data=home_player_stats.to_dict('records'),
-                columns=[{"name": col.replace('_', ' '), "id": col} for col in home_player_stats.columns],
-                style_table={"overflowX": "auto"},
-                style_cell={'backgroundColor': '#343A40', 'color': 'white', 'textAlign': 'center', 'border': '1px solid #454D55'},
-                style_header={'backgroundColor': '#454D55', 'color': 'white', 'fontWeight': 'bold'},
-                style_as_list_view=True,
-                sort_action="native",
+            home_profile = defensive_metrics.calculate_ppda_profile(
+                df_processed, HTEAM_NAME, ATEAM_NAME
             )
-            table_away = dash_table.DataTable(
-                data=away_player_stats.to_dict('records'),
-                columns=[{"name": col.replace('_', ' '), "id": col} for col in away_player_stats.columns],
-                style_as_list_view=True,
-                style_table={"overflowX": "auto"},
-                style_cell={'backgroundColor': '#343A40', 'color': 'white', 'textAlign': 'center', 'border': '1px solid #454D55'},
-                style_header={'backgroundColor': '#454D55', 'color': 'white', 'fontWeight': 'bold'},
-                sort_action="native",
+            away_profile = defensive_metrics.calculate_ppda_profile(
+                df_processed, ATEAM_NAME, HTEAM_NAME
+            )
+            key_events = defensive_metrics.extract_ppda_key_events(df_processed)
+
+            fig_timeline = defensive_transitions_plotly.plot_ppda_timeline(
+                home_profile,
+                away_profile,
+                key_events,
+                HTEAM_NAME,
+                ATEAM_NAME,
+                HCOL,
+                ACOL,
+            )
+            fig_home = defensive_transitions_plotly.plot_ppda_plotly(
+                home_profile['overall']['ppda'],
+                home_profile['overall']['df_defensive_actions'],
+                home_profile['overall']['df_opponent_passes'],
+                HTEAM_NAME,
+                HCOL,
+                ACOL,
+                is_away=False,
+                pass_zone_threshold=home_profile['pass_zone_threshold'],
+                defensive_zone_threshold=home_profile['defensive_zone_threshold'],
+            )
+            fig_away = defensive_transitions_plotly.plot_ppda_plotly(
+                away_profile['overall']['ppda'],
+                away_profile['overall']['df_defensive_actions'],
+                away_profile['overall']['df_opponent_passes'],
+                ATEAM_NAME,
+                ACOL,
+                HCOL,
+                is_away=True,
+                pass_zone_threshold=away_profile['pass_zone_threshold'],
+                defensive_zone_threshold=away_profile['defensive_zone_threshold'],
             )
 
-            # Layout finale con grafici e tabelle
+            def format_ppda(value):
+                return f"{value:.2f}" if pd.notna(value) and np.isfinite(value) else "N/A"
+
+            def period_metric(label, snapshot):
+                return dash_html.Div([
+                    dash_html.Span(label, className="ppda-period-label"),
+                    dash_html.Strong(format_ppda(snapshot['ppda']), className="ppda-period-value"),
+                    dash_html.Small(
+                        f"{snapshot['opponent_passes']} passes ÷ {snapshot['defensive_actions']} actions",
+                        className="ppda-period-detail",
+                    ),
+                ], className="ppda-period-metric")
+
+            def summary_card(team_name, profile, team_color):
+                return dash_html.Section([
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span("PRESSING INTENSITY", className="match-panel-eyebrow"),
+                            dash_html.H3(team_name, className="match-panel-title"),
+                        ]),
+                        dash_html.Span("Lower is more intense", className="ppda-direction-badge"),
+                    ], className="match-panel-header"),
+                    dash_html.Div([
+                        period_metric("Full match", profile['overall']),
+                        period_metric("First half", profile['first_half']),
+                        period_metric("Second half", profile['second_half']),
+                    ], className="ppda-period-grid"),
+                ], className="match-panel ppda-summary-card", style={"borderTop": f"4px solid {team_color}"})
+
+            def pressing_table(dataframe):
+                return dash_table.DataTable(
+                    data=dataframe.to_dict('records'),
+                    columns=[{"name": col, "id": col} for col in dataframe.columns],
+                    style_table={"overflowX": "auto"},
+                    style_cell={
+                        'backgroundColor': '#ffffff',
+                        'color': '#29465d',
+                        'textAlign': 'center',
+                        'border': '0',
+                        'borderBottom': '1px solid #e4edf2',
+                        'fontFamily': 'Arial',
+                        'fontSize': '12px',
+                        'padding': '10px 8px',
+                    },
+                    style_cell_conditional=[
+                        {'if': {'column_id': 'Player'}, 'textAlign': 'left', 'fontWeight': '600'},
+                    ],
+                    style_header={
+                        'backgroundColor': '#f1f7f9',
+                        'color': '#18344d',
+                        'fontWeight': '800',
+                        'border': '0',
+                        'borderBottom': '1px solid #d7e5eb',
+                    },
+                    style_as_list_view=True,
+                    sort_action="native",
+                    page_action="none",
+                )
+
             return dash_html.Div([
-                dbc.Row([
-                    dbc.Col(dcc.Graph(figure=fig_home), md=6),
-                    dbc.Col(dcc.Graph(figure=fig_away), md=6)
-                ]),
-                dash_html.Hr(className="my-4"),
-                dbc.Row([
-                    dbc.Col([
-                        dash_html.H5(f"{HTEAM_NAME} - Top Pressing Players", className="text-center text-white mb-2"),
-                        table_home
-                    ], md=6),
-                    dbc.Col([
-                        dash_html.H5(f"{ATEAM_NAME} - Top Pressing Players", className="text-center text-white mb-2"),
-                        table_away
-                    ], md=6)
-                ])
-            ])
+                dash_html.Div([
+                    dash_html.I(className="fa-solid fa-circle-info"),
+                    dash_html.Span([
+                        "PPDA = opponent passes starting before x=60 ÷ pressing actions from x=40 onward. ",
+                        dash_html.Strong("A lower value indicates more frequent pressure."),
+                    ]),
+                ], className="match-analysis-note ppda-definition-note"),
+
+                dash_html.Div([
+                    summary_card(HTEAM_NAME, home_profile, HCOL),
+                    summary_card(ATEAM_NAME, away_profile, ACOL),
+                ], className="ppda-summary-grid"),
+
+                dash_html.Section([
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span("MATCH FLOW", className="match-panel-eyebrow"),
+                            dash_html.H3("Pressing intensity by match phase", className="match-panel-title"),
+                            dash_html.P(
+                                "Each bar is an independent 15-minute phase. Height shows pressing actions per 100 opponent passes; official PPDA remains available in the hover.",
+                                className="match-panel-description",
+                            ),
+                        ]),
+                        dash_html.Span("Higher bar = more intense pressure", className="match-panel-hint"),
+                    ], className="match-panel-header"),
+                    dcc.Graph(
+                        figure=fig_timeline,
+                        config={'displayModeBar': False, 'responsive': True},
+                        className="ppda-timeline-graph",
+                    ),
+                ], className="match-panel ppda-timeline-panel"),
+
+                dash_html.Div([
+                    dash_html.Section([
+                        dcc.Graph(
+                            figure=fig_home,
+                            config={'displayModeBar': False, 'responsive': True},
+                        )
+                    ], className="match-panel ppda-map-panel"),
+                    dash_html.Section([
+                        dcc.Graph(
+                            figure=fig_away,
+                            config={'displayModeBar': False, 'responsive': True},
+                        )
+                    ], className="match-panel ppda-map-panel"),
+                ], className="ppda-map-grid"),
+
+                dash_html.Section([
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span("DENOMINATOR DETAIL", className="match-panel-eyebrow"),
+                            dash_html.H3("Pressing actions by player", className="match-panel-title"),
+                            dash_html.P(
+                                "Only actions occurring in the PPDA action zone are included.",
+                                className="match-panel-description",
+                            ),
+                        ]),
+                    ], className="match-panel-header"),
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.H4(HTEAM_NAME, className="ppda-table-team"),
+                            pressing_table(home_profile['player_stats']),
+                        ]),
+                        dash_html.Div([
+                            dash_html.H4(ATEAM_NAME, className="ppda-table-team"),
+                            pressing_table(away_profile['player_stats']),
+                        ]),
+                    ], className="ppda-table-grid"),
+                ], className="match-panel ppda-player-panel"),
+            ], className="ppda-analysis")
 
         else:
             if active_tab == 'def_transitions_home':

@@ -403,11 +403,18 @@ def plot_defensive_hull_plotly(df_player_agg, team_color, is_away=False):
 
     return fig
 
-def plot_ppda_plotly(ppda_value, df_def_actions, df_opponent_passes, team_name, team_color, opponent_color, is_away=False, zone_threshold=40.0):
-    """
-    Crea un grafico interattivo del PPDA con due heatmap sovrapposte,
-    puntini per le azioni, e un'area di pressione evidenziata.
-    """
+def plot_ppda_plotly(
+    ppda_value,
+    df_def_actions,
+    df_opponent_passes,
+    team_name,
+    team_color,
+    opponent_color,
+    is_away=False,
+    pass_zone_threshold=60.0,
+    defensive_zone_threshold=40.0,
+):
+    """Plot the two PPDA zones and the defensive actions used in the denominator."""
     fig = go.Figure()
     fig = draw_plotly_pitch(fig)
 
@@ -419,70 +426,260 @@ def plot_ppda_plotly(ppda_value, df_def_actions, df_opponent_passes, team_name, 
         fig.update_xaxes(range=[0, 100])
         fig.update_yaxes(range=[0, 100])
 
-    # --- 2. Evidenzia l'area di pressione (zona di calcolo del PPDA) ---
+    # The numerator and denominator overlap between x=40 and x=60 by design.
     fig.add_shape(
         type="rect",
-        x0=zone_threshold, y0=0,
+        x0=0, y0=0,
+        x1=pass_zone_threshold, y1=100,
+        fillcolor=opponent_color,
+        opacity=0.055,
+        layer="below",
+        line_width=0,
+    )
+    fig.add_shape(
+        type="rect",
+        x0=defensive_zone_threshold, y0=0,
         x1=100, y1=100,
         fillcolor=team_color,
-        opacity=0.1,  # Molto leggero, solo per dare contesto
+        opacity=0.075,
         layer="below",
         line_width=0
     )
+    fig.add_vline(x=pass_zone_threshold, line_width=1.5, line_dash="dot", line_color="#8296a6")
+    fig.add_vline(x=defensive_zone_threshold, line_width=1.5, line_dash="dash", line_color=team_color)
 
-    # 3. Heatmap dei passaggi dell'avversario (sfondo)
+    # Opponent pass starts are deliberately quiet: they provide denominator context
+    # without competing with the pressing actions.
     if not df_opponent_passes.empty:
-        fig.add_trace(go.Histogram2dContour(
+        fig.add_trace(go.Scattergl(
             x=df_opponent_passes['x'], y=df_opponent_passes['y'],
-            colorscale=[[0, 'rgba(0,0,0,0)'], [1, opponent_color]],
-            showscale=False, contours=dict(coloring='fill', showlines=False),
-            name=f'Opponent Passes', hoverinfo='none', opacity=0.3
-        ))
-    
-    # 4. Heatmap delle azioni difensive (in primo piano)
-    if not df_def_actions.empty:
-        fig.add_trace(go.Histogram2dContour(
-            x=df_def_actions['x'], y=df_def_actions['y'],
-            colorscale=[[0, 'rgba(0,0,0,0)'], [1, team_color]],
-            showscale=False, contours=dict(coloring='fill', showlines=False),
-            name=f'{team_name} Def. Actions', hoverinfo='none', opacity=0.6
+            mode='markers',
+            marker=dict(color="#8799a7", size=3.5, opacity=0.2),
+            name='Opponent pass starts',
+            hoverinfo='skip',
         ))
 
-    # --- 5. Puntini per le singole azioni difensive ---
     if not df_def_actions.empty:
+        player_names = df_def_actions.get('playerName', pd.Series('Unknown', index=df_def_actions.index)).fillna('Unknown')
+        action_names = df_def_actions.get('type_name', pd.Series('Defensive action', index=df_def_actions.index)).fillna('Defensive action')
+        hover_text = [
+            f"<b>{action}</b><br>{player}<br>x={x:.1f}, y={y:.1f}"
+            for action, player, x, y in zip(
+                action_names,
+                player_names,
+                pd.to_numeric(df_def_actions['x'], errors='coerce').fillna(0),
+                pd.to_numeric(df_def_actions['y'], errors='coerce').fillna(0),
+            )
+        ]
         fig.add_trace(go.Scatter(
             x=df_def_actions['x'],
             y=df_def_actions['y'],
             mode='markers',
             marker=dict(
-                color='yellow',
-                size=5,
-                opacity=0.7,
-                line=dict(width=1, color='black')
+                color=team_color,
+                size=10,
+                opacity=0.9,
+                line=dict(width=1.5, color='white')
             ),
             hoverinfo='text',
-            hovertext=df_def_actions['type_name'] + ' by ' + df_def_actions['playerName'],
-            name='Defensive Actions'
+            hovertext=hover_text,
+            name=f'{team_name} pressing actions',
         ))
 
-    # 6. Etichetta con il valore PPDA (invariata)
     ppda_text = f"{ppda_value:.2f}" if ppda_value != float('inf') else "N/A"
-    fig.add_annotation(
-        x=0.5, y=1.05, xref="paper", yref="paper",
-        text=f"<b>PPDA: {ppda_text}</b>",
-        showarrow=False, font=dict(color="white", size=16, family="Arial"),
-        bgcolor="rgba(46, 52, 57, 0.9)", bordercolor="white", borderwidth=1, borderpad=4
-    )
-
-    # 7. Layout
+    pass_count = len(df_opponent_passes)
+    action_count = len(df_def_actions)
     fig.update_layout(
-        title_text=f"{team_name} - Pressing Intensity (PPDA)",
-        title_x=0.5, font=dict(color='white'),
+        title=dict(
+            text=(
+                f"<b>{team_name}</b> · PPDA {ppda_text}"
+                f"<br><span style='font-size:11px;color:#657d8f'>"
+                f"{pass_count} opponent passes ÷ {action_count} pressing actions</span>"
+            ),
+            x=0.5,
+            xanchor='center',
+        ),
+        font=dict(color='#18344d', family='Arial'),
         showlegend=False,
-        plot_bgcolor="white", paper_bgcolor="#2E3439",
-        margin=dict(l=10, r=10, t=80, b=10), height=700,
+        plot_bgcolor="#f8fbfc",
+        paper_bgcolor="white",
+        margin=dict(l=18, r=18, t=78, b=18),
+        height=520,
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
         yaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True, scaleanchor="x", scaleratio=0.68)
     )
 
+    fig.add_annotation(
+        x=pass_zone_threshold - 1,
+        y=98,
+        text=f"Pass zone · x &lt; {pass_zone_threshold:g}",
+        showarrow=False,
+        xanchor='right',
+        font=dict(size=10, color='#657d8f'),
+        bgcolor='rgba(255,255,255,0.8)',
+    )
+    fig.add_annotation(
+        x=defensive_zone_threshold + 1,
+        y=2,
+        text=f"Action zone · x ≥ {defensive_zone_threshold:g}",
+        showarrow=False,
+        xanchor='left',
+        font=dict(size=10, color='#657d8f'),
+        bgcolor='rgba(255,255,255,0.8)',
+    )
+
+    return fig
+
+
+def plot_ppda_timeline(
+    home_profile,
+    away_profile,
+    key_events,
+    home_team,
+    away_team,
+    home_color,
+    away_color,
+):
+    """Compare fixed 15-minute pressing rates with goals and dismissals."""
+    fig = go.Figure()
+
+    for profile, team_name, color in (
+        (home_profile, home_team, home_color),
+        (away_profile, away_team, away_color),
+    ):
+        timeline = profile.get('timeline', pd.DataFrame())
+        if timeline.empty:
+            continue
+        timeline = timeline.sort_values('minute').copy()
+        timeline['ppda_label'] = timeline['ppda'].map(
+            lambda value: f"{value:.2f}" if pd.notna(value) and np.isfinite(value) else "N/A"
+        )
+        timeline['sample_label'] = np.where(
+            timeline['low_sample'],
+            'Limited sample · fewer than 2 pressing actions',
+            'Stable sample',
+        )
+        customdata = np.column_stack([
+            timeline['interval_label'],
+            timeline['ppda_label'],
+            timeline['opponent_passes'],
+            timeline['defensive_actions'],
+            timeline['sample_label'],
+        ])
+        fig.add_trace(go.Bar(
+            x=timeline['minute'],
+            y=timeline['pressure_rate'],
+            width=5.8,
+            name=team_name,
+            legendgroup=team_name,
+            offsetgroup=team_name,
+            marker=dict(
+                color=color,
+                opacity=0.88,
+                line=dict(color='white', width=1.3),
+            ),
+            text=timeline['pressure_rate'].map(lambda value: f"{value:.1f}"),
+            textposition='outside',
+            textfont=dict(size=10, color='#18344d'),
+            cliponaxis=False,
+            customdata=customdata,
+            hovertemplate=(
+                f"<b>{team_name}</b><br>"
+                "%{customdata[0]}<br>"
+                "Pressing intensity: <b>%{y:.1f}</b> actions per 100 opponent passes<br>"
+                "Official PPDA: %{customdata[1]}<br>"
+                "Opponent passes: %{customdata[2]}<br>"
+                "Pressing actions: %{customdata[3]}<br>"
+                "%{customdata[4]}<extra></extra>"
+            ),
+        ))
+
+    fig.add_vline(x=45, line_width=1.5, line_dash='dash', line_color='#8ba0af')
+    fig.add_annotation(
+        x=45,
+        y=1.02,
+        xref='x',
+        yref='paper',
+        text='Half-time',
+        showarrow=False,
+        font=dict(size=10, color='#647c8e'),
+        bgcolor='white',
+    )
+
+    if key_events is not None and not key_events.empty:
+        for event_index, (_, event) in enumerate(key_events.iterrows()):
+            minute = float(event['minute'])
+            is_red = event['event_type'] == 'red_card'
+            event_color = '#d64141' if is_red else '#d89100'
+            event_symbol = '■' if is_red else '⚽'
+            fig.add_vline(
+                x=minute,
+                line_width=1.2,
+                line_dash='dot',
+                line_color=event_color,
+                opacity=0.72,
+            )
+            fig.add_annotation(
+                x=minute,
+                y=1.105 + (event_index % 2) * 0.065,
+                xref='x',
+                yref='paper',
+                text=f"{event_symbol} {minute:.0f}'",
+                showarrow=False,
+                font=dict(size=10, color=event_color),
+                hovertext=event['label'],
+                bgcolor='rgba(255,255,255,0.94)',
+                bordercolor=event_color,
+                borderwidth=1,
+                borderpad=3,
+            )
+
+    fig.update_layout(
+        height=430,
+        margin=dict(l=58, r=28, t=86, b=58),
+        paper_bgcolor='white',
+        plot_bgcolor='#f8fbfc',
+        font=dict(color='#18344d', family='Arial'),
+        hovermode='x unified',
+        barmode='group',
+        bargap=0.30,
+        bargroupgap=0.08,
+        legend=dict(
+            orientation='h',
+            x=0,
+            y=1.18,
+            xanchor='left',
+            yanchor='bottom',
+            bgcolor='rgba(255,255,255,0.8)',
+        ),
+        xaxis=dict(
+            title='Match phase',
+            range=[0, max(90, float(key_events['minute'].max()) + 3) if key_events is not None and not key_events.empty else 90],
+            tickmode='array',
+            tickvals=[7.5, 22.5, 37.5, 52.5, 67.5, 82.5],
+            ticktext=['0–15', '15–30', '30–45+', '45–60', '60–75', '75–90+'],
+            gridcolor='#e5edf1',
+            zeroline=False,
+        ),
+        yaxis=dict(
+            title='Pressing actions per 100 opponent passes · higher = more intense',
+            rangemode='tozero',
+            gridcolor='#e5edf1',
+            zeroline=False,
+        ),
+    )
+    fig.add_annotation(
+        x=0,
+        y=1.025,
+        xref='paper',
+        yref='paper',
+        text='MORE INTENSE PRESSURE ↑',
+        showarrow=False,
+        xanchor='left',
+        font=dict(size=10, color='#15845f'),
+        bgcolor='rgba(231,247,240,0.92)',
+        bordercolor='#b9e2d2',
+        borderwidth=1,
+        borderpad=4,
+    )
     return fig
