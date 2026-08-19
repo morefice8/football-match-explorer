@@ -1,0 +1,617 @@
+/* Shared visual shell for statistics, profiles and match analysis pages. */
+
+.app-page-shell {
+  width: min(100% - 3rem, 95rem);
+  margin-inline: auto;
+}
+
+.app-brand-lockup {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.app-brand-mark {
+  display: grid;
+  width: 2.8rem;
+  height: 2.8rem;
+  flex: 0 0 2.8rem;
+  overflow: hidden;
+  place-items: center;
+  padding: 0.2rem;
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 0.68rem;
+  box-shadow: 0 8px 20px rgba(4, 24, 41, 0.2);
+}
+
+.app-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.app-brand-copy,
+.app-brand-copy strong,
+.app-brand-copy span {
+  display: block;
+  min-width: 0;
+}
+
+.app-brand-copy strong {
+  overflow: hidden;
+  color: #ffffff !important;
+  font-size: 0.8rem;
+  font-weight: 850;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-brand-copy span {
+  margin-top: 0.23rem;
+  overflow: hidden;
+  color: #a9d2dc !important;
+  font-size: 0.48rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-brand-lockup.compact .app-brand-mark {
+  width: 2.45rem;
+  height: 2.45rem;
+  flex-basis: 2.45rem;
+  border-radius: 0.58rem;
+}
+
+/* Statistics page heroes */
+
+.branded-analytics-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  padding: 0 !important;
+}
+
+.app-page-hero {
+  position: relative;
+  min-height: 18rem;
+  overflow: hidden;
+  color: #ffffff;
+  background:
+    linear-gradient(100deg, rgba(7, 31, 49, 0.98) 0%, rgba(9, 56, 76, 0.93) 54%, rgba(8, 123, 149, 0.78) 100%),
+    url('/assets/brand/landing_tactical_hero.png') center 54% / cover;
+}
+
+.app-page-hero::after {
+  position: absolute;
+  right: -8rem;
+  bottom: -18rem;
+  width: 38rem;
+  height: 38rem;
+  content: "";
+  background: radial-gradient(circle, rgba(90, 211, 229, 0.23), transparent 67%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.app-page-hero.variant-player {
+  background:
+    linear-gradient(100deg, rgba(7, 31, 49, 0.98) 0%, rgba(10, 59, 78, 0.93) 54%, rgba(18, 119, 143, 0.76) 100%),
+    url('/assets/brand/landing_tactical_hero.png') 58% 62% / cover;
+}
+
+.app-page-hero-nav {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 5.3rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.app-page-back-link {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.52rem 0.78rem;
+  color: #e6f4f7 !important;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.27);
+  border-radius: 0.62rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: 180ms ease;
+}
+
+.app-page-back-link:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateX(-2px);
+}
+
+.app-page-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-height: 12.7rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: 1.5rem 0 3.6rem;
+}
+
+.app-page-eyebrow {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: #83d5e4;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.app-page-hero-copy h1 {
+  margin: 0;
+  color: #ffffff !important;
+  font-size: clamp(2.7rem, 5vw, 4.7rem);
+  font-weight: 900;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+}
+
+.app-page-hero-copy p {
+  max-width: 43rem;
+  margin: 0.8rem 0 0;
+  color: #cce2e8 !important;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.app-page-hero-badge {
+  display: grid;
+  min-width: 16rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.9rem;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.8rem;
+  backdrop-filter: blur(8px);
+}
+
+.app-page-hero-badge > i {
+  display: grid;
+  width: 2.55rem;
+  height: 2.55rem;
+  place-items: center;
+  color: #70d5e5;
+  background: rgba(63, 185, 207, 0.14);
+  border-radius: 0.62rem;
+}
+
+.app-page-hero-badge strong,
+.app-page-hero-badge span {
+  display: block;
+}
+
+.app-page-hero-badge strong {
+  color: #ffffff;
+  font-size: 0.61rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.app-page-hero-badge span {
+  margin-top: 0.2rem;
+  color: #b5d2da;
+  font-size: 0.6rem;
+}
+
+.team-stats-content,
+.player-stats-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 95rem;
+  flex: 1 0 auto;
+  margin-top: -2.3rem;
+  padding-bottom: 4rem;
+}
+
+.team-stats-content .team-stats-filter-bar,
+.player-stats-content .player-stats-filter-bar {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: #ffffff;
+  box-shadow: 0 16px 38px rgba(23, 52, 76, 0.14);
+}
+
+/* Shared footer */
+
+.app-footer {
+  position: relative;
+  z-index: 5;
+  flex: 0 0 auto;
+  padding: 1.7rem 0;
+  color: #a9c4ce;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(37, 155, 181, 0.2), transparent 22rem),
+    #112f45;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.app-footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.app-footer-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 1.15rem;
+}
+
+.app-footer-identity p {
+  max-width: 24rem;
+  margin: 0;
+  color: #a7c0ca;
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+
+.app-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.app-footer-nav a {
+  display: inline-flex;
+  min-height: 2.2rem;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.45rem 0.65rem;
+  color: #cce0e6 !important;
+  border-radius: 0.48rem;
+  font-size: 0.61rem;
+  font-weight: 750;
+  text-decoration: none;
+  transition: 160ms ease;
+}
+
+.app-footer-nav a:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.app-footer-nav i {
+  font-size: 0.52rem;
+}
+
+/* Profile page shell */
+
+.branded-profile-page {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  max-width: none;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 !important;
+}
+
+.team-profile-container,
+.player-profile-container {
+  width: 100%;
+  max-width: none;
+  flex: 1 0 auto;
+  margin: 0;
+}
+
+.team-profile-container {
+  padding: 0 !important;
+}
+
+.player-profile-container {
+  padding-bottom: 3.5rem !important;
+}
+
+.branded-profile-page.team-profile-page .team-profile-shell {
+  padding-bottom: 3.5rem;
+}
+
+/* Match analysis shell */
+
+.match-analysis-page {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: 17rem minmax(0, 1fr);
+  color: #172b4d;
+  background: #edf3f7;
+}
+
+.match-analysis-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  flex-direction: column;
+  padding: 1.2rem 1rem;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(10, 42, 62, 0.96), rgba(13, 49, 68, 0.99)),
+    url('/assets/brand/landing_tactical_hero.png') 70% center / cover;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 8px 0 28px rgba(24, 48, 67, 0.12);
+}
+
+.match-analysis-sidebar .app-brand-lockup {
+  padding: 0 0.25rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.match-analysis-fixture {
+  margin: 1rem 0;
+  padding: 0.85rem;
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 0.7rem;
+}
+
+.match-analysis-fixture,
+.match-analysis-fixture * {
+  color: #ffffff !important;
+}
+
+.match-analysis-fixture .text-muted {
+  color: #abc8d2 !important;
+}
+
+.match-analysis-nav {
+  display: grid;
+  gap: 0.25rem;
+  flex: 1 1 auto;
+}
+
+.match-analysis-sidebar .match-analysis-nav-link {
+  display: flex;
+  min-height: 2.6rem;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.58rem 0.7rem !important;
+  color: #c5dae1 !important;
+  background: transparent !important;
+  border: 1px solid transparent;
+  border-radius: 0.58rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.match-analysis-sidebar .match-analysis-nav-link i {
+  width: 1.1rem;
+  color: #69c9db;
+  text-align: center;
+}
+
+.match-analysis-sidebar .match-analysis-nav-link:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.match-analysis-sidebar .match-analysis-nav-link.active {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #0b8bad, #08718f) !important;
+  border-color: rgba(104, 211, 229, 0.3);
+  box-shadow: 0 8px 18px rgba(3, 26, 40, 0.22);
+}
+
+.match-analysis-sidebar .match-analysis-nav-link.active i {
+  color: #ffffff;
+}
+
+.match-analysis-sidebar-actions {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.match-analysis-report-btn,
+.match-analysis-home-btn {
+  min-height: 2.6rem;
+  border-radius: 0.58rem !important;
+  font-size: 0.69rem !important;
+  font-weight: 800 !important;
+}
+
+.match-analysis-report-btn {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #e86c4e, #d9563d) !important;
+  border-color: #d9563d !important;
+}
+
+.match-analysis-home-btn {
+  color: #d8edf2 !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.23) !important;
+}
+
+.match-analysis-main {
+  display: flex;
+  min-width: 0;
+  min-height: 100vh;
+  flex-direction: column;
+}
+
+.match-analysis-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  display: flex;
+  min-height: 4.7rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem clamp(1rem, 2.4vw, 2rem);
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid #dce6ec;
+  box-shadow: 0 8px 24px rgba(22, 49, 73, 0.06);
+  backdrop-filter: blur(12px);
+}
+
+.match-analysis-topbar-kicker,
+.match-analysis-topbar strong {
+  display: block;
+}
+
+.match-analysis-topbar-kicker {
+  color: #0b87aa;
+  font-size: 0.53rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.match-analysis-topbar strong {
+  margin-top: 0.22rem;
+  color: #172b4d !important;
+  font-size: 0.86rem;
+}
+
+.match-analysis-data-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.42rem 0.58rem;
+  color: #24765c;
+  background: #e8f6f0;
+  border: 1px solid #cce9dc;
+  border-radius: 999px;
+  font-size: 0.57rem;
+  font-weight: 800;
+}
+
+.match-analysis-content {
+  width: 100%;
+  max-width: 100%;
+  min-height: calc(100vh - 12rem);
+  flex: 1 0 auto;
+  padding: clamp(1rem, 2.4vw, 2rem);
+}
+
+.match-analysis-main > .app-footer .app-page-shell {
+  width: min(100% - 2rem, 95rem);
+}
+
+@media (max-width: 991.98px) {
+  .app-page-hero-badge {
+    display: none;
+  }
+
+  .app-footer-inner,
+  .app-footer-identity {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .app-footer-nav {
+    justify-content: flex-start;
+  }
+
+  .match-analysis-page {
+    grid-template-columns: 1fr;
+  }
+
+  .match-analysis-sidebar {
+    position: relative;
+    height: auto;
+    overflow: visible;
+  }
+
+  .match-analysis-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .match-analysis-sidebar-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767.98px) {
+  .app-page-shell {
+    width: min(100% - 2rem, 95rem);
+  }
+
+  .app-page-hero {
+    min-height: 15.5rem;
+  }
+
+  .app-page-hero-content {
+    min-height: 10.2rem;
+    padding-bottom: 3.1rem;
+  }
+
+  .app-page-hero-copy h1 {
+    font-size: clamp(2.5rem, 13vw, 4rem);
+  }
+
+  .app-page-back-link span,
+  .app-page-hero-nav .app-brand-copy span {
+    display: none;
+  }
+
+  .team-stats-content,
+  .player-stats-content {
+    margin-top: -1.7rem;
+  }
+
+  .app-footer-identity p {
+    display: none;
+  }
+
+  .match-analysis-topbar {
+    position: relative;
+  }
+}
+
+@media (max-width: 479.98px) {
+  .app-page-back-link {
+    width: 2.55rem;
+    justify-content: center;
+  }
+
+  .app-footer-nav {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .match-analysis-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .match-analysis-sidebar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .match-analysis-data-status {
+    display: none;
+  }
+}

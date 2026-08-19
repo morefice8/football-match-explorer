@@ -21,10 +21,15 @@ class MetricSpec:
     ascending: bool = False
     unit: str = ""
     format_spec: str = "{:,.2f}"
+    minimum_column: str | None = None
+    minimum_value: float | None = None
+    secondary_column: str | None = None
+    secondary_label: str = ""
+    secondary_format_spec: str = "{:,.0f}"
 
     def card_kwargs(self, column_key: str) -> dict[str, Any]:
         """Return the keyword shape expected by a ranking-card component."""
-        return {
+        kwargs = {
             "title": self.title,
             column_key: self.column,
             "icon": self.icon,
@@ -32,6 +37,14 @@ class MetricSpec:
             "unit": self.unit,
             "format_spec": self.format_spec,
         }
+        if self.minimum_column is not None and self.minimum_value is not None:
+            kwargs["minimum_column"] = self.minimum_column
+            kwargs["minimum_value"] = self.minimum_value
+        if self.secondary_column is not None:
+            kwargs["secondary_metric_col"] = self.secondary_column
+            kwargs["secondary_label"] = self.secondary_label
+            kwargs["secondary_format_spec"] = self.secondary_format_spec
+        return kwargs
 
 
 TEAM_METRIC_GROUPS: dict[str, tuple[MetricSpec, ...]] = {
@@ -64,28 +77,56 @@ TEAM_METRIC_GROUPS: dict[str, tuple[MetricSpec, ...]] = {
 
 PLAYER_METRIC_GROUPS: dict[str, tuple[MetricSpec, ...]] = {
     "attacking": (
-        MetricSpec("Gls_per_90", "Goals per 90", "Goals scored per 90 minutes played.", "fa-solid fa-futbol"),
+        MetricSpec(
+            "Gls_per_90", "Goals per 90",
+            "Goals scored per 90 minutes played. The season total is shown below the rate for context.",
+            "fa-solid fa-futbol", secondary_column="Gls", secondary_label=" goals",
+        ),
         MetricSpec("xG_per_90", "Expected Goals per 90", "Sportmonks expected goals (xG) per 90 minutes played.", "fa-solid fa-chart-line"),
         MetricSpec("G_minus_xG_per_90", "Goals minus xG p90", "Goals minus Sportmonks xG, divided by 90s played. Positive values indicate finishing above xG.", "fa-solid fa-arrow-trend-up"),
-        MetricSpec("SoT/90", "Shots on Target p90", "Shots on target per 90 minutes played.", "fa-solid fa-bullseye"),
+        MetricSpec(
+            "xG_per_Shot", "xG per Shot",
+            "Average expected-goal value per attempt. A minimum of 20 shots prevents tiny samples from leading the ranking.",
+            "fa-solid fa-bullseye", format_spec="{:.3f}", minimum_column="Sh", minimum_value=20,
+        ),
     ),
     "creation": (
         MetricSpec("Ast_per_90", "Assists per 90", "Assists per 90 minutes played.", "fa-solid fa-hands-helping"),
         MetricSpec("Chances_Created_per_90", "Chances Created p90", "Sportmonks chances created per 90 minutes played.", "fa-solid fa-wand-magic-sparkles"),
-        MetricSpec("Passes_F3_per_90", "Passes into Final Third p90", "Passes into the attacking third per 90 minutes played.", "fa-solid fa-arrow-right-to-bracket"),
-        MetricSpec("Pass_Completion_Perc", "Pass Completion", "Accurate passes divided by attempted passes.", "fa-solid fa-check-double", unit="%", format_spec="{:,.1f}"),
+        MetricSpec("Passes_F3_per_90", "Final Third Passes p90", "Sportmonks final-third passes per 90 minutes played. This is a territorial passing measure, not a progressive-pass equivalent.", "fa-solid fa-arrow-right-to-bracket"),
+        MetricSpec("Successful_Dribbles_per_90", "Successful Dribbles p90", "Successful dribbles per 90 minutes played.", "fa-solid fa-person-running"),
     ),
     "defending": (
-        MetricSpec("TklW_per_90", "Tackles Won p90", "Successful tackles per 90 minutes played.", "fa-solid fa-shield-halved"),
-        MetricSpec("Int_per_90", "Interceptions p90", "Interceptions per 90 minutes played.", "fa-solid fa-route"),
-        MetricSpec("Clr_per_90", "Clearances p90", "Clearances per 90 minutes played.", "fa-solid fa-broom"),
-        MetricSpec("Aerial_Duels_perc", "Aerial Duels Won", "Percentage of aerial duels won.", "fa-solid fa-plane-up", unit="%", format_spec="{:,.1f}"),
+        MetricSpec("Tkl+Int_per_90", "Tackles Won + Interceptions p90", "Successful tackles plus interceptions per 90 minutes played. It measures defensive activity, not defensive quality in isolation.", "fa-solid fa-shield-halved"),
+        MetricSpec("Ball_Recoveries_per_90", "Ball Recoveries p90", "Sportmonks ball recoveries per 90 minutes played.", "fa-solid fa-rotate-left"),
+        MetricSpec(
+            "Duel_Win_Perc", "Duels Won",
+            "Duels won divided by total duels. A minimum of 100 duels prevents small-sample leaders.",
+            "fa-solid fa-people-arrows", unit="%", format_spec="{:,.1f}",
+            minimum_column="Total_Duels", minimum_value=100,
+        ),
+        MetricSpec(
+            "Aerial_Duels_perc", "Aerial Duels Won",
+            "Aerial duels won divided by aerial duels won plus lost. A minimum of 30 aerial duels is required.",
+            "fa-solid fa-plane-up", unit="%", format_spec="{:,.1f}",
+            minimum_column="Aerial_Attempts", minimum_value=30,
+        ),
     ),
     "goalkeeping": (
-        MetricSpec("Save%", "Save Percentage", "Saves divided by shots on target faced.", "fa-solid fa-mitten", unit="%", format_spec="{:,.1f}"),
+        MetricSpec(
+            "Save%", "Save Percentage",
+            "Saves divided by shots on target faced. A minimum of 50 shots on target faced is required.",
+            "fa-solid fa-mitten", unit="%", format_spec="{:,.1f}",
+            minimum_column="SoTA", minimum_value=50,
+        ),
         MetricSpec("xGoT_minus_GA_per_90", "xGoT Faced minus GA p90", "Opponent xG on target allocated to the goalkeeper, minus goals conceded, per 90. Positive is better; the allocation is a minutes-based proxy when multiple goalkeepers appear.", "fa-solid fa-chart-line"),
-        MetricSpec("Saves_per_90", "Saves per 90", "Goalkeeper saves per 90 minutes played.", "fa-solid fa-hands"),
-        MetricSpec("GA_per_90", "Goals Against per 90", "Goals conceded by the goalkeeper per 90 minutes played. Lower is better.", "fa-solid fa-shield", ascending=True),
+        MetricSpec("High_Claims_per_90", "High Claims p90", "Sportmonks good high claims per 90 minutes. This measures aerial activity and command, not claim success rate because crosses faced are unavailable.", "fa-solid fa-hand"),
+        MetricSpec(
+            "Long_Ball_Completion_Perc", "Long-Ball Completion",
+            "Completed long balls divided by attempted long balls. A minimum of 100 attempts is required.",
+            "fa-solid fa-up-long", unit="%", format_spec="{:,.1f}",
+            minimum_column="Long_Balls", minimum_value=100,
+        ),
     ),
 }
 
@@ -180,7 +221,18 @@ PLAYER_QUADRANTS = {
         "y_metric": "Gls_per_90",
         "x_label": "Expected Goals p90",
         "y_label": "Goals p90",
-        "quadrant_labels": ["Elite Scorer", "High Threat / Low Return", "Low Threat", "Clinical Finisher"],
+        "quadrant_labels": {
+            "top_right": "Elite Scorer",
+            "bottom_right": "High Threat / Low Return",
+            "bottom_left": "Low Threat",
+            "top_left": "Clinical Finisher",
+        },
+        "quadrant_guide": {
+            "top_right": "Combines above-median chance volume with above-median scoring output.",
+            "bottom_right": "Gets into dangerous positions frequently, but converts them into fewer goals than the cohort median.",
+            "bottom_left": "Below the cohort median for both expected goals and actual goals per 90.",
+            "top_left": "Produces strong scoring output from a lower expected-goal volume: an efficient finishing profile.",
+        },
     },
     "tab-possession": {
         "title": "Creation & Ball Carrying",
@@ -188,15 +240,37 @@ PLAYER_QUADRANTS = {
         "y_metric": "Chances_Created_per_90",
         "x_label": "Successful Dribbles p90",
         "y_label": "Chances Created p90",
-        "quadrant_labels": ["Creator & Carrier", "Primary Creator", "Low Involvement", "Primary Carrier"],
+        "quadrant_labels": {
+            "top_right": "Creator & Carrier",
+            "bottom_right": "Primary Carrier",
+            "bottom_left": "Low Involvement",
+            "top_left": "Primary Creator",
+        },
+        "quadrant_guide": {
+            "top_right": "Combines successful one-v-one progression with frequent chance creation.",
+            "bottom_right": "Advances possession through dribbling more than through final-pass creation.",
+            "bottom_left": "Below the cohort median for both successful dribbles and chances created.",
+            "top_left": "Creates chances at a high rate without relying heavily on successful dribbles.",
+        },
     },
     "tab-defending": {
-        "title": "Defensive Activity",
-        "x_metric": "TklW_per_90",
-        "y_metric": "Int_per_90",
-        "x_label": "Tackles Won p90",
-        "y_label": "Interceptions p90",
-        "quadrant_labels": ["Complete Ball Winner", "Reader", "Low Activity", "Aggressive Tackler"],
+        "title": "Defensive Impact",
+        "x_metric": "Tkl+Int_per_90",
+        "y_metric": "Duel_Win_Perc",
+        "x_label": "Tackles Won + Interceptions p90",
+        "y_label": "Duels Won %",
+        "quadrant_labels": {
+            "top_right": "Complete Ball Winner",
+            "bottom_right": "High Activity / Low Success",
+            "bottom_left": "Limited Defensive Impact",
+            "top_left": "Selective & Efficient",
+        },
+        "quadrant_guide": {
+            "top_right": "Combines high defensive-action volume with an above-median duel success rate.",
+            "bottom_right": "Records many tackles and interceptions, but wins a lower share of total duels.",
+            "bottom_left": "Below the cohort median for both defensive activity and duel success.",
+            "top_left": "Wins duels efficiently despite recording fewer tackles and interceptions.",
+        },
     },
     "tab-goalkeeping": {
         "title": "Goalkeeping Performance",
@@ -204,7 +278,18 @@ PLAYER_QUADRANTS = {
         "y_metric": "xGoT_minus_GA_per_90",
         "x_label": "Save Percentage",
         "y_label": "xGoT Faced minus GA p90",
-        "quadrant_labels": ["Elite Shot-Stopper", "High Save Rate", "Under-performing", "Prevents Difficult Goals"],
+        "quadrant_labels": {
+            "top_right": "Elite Shot-Stopper",
+            "bottom_right": "High Save Rate",
+            "bottom_left": "Under-performing",
+            "top_left": "Prevents Difficult Goals",
+        },
+        "quadrant_guide": {
+            "top_right": "Combines an above-median save rate with positive goals prevented versus xGoT faced.",
+            "bottom_right": "Posts a strong save rate, but the xGoT model indicates less value added than the cohort median.",
+            "bottom_left": "Below the cohort median for both save rate and goals prevented versus xGoT.",
+            "top_left": "Adds value against difficult shots despite a lower overall save percentage.",
+        },
     },
 }
 
@@ -243,7 +328,7 @@ PLAYER_RADAR_GROUPS = {
             "Goals p90": "Gls_per_90",
             "xG p90": "xG_per_90",
             "G-xG p90": "G_minus_xG_per_90",
-            "SoT p90": "SoT/90",
+            "xG / Shot": "xG_per_Shot",
         },
         "⚽ Creation": {
             "Assists p90": "Ast_per_90",
@@ -252,9 +337,9 @@ PLAYER_RADAR_GROUPS = {
             "Successful Dribbles p90": "Successful_Dribbles_per_90",
         },
         "🛡️ Defending": {
-            "Tackles Won p90": "TklW_per_90",
-            "Interceptions p90": "Int_per_90",
-            "Clearances p90": "Clr_per_90",
+            "Tackles + Int p90": "Tkl+Int_per_90",
+            "Ball Recoveries p90": "Ball_Recoveries_per_90",
+            "Duels Won %": "Duel_Win_Perc",
             "Aerials Won %": "Aerial_Duels_perc",
         },
     },
@@ -262,8 +347,10 @@ PLAYER_RADAR_GROUPS = {
         "🧤 Goalkeeping": {
             "Save %": "Save%",
             "xGoT-GA p90": "xGoT_minus_GA_per_90",
-            "Saves p90": "Saves_per_90",
             "Goals Against p90": "GA_per_90",
+            "High Claims p90": "High_Claims_per_90",
+            "Long-Ball Completion %": "Long_Ball_Completion_Perc",
+            "Pass Completion %": "Pass_Completion_Perc",
         }
     },
 }
@@ -286,6 +373,10 @@ SPORTMONKS_TOOLTIPS.update({
     "Successful_Dribbles_per_90": "Successful dribbles per 90 minutes played.",
     "Dribble_Success_Perc": "Successful dribbles divided by dribble attempts.",
     "Key_Passes_per_90": "Passes that directly lead to a shot, per 90 minutes played.",
+    "Ball_Recoveries_per_90": "Sportmonks ball recoveries per 90 minutes played.",
+    "Duel_Win_Perc": "Duels won divided by total duels.",
+    "High_Claims_per_90": "Sportmonks good high claims per 90 minutes played.",
+    "Long_Ball_Completion_Perc": "Completed long balls divided by attempted long balls.",
 })
 
 

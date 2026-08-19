@@ -157,6 +157,9 @@ class SportmonksNormalizerTests(unittest.TestCase):
                             {"type_id": 119, "data": {"value": 90}},
                             {"type_id": 57, "data": {"value": 3}},
                             {"type_id": 1535, "data": {"value": 1}},
+                            {"type_id": 584, "data": {"value": 2}},
+                            {"type_id": 122, "data": {"value": 10}},
+                            {"type_id": 123, "data": {"value": 4}},
                         ],
                     },
                     {
@@ -171,6 +174,11 @@ class SportmonksNormalizerTests(unittest.TestCase):
                             {"type_id": 119, "data": {"value": 90}},
                             {"type_id": 52, "data": {"value": 2}},
                             {"type_id": 86, "data": {"value": 3}},
+                            {"type_id": 105, "data": {"value": 8}},
+                            {"type_id": 106, "data": {"value": 5}},
+                            {"type_id": 107, "data": {"value": 2}},
+                            {"type_id": 27266, "data": {"value": 1}},
+                            {"type_id": 27271, "data": {"value": 4}},
                         ],
                         "xglineup": [
                             {"type_id": 5304, "data": {"value": 1.2}},
@@ -197,9 +205,14 @@ class SportmonksNormalizerTests(unittest.TestCase):
         self.assertAlmostEqual(players.loc["Home Keeper", "PSxG"], 1.1)
         self.assertAlmostEqual(players.loc["Home Keeper", "PSxG+/-"], 0.1)
         self.assertAlmostEqual(players.loc["Home Keeper", "xGoT_minus_GA_per_90"], 0.1)
+        self.assertEqual(players.loc["Home Keeper", "High_Claims_per_90"], 2)
+        self.assertEqual(players.loc["Home Keeper", "Long_Ball_Completion_Perc"], 40)
         self.assertEqual(players.loc["Home Forward", "PSxG"], 0)
         self.assertEqual(players.loc["Home Forward", "Gls_per_90"], 2)
         self.assertAlmostEqual(players.loc["Home Forward", "xG_per_90"], 1.2)
+        self.assertEqual(players.loc["Home Forward", "Ball_Recoveries_per_90"], 4)
+        self.assertEqual(players.loc["Home Forward", "Duel_Win_Perc"], 62.5)
+        self.assertAlmostEqual(players.loc["Home Forward", "Aerial_Duels_perc"], 200 / 3)
         self.assertTrue(pd.isna(players.loc["Home Forward", "SCA90"]))
 
     def test_fixture_index_rows_do_not_inflate_aggregates(self):
@@ -236,7 +249,20 @@ class SportmonksNormalizerTests(unittest.TestCase):
             {"GA_per_90", "xGA_per_90", "Shots_Against_per_90", "Global_PPDA_Proxy"},
         )
         lower_goalkeeper = {spec.column for spec in PLAYER_METRIC_GROUPS["goalkeeping"] if spec.ascending}
-        self.assertEqual(lower_goalkeeper, {"GA_per_90"})
+        self.assertEqual(lower_goalkeeper, set())
+
+        player_columns = {
+            spec.column
+            for group in PLAYER_METRIC_GROUPS.values()
+            for spec in group
+        }
+        self.assertTrue({
+            "xG_per_Shot",
+            "Ball_Recoveries_per_90",
+            "Duel_Win_Perc",
+            "High_Claims_per_90",
+            "Long_Ball_Completion_Perc",
+        }.issubset(player_columns))
 
         self.assertEqual(
             set(TEAM_RADAR_GROUPS),

@@ -1193,7 +1193,18 @@ def generate_defender_layout_and_data(stored_data_json, player_stats_df_json, is
         return dbc.Alert(f"Error in defender analysis: {e}\n{tb_str}", color="danger"), [], None
 
 
-def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert_y=False, quadrant_labels=None, template="plotly_white"):
+def create_quadrant_plot(
+    df,
+    x_metric,
+    y_metric,
+    title,
+    x_label,
+    y_label,
+    invert_x=False,
+    invert_y=False,
+    quadrant_labels=None,
+    template="plotly_white",
+):
     """
     Crea uno scatter plot a quadranti per i GIOCATORI, con sfondi colorati, linea di tendenza e FOTO.
     """
@@ -1204,16 +1215,19 @@ def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert
     if df_plot.empty:
         return go.Figure().update_layout(title_text="No data for selected metrics.")
 
-    x_mean = df_plot[x_metric].mean()
-    y_mean = df_plot[y_metric].mean()
+    x_median = df_plot[x_metric].median()
+    y_median = df_plot[y_metric].median()
     
     fig = go.Figure()
 
-    # --- FIX: Marcatori resi invisibili, servono solo per l'hover ---
     fig.add_trace(go.Scatter(
         x=df_plot[x_metric], y=df_plot[y_metric],
         mode='markers',
-        marker=dict(size=30, color='rgba(0,0,0,0)'), # Dimensione cliccabile, ma trasparente
+        marker=dict(
+            size=34,
+            color='rgba(255,255,255,0.92)',
+            line=dict(color='#8aa7b8', width=1.5),
+        ),
         hoverinfo='text',
         hovertext=[f"<b>{row['Player']}</b><br>{row['Club']}<br>{x_label}: {row[x_metric]:.2f}<br>{y_label}: {row[y_metric]:.2f}" for _, row in df_plot.iterrows()]
     ))
@@ -1221,8 +1235,14 @@ def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert
     # Calcolo limiti assi
     x_min, x_max = df_plot[x_metric].min(), df_plot[x_metric].max()
     y_min, y_max = df_plot[y_metric].min(), df_plot[y_metric].max()
-    x_margin = (x_max - x_min) * 0.15
-    y_margin = (y_max - y_min) * 0.15
+    x_span = x_max - x_min
+    y_span = y_max - y_min
+    if x_span == 0:
+        x_span = max(abs(float(x_max)) * 0.2, 1.0)
+    if y_span == 0:
+        y_span = max(abs(float(y_max)) * 0.2, 1.0)
+    x_margin = x_span * 0.12
+    y_margin = y_span * 0.14
     x_axis_range = [x_min - x_margin, x_max + x_margin]
     y_axis_range = [y_min - y_margin, y_max + y_margin]
 
@@ -1234,24 +1254,27 @@ def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert
             source=photo_path,
             xref="x", yref="y",
             x=row[x_metric], y=row[y_metric],
-            sizex=(x_max - x_min) / 8, sizey=(y_max - y_min) / 8,
+            sizex=x_span * 0.065, sizey=y_span * 0.065,
             xanchor="center", yanchor="middle",
-            layer="above" # Assicura che le foto siano sopra i quadranti
+            layer="above",
         ))
     fig.update_layout(images=images)
 
     # Quadranti colorati
     colors = ['rgba(214, 39, 40, 0.1)', 'rgba(52, 152, 219, 0.1)', 'rgba(44, 160, 44, 0.1)', 'rgba(241, 196, 15, 0.1)']
-    if invert_y: colors = [colors[1], colors[0], colors[3], colors[2]]
+    if invert_y:
+        colors = [colors[1], colors[0], colors[3], colors[2]]
+    if invert_x:
+        colors = [colors[3], colors[2], colors[1], colors[0]]
         
-    fig.add_shape(type="rect", x0=x_mean, y0=y_mean, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=colors[2], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_mean, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_mean, fillcolor=colors[3], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_mean, y1=y_mean, fillcolor=colors[0], layer="below", line_width=0)
-    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_mean, x1=x_mean, y1=y_axis_range[1], fillcolor=colors[1], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_median, y0=y_median, x1=x_axis_range[1], y1=y_axis_range[1], fillcolor=colors[2], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_median, y0=y_axis_range[0], x1=x_axis_range[1], y1=y_median, fillcolor=colors[3], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_axis_range[0], x1=x_median, y1=y_median, fillcolor=colors[0], layer="below", line_width=0)
+    fig.add_shape(type="rect", x0=x_axis_range[0], y0=y_median, x1=x_median, y1=y_axis_range[1], fillcolor=colors[1], layer="below", line_width=0)
 
     # Linee medie
-    fig.add_hline(y=y_mean, line_dash="dash", line_color="grey")
-    fig.add_vline(x=x_mean, line_dash="dash", line_color="grey")
+    fig.add_hline(y=y_median, line_dash="dash", line_color="#8294a7", line_width=1.25)
+    fig.add_vline(x=x_median, line_dash="dash", line_color="#8294a7", line_width=1.25)
 
     # Etichette dei quadranti
     if quadrant_labels:
@@ -1259,25 +1282,135 @@ def create_quadrant_plot(df, x_metric, y_metric, title, x_label, y_label, invert
         y_pos_top = y_axis_range[0] + 0.99 * (y_axis_range[1] - y_axis_range[0])
         x_pos_left = x_axis_range[0] + 0.01 * (x_axis_range[1] - x_axis_range[0])
         y_pos_bottom = y_axis_range[0] + 0.01 * (y_axis_range[1] - y_axis_range[0])
-        if invert_y: y_pos_top, y_pos_bottom = y_pos_bottom, y_pos_top
+        if invert_y:
+            y_pos_top, y_pos_bottom = y_pos_bottom, y_pos_top
+        if invert_x:
+            x_pos_left, x_pos_right = x_pos_right, x_pos_left
 
-        fig.add_annotation(x=x_pos_right, y=y_pos_top, xanchor='right', yanchor='top', text=f"<b>{quadrant_labels[0]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
-        fig.add_annotation(x=x_pos_right, y=y_pos_bottom, xanchor='right', yanchor='bottom', text=f"<b>{quadrant_labels[1]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
-        fig.add_annotation(x=x_pos_left, y=y_pos_bottom, xanchor='left', yanchor='bottom', text=f"<b>{quadrant_labels[2]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
-        fig.add_annotation(x=x_pos_left, y=y_pos_top, xanchor='left', yanchor='top', text=f"<b>{quadrant_labels[3]}</b>", showarrow=False, font=dict(color='white', size=14), bgcolor='rgba(0,0,0,0.5)')
+        if isinstance(quadrant_labels, dict):
+            labels = quadrant_labels
+        else:
+            labels = dict(zip(
+                ("top_right", "bottom_right", "bottom_left", "top_left"),
+                quadrant_labels,
+            ))
+        annotation_style = dict(showarrow=False, font=dict(color='white', size=13), bgcolor='#172b4d', borderpad=5)
+        fig.add_annotation(x=x_pos_right, y=y_pos_top, xanchor='right', yanchor='top', text=f"<b>{labels.get('top_right', '')}</b>", **annotation_style)
+        fig.add_annotation(x=x_pos_right, y=y_pos_bottom, xanchor='right', yanchor='bottom', text=f"<b>{labels.get('bottom_right', '')}</b>", **annotation_style)
+        fig.add_annotation(x=x_pos_left, y=y_pos_bottom, xanchor='left', yanchor='bottom', text=f"<b>{labels.get('bottom_left', '')}</b>", **annotation_style)
+        fig.add_annotation(x=x_pos_left, y=y_pos_top, xanchor='left', yanchor='top', text=f"<b>{labels.get('top_left', '')}</b>", **annotation_style)
 
     fig.update_layout(
         title=f"<b>{title}</b>",
         xaxis_title=x_label, yaxis_title=y_label,
         template=template, showlegend=False,
-        font_color='white', paper_bgcolor='#2E3439', plot_bgcolor='#343A40',
-        height=700,
-        xaxis=dict(range=x_axis_range, showgrid=False, zeroline=False),
-        yaxis=dict(range=y_axis_range, autorange='reversed' if invert_y else None, showgrid=False, zeroline=False)
+        font=dict(color='#29415c', family='Arial, sans-serif'),
+        paper_bgcolor='#ffffff', plot_bgcolor='#f8fbfd',
+        height=650,
+        margin=dict(l=78, r=34, t=76, b=72),
+        hoverlabel=dict(bgcolor='#172b4d', font_color='white'),
+        xaxis=dict(
+            range=list(reversed(x_axis_range)) if invert_x else x_axis_range,
+            showgrid=True,
+            gridcolor='rgba(130,148,167,0.16)',
+            zeroline=False,
+            title_font=dict(color='#29415c'),
+            tickfont=dict(color='#52677d'),
+        ),
+        yaxis=dict(
+            range=list(reversed(y_axis_range)) if invert_y else y_axis_range,
+            showgrid=True,
+            gridcolor='rgba(130,148,167,0.16)',
+            zeroline=False,
+            title_font=dict(color='#29415c'),
+            tickfont=dict(color='#52677d'),
+        ),
     )
     return fig
 
-def create_player_profile_radar(df_for_normalization, primary_player_series, comparison_player_series=None, template="plotly_dark"):
+def create_player_position_map(position_usage, template="plotly_white"):
+    """Draw starting-position frequencies on a vertical football pitch."""
+    fig = go.Figure()
+    pitch_color = "#e8f4ef"
+    line_color = "rgba(35, 105, 82, 0.62)"
+
+    fig.add_shape(type="rect", x0=0, y0=0, x1=68, y1=105, fillcolor=pitch_color,
+                  line=dict(color=line_color, width=2), layer="below")
+    fig.add_shape(type="line", x0=0, y0=52.5, x1=68, y1=52.5,
+                  line=dict(color=line_color, width=1.5), layer="below")
+    fig.add_shape(type="circle", x0=24.85, y0=43.35, x1=43.15, y1=61.65,
+                  line=dict(color=line_color, width=1.4), layer="below")
+    fig.add_shape(type="circle", x0=33.55, y0=52.05, x1=34.45, y1=52.95,
+                  fillcolor=line_color, line_width=0, layer="below")
+
+    for y0, y1 in ((0, 16.5), (88.5, 105)):
+        fig.add_shape(type="rect", x0=13.85, y0=y0, x1=54.15, y1=y1,
+                      line=dict(color=line_color, width=1.4), layer="below")
+    for y0, y1 in ((0, 5.5), (99.5, 105)):
+        fig.add_shape(type="rect", x0=24.85, y0=y0, x1=43.15, y1=y1,
+                      line=dict(color=line_color, width=1.4), layer="below")
+    fig.add_shape(type="rect", x0=29.5, y0=-1.8, x1=38.5, y1=0,
+                  line=dict(color=line_color, width=1.4), layer="below")
+    fig.add_shape(type="rect", x0=29.5, y0=105, x1=38.5, y1=106.8,
+                  line=dict(color=line_color, width=1.4), layer="below")
+
+    if position_usage is None or position_usage.empty:
+        fig.add_annotation(
+            x=34, y=52.5,
+            text="No starting-position data available",
+            showarrow=False,
+            font=dict(color="#52677d", size=13),
+            bgcolor="rgba(255,255,255,0.88)",
+            bordercolor="#cbd7e3",
+            borderpad=8,
+        )
+    else:
+        usage = position_usage.sort_values("starts", ascending=False).copy()
+        max_starts = max(float(usage["starts"].max()), 1.0)
+        sizes = 24 + 34 * np.sqrt(usage["starts"].astype(float) / max_starts)
+        colors = ["#e96546"] + ["#087ea4"] * max(len(usage) - 1, 0)
+        fig.add_trace(go.Scatter(
+            x=usage["x"],
+            y=usage["y"],
+            mode="markers+text",
+            text=usage["role_number"].astype(int).astype(str),
+            textposition="middle center",
+            textfont=dict(color="white", size=12, family="Arial Black"),
+            customdata=np.column_stack((
+                usage["label"],
+                usage["starts"],
+                usage["share"],
+                usage["formation_summary"],
+            )),
+            marker=dict(
+                size=sizes,
+                color=colors,
+                opacity=0.92,
+                line=dict(color="white", width=3),
+            ),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "%{customdata[1]:.0f} starts · %{customdata[2]:.0%}<br>"
+                "%{customdata[3]}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    fig.update_layout(
+        template=template,
+        height=430,
+        margin=dict(l=14, r=14, t=14, b=14),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        hoverlabel=dict(bgcolor="#172b4d", font_color="white"),
+        xaxis=dict(range=[-3, 71], visible=False, fixedrange=True),
+        yaxis=dict(range=[-3, 108], visible=False, fixedrange=True, scaleanchor="x", scaleratio=1),
+    )
+    return fig
+
+
+def create_player_profile_radar(df_for_normalization, primary_player_series, comparison_player_series=None, template="plotly_white"):
     """
     Crea un radar plot che si adatta al ruolo del giocatore (portiere o di movimento)
     utilizzando le stesse metriche delle macro-card del profilo per coerenza.
@@ -1316,6 +1449,21 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
             )
             for category in CATEGORIES
         }
+
+    def player_row_mask(frame, player_series):
+        mask = frame['Player'].eq(player_series.get('Player'))
+        if 'sportmonks_player_id' in frame and pd.notna(player_series.get('sportmonks_player_id')):
+            mask &= pd.to_numeric(frame['sportmonks_player_id'], errors='coerce').eq(
+                float(player_series.get('sportmonks_player_id'))
+            )
+        if 'sportmonks_team_id' in frame and pd.notna(player_series.get('sportmonks_team_id')):
+            mask &= pd.to_numeric(frame['sportmonks_team_id'], errors='coerce').eq(
+                float(player_series.get('sportmonks_team_id'))
+            )
+        return mask
+
+    if not player_row_mask(df_norm, primary_player_series).any():
+        df_norm = pd.concat([df_norm, primary_player_series.to_frame().T], ignore_index=True, sort=False)
 
     # Se non ci sono dati per la normalizzazione, restituisci un grafico vuoto
     if df_norm.empty:
@@ -1361,11 +1509,12 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
     ))
 
     # --- AGGIUNGI TRACCE PER OGNI GIOCATORE ---
-    for player_series in players_to_plot:
+    trace_colors = ("#087ea4", "#e96546")
+    for trace_index, player_series in enumerate(players_to_plot):
         player_name = player_series['Player']
         
         # Trova i dati del giocatore nel dataframe normalizzato
-        player_norm_data = df_norm[df_norm['Player'] == player_name]
+        player_norm_data = df_norm[player_row_mask(df_norm, player_series)]
         
         if player_norm_data.empty:
             # Se il giocatore non è nel set di normalizzazione (es. non ha abbastanza minuti)
@@ -1379,27 +1528,46 @@ def create_player_profile_radar(df_for_normalization, primary_player_series, com
             theta=radar_metrics_ordered + [radar_metrics_ordered[0]],
             fill='toself',
             name=player_name,
-            hovertemplate='<b>%{theta}</b><br>Percentile: %{r:.0%}<extra></extra>' # Mostra come %
+            line=dict(color=trace_colors[trace_index], width=3),
+            marker=dict(color=trace_colors[trace_index], size=6),
+            fillcolor=(
+                "rgba(8,126,164,0.20)" if trace_index == 0
+                else "rgba(233,101,70,0.16)"
+            ),
+            hovertemplate='<b>%{theta}</b><br>Percentile: %{r:.0%}<extra></extra>', # Mostra come %
+            showlegend=False,
         ))
 
     # --- LAYOUT FINALE ---
     fig.update_layout(
-        height=600 if is_gk else 750, # Grafico più piccolo per i portieri (meno metriche)
+        height=490 if is_gk else 570,
         template=template,
+        showlegend=False,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#29415c', family='Arial, sans-serif'),
         polar=dict(
-            radialaxis=dict(visible=True, range=[0, 1], showticklabels=False, ticks=''),
-            angularaxis=dict(direction="clockwise", tickfont=dict(size=12))
+            bgcolor='rgba(248,251,253,0.75)',
+            radialaxis=dict(
+                visible=True,
+                range=[0, 1],
+                tickvals=[0.2, 0.4, 0.6, 0.8, 1],
+                ticktext=['20', '40', '60', '80', '100'],
+                tickfont=dict(size=9, color='#71859a'),
+                gridcolor='rgba(93,126,153,0.24)',
+                linecolor='rgba(93,126,153,0.18)',
+                ticks='',
+            ),
+            angularaxis=dict(
+                direction="clockwise",
+                tickfont=dict(size=11, color='#29415c'),
+                gridcolor='rgba(93,126,153,0.20)',
+                linecolor='rgba(93,126,153,0.18)',
+            )
         ),
-        legend=dict(
-            x=1.05,  # Posiziona la legenda a destra del grafico (105% dell'area di plot)
-            y=1,     # Allinea la parte superiore della legenda con la parte superiore del grafico
-            xanchor='left', # Ancoraggio a sinistra della legenda
-            yanchor='top',  # Ancoraggio in alto della legenda
-            bgcolor='rgba(0,0,0,0)',
-            bordercolor='rgba(0,0,0,0.1)'
-        ),
-        margin=dict(l=80, r=80, t=100, b=40),
-        title='Player Skill Radar'
+        margin=dict(l=72, r=72, t=36, b=48),
+        title=None,
+        hoverlabel=dict(bgcolor='#172b4d', font_color='white'),
     )
 
     return fig

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 320" role="img" aria-labelledby="title desc">
+  <title id="title">Il Lab dell'8 horizontal logo</title>
+  <desc id="desc">Tactical Eight icon with the Il Lab dell'8 wordmark and football intelligence tagline.</desc>
+  <defs>
+    <linearGradient id="lockupGradient" x1="58" y1="25" x2="260" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123149"/>
+      <stop offset="1" stop-color="#0B87AA"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(18 15) scale(.57)">
+    <path d="M256 256 C179 231 119 203 119 145 C119 75 181 28 256 28 C331 28 393 75 393 145 C393 203 333 231 256 256 C179 281 119 309 119 367 C119 437 181 484 256 484 C331 484 393 437 393 367 C393 309 333 281 256 256" fill="none" stroke="url(#lockupGradient)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="none" stroke="#0B87AA" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M256 91 L299 123 L283 173 L229 173 L213 123 Z"/><path d="M213 123 L170 103"/><path d="M299 123 L342 103"/><path d="M229 173 L205 210"/><path d="M283 173 L307 210"/>
+    </g>
+    <g fill="none" stroke="#E96546" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M171 395 L225 341 L273 381 L337 310"/><path d="M308 312 L338 309 L337 339"/>
+    </g>
+    <circle cx="171" cy="395" r="12" fill="#E96546"/><circle cx="225" cy="341" r="10" fill="#FFFFFF" stroke="#E96546" stroke-width="7"/>
+  </g>
+  <line x1="335" y1="60" x2="335" y2="260" stroke="#D6E3E9" stroke-width="3"/>
+  <text x="390" y="155" fill="#123149" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="82" font-weight="800" letter-spacing="-3">Il Lab dell’8</text>
+  <text x="394" y="207" fill="#0B87AA" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="800" letter-spacing="3">LA MENTE IN CAMPO · FOOTBALL INTELLIGENCE</text>
+</svg>

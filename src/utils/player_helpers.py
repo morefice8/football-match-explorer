@@ -19,6 +19,13 @@ COUNTRY_CODE_MAP = {
     'KVX': 'xk', 'CGO': 'cg', 'DRC': 'cd', 'DEU': 'de', 'GER': 'de', 'ALG': 'dz', 'DZA': 'dz'
 }
 
+NATIONALITY_FLAG_OVERRIDES = {
+    'england': 'gb-eng',
+    'scotland': 'gb-sct',
+    'wales': 'gb-wls',
+    'northern ireland': 'gb-nir',
+}
+
 METRIC_TOOLTIPS = {
     "Gls": "Total Goals Scored: The total number of goals scored by the player in all seasonal competitions. The primary metric for evaluating a finisher.",
     "Ast": "Total Assists: The total number of assists provided. Measures a player's ability to create direct scoring opportunities for teammates.",
@@ -49,6 +56,19 @@ METRIC_TOOLTIPS.update({
 METRIC_TOOLTIPS.update(SPORTMONKS_TOOLTIPS)
 
 # --- FUNZIONI DI SUPPORTO CONDIVISE ---
+def get_nationality_flag_code(country_code, nationality=None):
+    """Return the flag-icon-css code for a Sportmonks nationality."""
+    nationality_key = str(nationality or '').strip().casefold()
+    if nationality_key in NATIONALITY_FLAG_OVERRIDES:
+        return NATIONALITY_FLAG_OVERRIDES[nationality_key]
+
+    raw_code = str(country_code or '').strip()
+    if not raw_code or raw_code.casefold() == 'nan':
+        return None
+
+    return COUNTRY_CODE_MAP.get(raw_code.upper(), raw_code.lower())
+
+
 def build_team_name_map():
     team_map = {}
     for league_folder, league_info in LEAGUES.items():

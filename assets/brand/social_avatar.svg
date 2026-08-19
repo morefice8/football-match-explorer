@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Il Lab dell'8 social avatar</title>
+  <desc id="desc">Tactical Eight mark on a navy and teal rounded-square background.</desc>
+  <defs>
+    <linearGradient id="avatarBackground" x1="80" y1="80" x2="950" y2="950" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#102C44"/>
+      <stop offset="0.58" stop-color="#114E65"/>
+      <stop offset="1" stop-color="#087E9F"/>
+    </linearGradient>
+    <linearGradient id="avatarEight" x1="112" y1="42" x2="400" y2="478" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.45" stop-color="#86D7E6"/>
+      <stop offset="1" stop-color="#30B0CB"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#avatarBackground)"/>
+  <rect x="50" y="50" width="924" height="924" rx="205" fill="none" stroke="#FFFFFF" stroke-opacity=".12" stroke-width="4"/>
+  <g transform="translate(128 128) scale(1.5)">
+    <path d="M256 256 C179 231 119 203 119 145 C119 75 181 28 256 28 C331 28 393 75 393 145 C393 203 333 231 256 256 C179 281 119 309 119 367 C119 437 181 484 256 484 C331 484 393 437 393 367 C393 309 333 281 256 256" fill="none" stroke="url(#avatarEight)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M256 91 L299 123 L283 173 L229 173 L213 123 Z"/><path d="M213 123 L170 103"/><path d="M299 123 L342 103"/><path d="M229 173 L205 210"/><path d="M283 173 L307 210"/>
+    </g>
+    <g fill="none" stroke="#F1785B" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M171 395 L225 341 L273 381 L337 310"/><path d="M308 312 L338 309 L337 339"/>
+    </g>
+    <circle cx="171" cy="395" r="12" fill="#F1785B"/><circle cx="225" cy="341" r="10" fill="#112F45" stroke="#F1785B" stroke-width="7"/>
+  </g>
+</svg>

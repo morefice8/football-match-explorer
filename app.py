@@ -183,13 +183,23 @@ def render_page_content(pathname, search):
             dbc.Alert("This page is under construction.", color="info")
         ])
     elif decoded_pathname == "/player-stats":
-        return player_stats.layout()
+        season = None
+        if search:
+            query_params = parse_qs(search.lstrip('?'))
+            if 'season' in query_params:
+                season = query_params['season'][0]
+        return player_stats.layout(initial_season=season)
 
     elif decoded_pathname.startswith("/player-stats/"):
         parts = decoded_pathname.strip('/').split('/')
         if len(parts) > 1:
             player_name_url = parts[1]
-            return player_profile.layout(player_name_url)
+            season = None
+            if search:
+                query_params = parse_qs(search.lstrip('?'))
+                if 'season' in query_params:
+                    season = query_params['season'][0]
+            return player_profile.layout(player_name_url, season)
         else:
             return player_stats.layout()
     

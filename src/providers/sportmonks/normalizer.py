@@ -818,6 +818,10 @@ class SeasonNormalizer:
         out["Blocks"] = col("blocked_shots")
         out["Aerial_Won"] = col("aerials_won")
         out["Aerial_Lost"] = col("aerials_lost")
+        out["Aerial_Attempts"] = out["Aerial_Won"] + out["Aerial_Lost"]
+        out["Ball_Recoveries"] = col("ball_recoveries")
+        out["Total_Duels"] = col("total_duels")
+        out["Duels_Won"] = col("duels_won")
         out["Saves"] = col("saves")
         out["GA"] = col("goalkeeper_goals_conceded")
         out.loc[out["GA"] == 0, "GA"] = col("goals_conceded")
@@ -826,6 +830,10 @@ class SeasonNormalizer:
         out["SoTA"] = out["Saves"] + out["GA"]
         out["PSxG"] = col("opponent_expected_goals_on_target")
         out.loc[~goalkeeper, "PSxG"] = 0
+        out["High_Claims"] = col("good_high_claim")
+        out["Long_Balls"] = col("long_balls")
+        out["Long_Balls_Won"] = col("long_balls_won")
+        out.loc[~goalkeeper, ["High_Claims"]] = 0
         out["Gls_per_90"] = self._safe_divide(out["Gls"], out["90s"])
         out["Ast_per_90"] = self._safe_divide(out["Ast"], out["90s"])
         out["xG_per_90"] = self._safe_divide(out["xG"], out["90s"])
@@ -841,13 +849,17 @@ class SeasonNormalizer:
         out["TklW_per_90"] = self._safe_divide(out["TklW"], out["90s"])
         out["Int_per_90"] = self._safe_divide(out["Int"], out["90s"])
         out["Tkl+Int_per_90"] = self._safe_divide(out["Tkl+Int"], out["90s"])
-        out["Aerial_Duels_perc"] = self._safe_divide(out["Aerial_Won"], out["Aerial_Won"] + out["Aerial_Lost"], 100)
+        out["Ball_Recoveries_per_90"] = self._safe_divide(out["Ball_Recoveries"], out["90s"])
+        out["Duel_Win_Perc"] = self._safe_divide(out["Duels_Won"], out["Total_Duels"], 100)
+        out["Aerial_Duels_perc"] = self._safe_divide(out["Aerial_Won"], out["Aerial_Attempts"], 100)
         out["Clr_per_90"] = self._safe_divide(out["Clr"], out["90s"])
         out["Blocks_per_90"] = self._safe_divide(out["Blocks"], out["90s"])
         out["SoT/90"] = self._safe_divide(out["SoT"], out["90s"])
         out["Saves_per_90"] = self._safe_divide(out["Saves"], out["90s"])
         out["GA_per_90"] = self._safe_divide(out["GA"], out["90s"])
         out["Save%"] = self._safe_divide(out["Saves"], out["SoTA"], 100)
+        out["High_Claims_per_90"] = self._safe_divide(out["High_Claims"], out["90s"])
+        out["Long_Ball_Completion_Perc"] = self._safe_divide(out["Long_Balls_Won"], out["Long_Balls"], 100)
         out["PSxG+/-"] = out["PSxG"] - out["GA"]
         # Sportmonks names this input xG on Target (xGoT), not post-shot xG.
         # Keep the historical PSxG aliases for backwards compatibility while

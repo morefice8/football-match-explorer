@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, callback, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
-from src.components.layout_components import app_signature
+from src.components.brand_components import app_footer
 from src.metrics.sportmonks import TEAM_METRIC_GROUPS
 from src.visualization import team_plots
 
@@ -1270,8 +1270,9 @@ def layout(team_name_url, season="2024-2025"):
         ]
     )
 
-    return dbc.Container(
-        [
+    return html.Main([
+        dbc.Container(
+            [
             dcc.Store(id="team-profile-league-name-store", data=league_name),
             dcc.Store(id="team-profile-name-store", data=team_name),
             html.Div(
@@ -1366,14 +1367,15 @@ def layout(team_name_url, season="2024-2025"):
                         ],
                         className="team-profile-roster-section",
                     ),
-                    app_signature(),
                 ],
                 className="team-profile-shell",
             ),
-        ],
-        fluid=True,
-        className="team-stats-page team-profile-page",
-    )
+            ],
+            fluid=True,
+            className="team-profile-container",
+        ),
+        app_footer("Club identity, tactical structure and squad performance."),
+    ], className="team-stats-page team-profile-page branded-profile-page")
 
 
 @callback(

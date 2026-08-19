@@ -2,7 +2,7 @@ from dash import html
 
 def app_signature():
     return html.A([
-        html.Img(src="/assets/brand/app_logo.png", style={
+        html.Img(src="/assets/brand/app_logo.svg", style={
             "height": "40px",
             "marginRight": "8px"
         }),

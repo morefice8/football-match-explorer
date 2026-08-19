@@ -5,7 +5,7 @@ from io import StringIO # <-- FIX: AGGIUNTO IMPORT
 from dash import html, dcc, Input, Output, callback
 from src.visualization import league_plots
 import dash_bootstrap_components as dbc
-from src.components.layout_components import app_signature
+from src.components.brand_components import app_footer, stats_page_hero
 from src.metrics.sportmonks import (
     SPORTMONKS_TOOLTIPS,
     TEAM_METRIC_GROUPS,
@@ -321,62 +321,63 @@ def generate_card_sections(df, selected_league='All'):
 def layout():
     available_seasons = get_available_seasons()
     default_season = available_seasons[0] if available_seasons else None
-    return dbc.Container([
-        dbc.Row(dbc.Col(dbc.Button([html.I(className="fas fa-arrow-left me-2"), "Back to Home"], href="/", color="secondary", className="back-home-btn")), className="mb-3"),
-        dcc.Store(id='team-stats-full-df-store'),
-        dcc.Store(id='active-league-filter-store', data='All'),
-        html.Div([
-            html.H1("Teams Overview", className="team-stats-title text-center mb-2"),
-            html.P(
-                "Compare team performance across Europe's top five leagues",
-                className="team-stats-subtitle text-center mb-0",
-            ),
-        ], className="team-stats-heading mb-4"),
-        dbc.Row([
-            dbc.Col(create_league_filter_buttons(), width="auto", className="league-filter-col"),
-            dbc.Col(
-                dcc.Dropdown(
-                    id='season-filter-dropdown',
-                    options=[{'label': s, 'value': s} for s in available_seasons],
-                    value=default_season, clearable=False,
-                    className="season-filter-dropdown",
-                    style={'width': '200px'},
+    return html.Main([
+        stats_page_hero(
+            title="Teams Overview",
+            subtitle="Compare tactical identity and performance across Europe’s top five leagues.",
+            eyebrow="TEAM INTELLIGENCE",
+            icon="fa-solid fa-chart-column",
+            variant="team",
+        ),
+        dbc.Container([
+            dcc.Store(id='team-stats-full-df-store'),
+            dcc.Store(id='active-league-filter-store', data='All'),
+            dbc.Row([
+                dbc.Col(create_league_filter_buttons(), width="auto", className="league-filter-col"),
+                dbc.Col(
+                    dcc.Dropdown(
+                        id='season-filter-dropdown',
+                        options=[{'label': s, 'value': s} for s in available_seasons],
+                        value=default_season, clearable=False,
+                        className="season-filter-dropdown",
+                        style={'width': '200px'},
+                    ),
+                    width="auto",
+                )
+            ], justify="center", align="center", className="team-stats-filter-bar g-3 mb-4"),
+            dcc.Loading(id="loading-main-content", type="circle", children=[
+                dbc.Tabs(
+                    id="team-stats-tabs",
+                    active_tab="tab-attacking",
+                    children=[
+                        dbc.Tab(
+                            label="⚔️ Attacking",
+                            tab_id="tab-attacking",
+                            children=html.Div(id="team-attacking-cards", className="p-2 mt-3"),
+                        ),
+                        dbc.Tab(
+                            label="⚽ Possession & Territory",
+                            tab_id="tab-possession",
+                            children=html.Div(id="team-possession-cards", className="p-2 mt-3"),
+                        ),
+                        dbc.Tab(
+                            label="🛡️ Defending & Pressing",
+                            tab_id="tab-defending",
+                            children=html.Div(id="team-defending-cards", className="p-2 mt-3"),
+                        ),
+                        dbc.Tab(
+                            label="🎯 Set Pieces",
+                            tab_id="tab-set-pieces",
+                            children=html.Div(id="team-set-pieces-cards", className="p-2 mt-3"),
+                        ),
+                    ],
+                    className="team-metric-tabs mt-4",
                 ),
-                width="auto",
-            )
-        ], justify="center", align="center", className="team-stats-filter-bar g-3 mb-4"),
-        dcc.Loading(id="loading-main-content", type="circle", children=[
-            dbc.Tabs(
-                id="team-stats-tabs",
-                active_tab="tab-attacking",
-                children=[
-                    dbc.Tab(
-                        label="⚔️ Attacking",
-                        tab_id="tab-attacking",
-                        children=html.Div(id="team-attacking-cards", className="p-2 mt-3"),
-                    ),
-                    dbc.Tab(
-                        label="⚽ Possession & Territory",
-                        tab_id="tab-possession",
-                        children=html.Div(id="team-possession-cards", className="p-2 mt-3"),
-                    ),
-                    dbc.Tab(
-                        label="🛡️ Defending & Pressing",
-                        tab_id="tab-defending",
-                        children=html.Div(id="team-defending-cards", className="p-2 mt-3"),
-                    ),
-                    dbc.Tab(
-                        label="🎯 Set Pieces",
-                        tab_id="tab-set-pieces",
-                        children=html.Div(id="team-set-pieces-cards", className="p-2 mt-3"),
-                    ),
-                ],
-                className="team-metric-tabs mt-4",
-            ),
-            html.Div(id="league-quadrant-plots", className="mt-5")
-        ]),
-        app_signature()
-    ], fluid=True, className="team-stats-page px-3 px-lg-4 py-4")
+                html.Div(id="league-quadrant-plots", className="mt-5")
+            ]),
+        ], fluid=True, className="team-stats-content px-3 px-lg-4"),
+        app_footer("Team performance, tactical identity and league comparison."),
+    ], className="team-stats-page branded-analytics-page")
 
 @callback(
     Output('team-stats-full-df-store', 'data'),
