@@ -570,13 +570,13 @@ def create_buildup_summary_cards(stats, active_filter=None):
                 action=True,
                 n_clicks=0,
                 active=active,
-                className=f"d-flex justify-content-between align-items-center {'list-group-item-info' if active else ''}"
+                className=f"match-summary-row {'is-active' if active else ''}"
             )
         )
     outcome_card = dbc.Card([
-        dbc.CardHeader("Buildup Outcomes"),
+        dbc.CardHeader([dash_html.I(className="fa-solid fa-bullseye me-2"), "Buildup outcomes"]),
         dbc.ListGroup(outcome_list_items, flush=True)
-    ], className="mb-3")
+    ], className="match-summary-card")
 
     # Card 2: Flanks
     flank_list_items = []
@@ -596,13 +596,13 @@ def create_buildup_summary_cards(stats, active_filter=None):
                 action=True,
                 n_clicks=0,
                 active=active,
-                className=f"d-flex justify-content-between align-items-center {'list-group-item-info' if active else ''}"
+                className=f"match-summary-row {'is-active' if active else ''}"
             )
         )
     flank_card = dbc.Card([
-        dbc.CardHeader("Dominant Flank"),
+        dbc.CardHeader([dash_html.I(className="fa-solid fa-arrows-left-right me-2"), "Dominant flank"]),
         dbc.ListGroup(flank_list_items, flush=True)
-    ], className="mb-3")
+    ], className="match-summary-card")
 
     # Card 3: Buildup Type
     type_list_items = []
@@ -622,19 +622,19 @@ def create_buildup_summary_cards(stats, active_filter=None):
                 action=True,
                 n_clicks=0,
                 active=active,
-                className=f"d-flex justify-content-between align-items-center {'list-group-item-info' if active else ''}"
+                className=f"match-summary-row {'is-active' if active else ''}"
             )
         )
     type_card = dbc.Card([
-        dbc.CardHeader("Initial Buildup Type"),
+        dbc.CardHeader([dash_html.I(className="fa-solid fa-route me-2"), "Initial buildup type"]),
         dbc.ListGroup(type_list_items, flush=True)
-    ], className="mb-3")
+    ], className="match-summary-card")
 
     return dbc.Row([
         dbc.Col(outcome_card, md=4),
         dbc.Col(flank_card, md=4),
         dbc.Col(type_card, md=4)
-    ])
+    ], className="g-3 match-summary-grid")
 
 
 

@@ -104,78 +104,115 @@ def plot_pass_network_plotly(passes_between, avg_locs, team_name, team_color, su
 
 
 def plot_progressive_passes_plotly(df_prog_passes, team_name, team_color, is_away=False):
-    """
-    Crea una mappa interattiva dei passaggi progressivi con Plotly.
-    Mostra i passaggi per zona e le statistiche come annotazioni.
-    """
+    """Plot progressive attempts with completion status and clear direction."""
+    del is_away  # Opta coordinates already orient every team towards x=100.
     fig = go.Figure()
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.24)", "rgba(255,255,255,0.82)"
+    )
+    pitch_shapes.extend([
+        dict(
+            type='line', x0=0, y0=100 / 3, x1=100, y1=100 / 3,
+            line=dict(color='rgba(255,255,255,0.18)', dash='dot', width=1),
+        ),
+        dict(
+            type='line', x0=0, y0=200 / 3, x1=100, y1=200 / 3,
+            line=dict(color='rgba(255,255,255,0.18)', dash='dot', width=1),
+        ),
+    ])
 
     df_plot = df_prog_passes.copy()
-    
+    if 'is_progressive_attempt' in df_plot.columns:
+        df_plot = df_plot[
+            df_plot['is_progressive_attempt'].fillna(False).astype(bool)
+        ].copy()
+
+    outcomes = (
+        ('Completed', True, team_color, 'solid', 2.4, 'circle'),
+        ('Incomplete', False, '#f3b34c', 'dot', 1.45, 'x'),
+    )
+    for label, completed, color, dash, width, marker_symbol in outcomes:
+        if df_plot.empty or 'is_progressive' not in df_plot.columns:
+            subset = pd.DataFrame()
+        else:
+            subset = df_plot[
+                df_plot['is_progressive'].fillna(False).astype(bool).eq(completed)
+            ]
+        if subset.empty:
+            continue
+
+        x_coords, y_coords, hover_texts = [], [], []
+        for _, row in subset.iterrows():
+            minute = row.get('timeMin', '?')
+            gained = pd.to_numeric(row.get('progressive_distance_m'), errors='coerce')
+            threshold = pd.to_numeric(row.get('progressive_threshold_m'), errors='coerce')
+            gained_label = f"{gained:.1f} m" if pd.notna(gained) else 'N/A'
+            threshold_label = f"{threshold:.0f} m" if pd.notna(threshold) else 'N/A'
+            hover = (
+                f"<b>{row.get('playerName', 'Unknown')}</b> · {label}"
+                f"<br>Minute: {minute}'"
+                f"<br>Progression towards goal: {gained_label}"
+                f"<br>Required threshold: {threshold_label}"
+                f"<br>Phase: {row.get('progressive_phase', 'N/A')}"
+                f"<br>Origin channel: {row.get('progressive_channel', 'N/A')}"
+            )
+            x_coords.extend([row['x'], row['end_x'], None])
+            y_coords.extend([row['y'], row['end_y'], None])
+            hover_texts.extend([hover, hover, None])
+
+        fig.add_trace(go.Scattergl(
+            x=x_coords,
+            y=y_coords,
+            mode='lines',
+            line=dict(color=color, width=width, dash=dash),
+            opacity=0.82 if completed else 0.58,
+            name=f"{label} ({len(subset)})",
+            hoverinfo='text',
+            hovertext=hover_texts,
+        ))
+        fig.add_trace(go.Scattergl(
+            x=subset['end_x'],
+            y=subset['end_y'],
+            mode='markers',
+            marker=dict(
+                size=6 if completed else 7,
+                color=color,
+                symbol=marker_symbol,
+                line=dict(color='rgba(255,255,255,0.75)', width=0.7),
+            ),
+            showlegend=False,
+            hoverinfo='skip',
+        ))
+
     if df_plot.empty:
-        # Gestione caso vuoto
-        fig.update_layout(title=f"No Progressive Passes for {team_name}")
-        return fig
-    
-    # La divisione in zone ora avviene sui dati già orientati correttamente
-    left_passes = df_plot[df_plot['y'] >= 66.67]
-    mid_passes = df_plot[(df_plot['y'] >= 33.33) & (df_plot['y'] < 66.67)]
-    right_passes = df_plot[df_plot['y'] < 33.33]
+        fig.add_annotation(
+            x=50, y=50, text='No open-play progressive attempts',
+            showarrow=False, font=dict(color='white', size=15),
+        )
 
-    zones_data = [
-        ("Left Channel", left_passes, 'rgba(31, 119, 180, 0.8)'),
-        ("Central Channel", mid_passes, 'rgba(44, 160, 44, 0.8)'),
-        ("Right Channel", right_passes, 'rgba(255, 127, 14, 0.8)')
-    ]
-    total_count = len(df_plot)
-
-    for zone_name, zone_df, color in zones_data:
-        if not zone_df.empty:
-            x_coords, y_coords, hover_texts = [], [], []
-            for _, p in zone_df.iterrows():
-                x_coords.extend([p['x'], p['end_x'], None])
-                y_coords.extend([p['y'], p['end_y'], None])
-                hover_text = f"<b>{p['playerName']}</b> at {p.get('timeMin', '?')}'"
-                hover_texts.extend([hover_text, hover_text, None])
-            legend_name = f"{zone_name} ({len(zone_df)})"
-            fig.add_trace(go.Scattergl(x=x_coords, y=y_coords, mode='lines', line=dict(color=color, width=2.5), name=legend_name, hoverinfo='text', hovertext=hover_texts))
-            fig.add_trace(go.Scattergl(x=zone_df['end_x'], y=zone_df['end_y'], mode='markers', marker=dict(size=5, color=color), showlegend=False, hoverinfo='none'))
-
-    # --- Annotazioni e Layout ---
-    pitch_shapes.extend([
-        dict(type="line", x0=0, y0=33.33, x1=100, y1=33.33, line=dict(color="grey", dash="dot")),
-        dict(type="line", x0=0, y0=66.67, x1=100, y1=66.67, line=dict(color="grey", dash="dot"))
-    ])
-    
-    annotation_x = 15
-    annotations = []
-    if total_count > 0:
-        annotations.extend([
-            dict(x=annotation_x, y=83, text=f"<b>{len(left_passes)}</b><br>({len(left_passes)/total_count:.0%})", showarrow=False, font=dict(size=14, color='white')),
-            dict(x=annotation_x, y=50, text=f"<b>{len(mid_passes)}</b><br>({len(mid_passes)/total_count:.0%})", showarrow=False, font=dict(size=14, color='white')),
-            dict(x=annotation_x, y=17, text=f"<b>{len(right_passes)}</b><br>({len(right_passes)/total_count:.0%})", showarrow=False, font=dict(size=14, color='white')),
-        ])
-            
+    fig.add_annotation(
+        x=98, y=104, text='<b>ATTACKING →</b>', showarrow=False,
+        xanchor='right', font=dict(color='#94dbea', size=11),
+    )
     fig.update_layout(
-        title=dict(text=f"<b>{team_name} - Progressive Passes ({total_count})</b>", font=dict(size=18, color='white'), x=0.5, y=0.98),
+        title=dict(
+            text=f"<b>{team_name}</b> · Progressive passing map",
+            font=dict(size=17, color='white'), x=0.04, xanchor='left', y=0.97,
+        ),
         showlegend=True,
         legend=dict(
-            orientation="h", y=1.05, yanchor="top", x=0.5, xanchor="center",
-            font=dict(color='white') # **Colore legenda bianco**
+            orientation='h', y=1.035, yanchor='top', x=0.96, xanchor='right',
+            font=dict(color='white', size=11), bgcolor='rgba(0,0,0,0)',
         ),
         shapes=pitch_shapes,
-        annotations=annotations,
-        xaxis=dict(range=[-2, 102], visible=False),
-        yaxis=dict(range=[-2, 102], visible=False),
-        plot_bgcolor='#2E3439', paper_bgcolor='#2E3439',
-        height=700,
-        margin=dict(l=20, r=20, t=80, b=20)
+        xaxis=dict(range=[-2, 102], visible=False, fixedrange=True),
+        yaxis=dict(range=[-5, 107], visible=False, fixedrange=True),
+        plot_bgcolor='#29343d',
+        paper_bgcolor='#29343d',
+        height=610,
+        margin=dict(l=18, r=18, t=74, b=18),
+        hoverlabel=dict(bgcolor='#102f45', font_color='white'),
     )
-
-    if is_away:
-        fig.update_layout(xaxis_autorange="reversed", yaxis_autorange="reversed")
-
     return fig
 
 def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_color, zone14_color='orange', is_away=False):
@@ -216,7 +253,17 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
             for _, p in zone_df.iterrows():
                 x_coords.extend([p['x'], p['end_x'], None])
                 y_coords.extend([p['y'], p['end_y'], None])
-                hover_text = f"<b>{p['playerName']}</b> to {p.get('receiver', '?')}<br>Min {p.get('timeMin', '?')}'"
+                receiver = p.get('receiver')
+                receiver_label = receiver if pd.notna(receiver) else 'Unresolved receiver'
+                confidence = p.get('receiver_confidence')
+                confidence_label = (
+                    f"<br>Receiver confidence: {str(confidence).title()}"
+                    if pd.notna(confidence) else ''
+                )
+                hover_text = (
+                    f"<b>{p['playerName']}</b> to {receiver_label}"
+                    f"<br>Min {p.get('timeMin', '?')}'{confidence_label}"
+                )
                 hover_texts.extend([hover_text, hover_text, None])
 
             fig.add_trace(go.Scattergl(

@@ -1,4 +1,5 @@
 # src/metrics/pass_metrics.py
+import numpy as np
 import pandas as pd
 
 # --- Pass Network Data Calculation ---
@@ -46,7 +47,14 @@ def calculate_pass_network_data(passes_df, team_name):
          print("Error: 'receiver' column not found in passes data. Cannot calculate pairs.")
          return pd.DataFrame(), average_locs_and_count_df # Return what we have so far
 
-    # Drop rows where receiver is NaN as they cannot form a pair
+    # Only receiver attributions that passed the temporal, team and spatial
+    # validation may form a network edge. This remains backwards-compatible
+    # with older datasets that do not expose receiver_is_reliable.
+    if 'receiver_is_reliable' in team_passes_df.columns:
+        reliable_receiver_mask = team_passes_df['receiver_is_reliable'].fillna(False).astype(bool)
+        team_passes_df = team_passes_df[reliable_receiver_mask].copy()
+
+    # Drop rows where receiver is NaN as they cannot form a pair.
     team_passes_pairs_df = team_passes_df.dropna(subset=['playerName', 'receiver']).copy()
 
     # Convert player names to string just in case
@@ -96,10 +104,10 @@ def calculate_pass_network_data(passes_df, team_name):
 
 # --- Progressive Passes ---
 # This function identifies progressive passes based on Opta definitions and calculates counts and percentages per vertical third of the pitch.
-def analyze_progressive_passes(df_input,
-                               pitch_length_meters=105.0,
-                               exclude_qualifiers=None,
-                               return_ids_only=False):
+def _legacy_analyze_progressive_passes(df_input,
+                                       pitch_length_meters=105.0,
+                                       exclude_qualifiers=None,
+                                       return_ids_only=False):
     """
     Identifies progressive passes based on distance gained towards the opponent's goal,
     converting meter-based thresholds to Opta coordinate units. Allows dynamic exclusion
@@ -282,6 +290,282 @@ def analyze_progressive_passes(df_input,
     # print(f"  Progressive Pass Start Zones: Left={left_prog}, Mid={mid_prog}, Right={right_prog}")
 
     # return df_prog_passes, zone_counts
+
+PROGRESSIVE_RESULT_COLUMNS = [
+    'is_progressive_attempt',
+    'is_progressive',
+    'progressive_distance_m',
+    'progressive_threshold_m',
+    'progressive_phase',
+    'progressive_channel',
+    'progressive_is_open_play',
+    'progressive_exclusion_reason',
+]
+
+# Opta qualifier names vary slightly between mapping-file versions. Each tuple
+# lists accepted aliases for the same non-open-play action.
+PROGRESSIVE_EXCLUSION_ALIASES = (
+    ('cross', 'Cross'),
+    ('ThrowIn', 'Throw-in', 'Throw in'),
+    ('Corner taken',),
+    ('Free kick taken', 'Freekick taken'),
+    ('Goal kick', 'Goal kick taken'),
+)
+
+
+def _flag_mask(df, aliases):
+    """Return a mask for a flag that may use any of the supplied aliases."""
+    mask = pd.Series(False, index=df.index)
+    for column in aliases:
+        if column not in df.columns:
+            continue
+        values = df[column]
+        numeric = pd.to_numeric(values, errors='coerce')
+        text = values.fillna('').astype(str).str.strip().str.lower()
+        mask |= numeric.eq(1) | text.isin({'true', 'yes', 'y'})
+    return mask
+
+
+def classify_progressive_passes(
+    df_input,
+    pitch_length_meters=105.0,
+    pitch_width_meters=68.0,
+    exclude_qualifiers=None,
+):
+    """Classify progressive attempts and completions transparently.
+
+    Progression is the reduction in straight-line distance to the centre of
+    the opponent's goal, not simply ``end_x - x``. The required gain is 30 m
+    within the own half, 15 m when crossing halfway and 10 m within the
+    opposition half. Crosses and restarts are excluded; open-play long passes
+    remain eligible. Both successful and unsuccessful attempts are retained.
+    """
+    if df_input is None or df_input.empty:
+        base_columns = list(df_input.columns) if df_input is not None else []
+        return pd.DataFrame(columns=base_columns + PROGRESSIVE_RESULT_COLUMNS)
+    if pitch_length_meters <= 0 or pitch_width_meters <= 0:
+        raise ValueError('Pitch dimensions must be positive.')
+
+    classified = df_input.copy()
+    for column in PROGRESSIVE_RESULT_COLUMNS:
+        classified[column] = (
+            False
+            if column.startswith('is_') or column == 'progressive_is_open_play'
+            else pd.NA
+        )
+
+    if 'type_name' in classified.columns:
+        pass_mask = classified['type_name'].fillna('').astype(str).str.lower().eq('pass')
+    elif 'typeId' in classified.columns:
+        pass_mask = pd.to_numeric(classified['typeId'], errors='coerce').eq(1)
+    else:
+        return classified
+
+    coordinates = {}
+    for column in ('x', 'y', 'end_x', 'end_y'):
+        if column not in classified.columns:
+            classified.loc[pass_mask, 'progressive_exclusion_reason'] = 'missing_coordinates'
+            return classified
+        coordinates[column] = pd.to_numeric(classified[column], errors='coerce')
+
+    valid_coordinates = pass_mask.copy()
+    for values in coordinates.values():
+        valid_coordinates &= values.between(0, 100, inclusive='both')
+
+    excluded = pd.Series(False, index=classified.index)
+    exclusion_reason = pd.Series(pd.NA, index=classified.index, dtype='object')
+    reason_aliases = (
+        ('cross', PROGRESSIVE_EXCLUSION_ALIASES[0]),
+        ('throw_in', PROGRESSIVE_EXCLUSION_ALIASES[1]),
+        ('corner', PROGRESSIVE_EXCLUSION_ALIASES[2]),
+        ('free_kick', PROGRESSIVE_EXCLUSION_ALIASES[3]),
+        ('goal_kick', PROGRESSIVE_EXCLUSION_ALIASES[4]),
+    )
+    for reason, aliases in reason_aliases:
+        current = _flag_mask(classified, aliases)
+        exclusion_reason = exclusion_reason.mask(current & exclusion_reason.isna(), reason)
+        excluded |= current
+
+    # Keep the public argument for callers that need additional exclusions.
+    for qualifier in exclude_qualifiers or []:
+        current = _flag_mask(classified, (qualifier,))
+        exclusion_reason = exclusion_reason.mask(
+            current & exclusion_reason.isna(), str(qualifier)
+        )
+        excluded |= current
+
+    x = coordinates['x']
+    y = coordinates['y']
+    end_x = coordinates['end_x']
+    end_y = coordinates['end_y']
+    x_scale = pitch_length_meters / 100.0
+    y_scale = pitch_width_meters / 100.0
+    start_goal_distance = np.hypot((100.0 - x) * x_scale, (50.0 - y) * y_scale)
+    end_goal_distance = np.hypot(
+        (100.0 - end_x) * x_scale, (50.0 - end_y) * y_scale
+    )
+    distance_gained = start_goal_distance - end_goal_distance
+
+    own_half = (x <= 50) & (end_x <= 50)
+    crosses_halfway = (x <= 50) & (end_x > 50)
+    opposition_half = (x > 50) & (end_x > 50)
+    threshold = pd.Series(np.nan, index=classified.index, dtype='float64')
+    threshold.loc[own_half] = 30.0
+    threshold.loc[crosses_halfway] = 15.0
+    threshold.loc[opposition_half] = 10.0
+
+    phase = pd.Series(pd.NA, index=classified.index, dtype='object')
+    phase.loc[own_half] = 'Own half'
+    phase.loc[crosses_halfway] = 'Across halfway'
+    phase.loc[opposition_half] = 'Opposition half'
+
+    channel = pd.Series('Central', index=classified.index, dtype='object')
+    channel.loc[y < (100 / 3)] = 'Right'
+    channel.loc[y >= (200 / 3)] = 'Left'
+
+    open_play = pass_mask & valid_coordinates & ~excluded
+    attempt = open_play & threshold.notna() & distance_gained.ge(threshold)
+    outcome = classified.get('outcome', pd.Series('', index=classified.index))
+    outcome_text = outcome.fillna('').astype(str).str.strip().str.lower()
+    outcome_numeric = pd.to_numeric(outcome, errors='coerce')
+    successful = outcome_text.eq('successful') | outcome_numeric.eq(1)
+
+    classified.loc[pass_mask, 'progressive_distance_m'] = distance_gained.round(1)
+    classified.loc[pass_mask, 'progressive_threshold_m'] = threshold
+    classified.loc[pass_mask, 'progressive_phase'] = phase
+    classified.loc[pass_mask, 'progressive_channel'] = channel
+    classified.loc[pass_mask, 'progressive_is_open_play'] = open_play
+    classified.loc[pass_mask, 'progressive_exclusion_reason'] = exclusion_reason
+    classified.loc[
+        pass_mask & ~valid_coordinates, 'progressive_exclusion_reason'
+    ] = 'missing_coordinates'
+    classified['is_progressive_attempt'] = attempt.fillna(False).astype(bool)
+    classified['is_progressive'] = (attempt & successful).fillna(False).astype(bool)
+    classified['progressive_is_open_play'] = (
+        classified['progressive_is_open_play'].fillna(False).astype(bool)
+    )
+    return classified
+
+
+def progressive_pass_summary(passes_df):
+    """Return volume, completion, distance gained and channel usage."""
+    default = {
+        'attempted': 0,
+        'successful': 0,
+        'unsuccessful': 0,
+        'completion_pct': 0.0,
+        'total_progression_m': 0.0,
+        'average_progression_m': 0.0,
+        'main_channel': 'N/A',
+        'channel_counts': {'Left': 0, 'Central': 0, 'Right': 0},
+    }
+    if (
+        passes_df is None
+        or passes_df.empty
+        or 'is_progressive_attempt' not in passes_df.columns
+    ):
+        return default
+
+    attempts = passes_df[
+        passes_df['is_progressive_attempt'].fillna(False).astype(bool)
+    ].copy()
+    if attempts.empty:
+        return default
+    completed = attempts[attempts['is_progressive'].fillna(False).astype(bool)]
+    channel_counts = attempts.get(
+        'progressive_channel', pd.Series(dtype='object')
+    ).value_counts()
+    channels = {
+        channel: int(channel_counts.get(channel, 0))
+        for channel in ('Left', 'Central', 'Right')
+    }
+    main_channel = max(channels, key=channels.get) if any(channels.values()) else 'N/A'
+    progression = pd.to_numeric(
+        completed.get('progressive_distance_m'), errors='coerce'
+    )
+    attempted = len(attempts)
+    successful = len(completed)
+    return {
+        'attempted': int(attempted),
+        'successful': int(successful),
+        'unsuccessful': int(attempted - successful),
+        'completion_pct': successful / attempted * 100.0 if attempted else 0.0,
+        'total_progression_m': float(progression.sum()) if not progression.empty else 0.0,
+        'average_progression_m': float(progression.mean()) if not progression.empty else 0.0,
+        'main_channel': main_channel,
+        'channel_counts': channels,
+    }
+
+
+def progressive_pass_player_summary(passes_df, limit=5):
+    """Rank players while keeping failed progressive attempts visible."""
+    columns = ['Player', 'Successful', 'Attempted', 'Completion %', 'Progression m']
+    if (
+        passes_df is None
+        or passes_df.empty
+        or 'is_progressive_attempt' not in passes_df.columns
+    ):
+        return pd.DataFrame(columns=columns)
+
+    attempts = passes_df[
+        passes_df['is_progressive_attempt'].fillna(False).astype(bool)
+    ].copy()
+    if attempts.empty or 'playerName' not in attempts.columns:
+        return pd.DataFrame(columns=columns)
+
+    attempts['_successful_progression_m'] = pd.to_numeric(
+        attempts.get('progressive_distance_m'), errors='coerce'
+    ).where(attempts['is_progressive'].fillna(False).astype(bool), 0.0)
+    grouped = attempts.groupby('playerName', dropna=True).agg(
+        Successful=('is_progressive', 'sum'),
+        Attempted=('is_progressive_attempt', 'sum'),
+        **{'Progression m': ('_successful_progression_m', 'sum')},
+    ).reset_index().rename(columns={'playerName': 'Player'})
+    grouped['Successful'] = grouped['Successful'].astype(int)
+    grouped['Attempted'] = grouped['Attempted'].astype(int)
+    grouped['Completion %'] = (
+        grouped['Successful'] / grouped['Attempted'] * 100
+    ).round(0).astype(int)
+    grouped['Progression m'] = grouped['Progression m'].round(0).astype(int)
+    return grouped.sort_values(
+        ['Successful', 'Progression m', 'Attempted'],
+        ascending=[False, False, False],
+    ).head(limit)[columns].reset_index(drop=True)
+
+
+def analyze_progressive_passes(
+    df_input,
+    pitch_length_meters=105.0,
+    exclude_qualifiers=None,
+    return_ids_only=False,
+):
+    """Backward-compatible access to completed progressive passes."""
+    print('Analyzing progressive passes...')
+    classified = classify_progressive_passes(
+        df_input,
+        pitch_length_meters=pitch_length_meters,
+        exclude_qualifiers=exclude_qualifiers,
+    )
+    if classified.empty:
+        return [] if return_ids_only else (pd.DataFrame(), {})
+
+    progressive = classified[classified['is_progressive']].copy()
+    if return_ids_only:
+        if 'id' in progressive.columns:
+            return progressive['id'].tolist()
+        return progressive.index.tolist()
+
+    channel_counts = progressive.get(
+        'progressive_channel', pd.Series(dtype='object')
+    ).value_counts()
+    zone_counts = {
+        'total': int(len(progressive)),
+        'left': int(channel_counts.get('Left', 0)),
+        'mid': int(channel_counts.get('Central', 0)),
+        'right': int(channel_counts.get('Right', 0)),
+    }
+    return progressive, zone_counts
+
 
 # --- Final Third Passes (Zone 14 / Half-Spaces) ---
 # This function identifies successful passes ending in Zone 14 or Left/Right Half-Spaces for a specific team.

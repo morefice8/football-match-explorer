@@ -731,7 +731,7 @@ def render_match_tab_content(search_query, stored_data_json):
         except Exception as e:
             return dbc.Alert(f"Error loading overview: {e}", color="danger")
 
-    elif active_tab == "formation":            
+    elif active_tab == "formation":
             return dash_html.Div([
                 match_section_header(
                     "Formation & shape",
@@ -1304,6 +1304,13 @@ def show_pass_network_graph_plotly(stored_data_json):
         if successful_passes.empty:
             return dbc.Alert("No successful passes in the match.", color="warning")
 
+        home_receiver_coverage = pass_processing.receiver_coverage_summary(
+            successful_passes[successful_passes['team_name'] == HTEAM_NAME]
+        )
+        away_receiver_coverage = pass_processing.receiver_coverage_summary(
+            successful_passes[successful_passes['team_name'] == ATEAM_NAME]
+        )
+
         # **Ottieni la lista dei subentrati per ogni squadra**
         home_subs = pass_processing.get_sub_list(df_processed[df_processed['team_name'] == HTEAM_NAME])
         away_subs = pass_processing.get_sub_list(df_processed[df_processed['team_name'] == ATEAM_NAME])
@@ -1332,6 +1339,17 @@ def show_pass_network_graph_plotly(stored_data_json):
 
         # Layout a due colonne per mostrare i grafici affiancati
         return dash_html.Div([
+            dash_html.Div([
+                dash_html.I(className="fa-solid fa-circle-check"),
+                dash_html.Span(
+                    f"Reliable receiver attribution: {HTEAM_NAME} "
+                    f"{home_receiver_coverage['resolved']}/{home_receiver_coverage['eligible']} "
+                    f"({home_receiver_coverage['coverage_pct']:.1f}%) · {ATEAM_NAME} "
+                    f"{away_receiver_coverage['resolved']}/{away_receiver_coverage['eligible']} "
+                    f"({away_receiver_coverage['coverage_pct']:.1f}%). "
+                    "Unresolved passes are excluded from network links."
+                ),
+            ], className="match-analysis-note mb-3"),
             dbc.Row([
                 dbc.Col(dcc.Graph(figure=fig_home), md=6),
                 dbc.Col(dcc.Graph(figure=fig_away), md=6),
@@ -1463,7 +1481,7 @@ def generate_progressive_passes_plot(stored_data_json):
 
         # --- Data Preparation for Progressive Passes ---
         # Use your defined exclusions from main_analyze_match.py or a config file
-        prog_pass_exclusions = ['cross', 'Launch', 'ThrowIn'] # Example from your main script
+        prog_pass_exclusions = None  # Standard open-play exclusions are applied centrally.
         # If your config module has a better list, use that:
         # prog_pass_exclusions = getattr(config, 'PROGRESSIVE_PASS_EXCLUSIONS', ['cross', 'Launch', 'ThrowIn'])
 
@@ -1569,66 +1587,166 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
         HTEAM_NAME = match_info.get('hteamName', 'Home')
         ATEAM_NAME = match_info.get('ateamName', 'Away')
         
-        # Usa la funzione di pass_processing per ottenere i passaggi con i flag corretti
+        # Keep attempted and completed progressive passes separate: volume alone
+        # must not be presented as passing quality.
         all_passes = pass_processing.get_passes_df(df_processed)
-        prog_passes = all_passes[all_passes['is_progressive'] == True]
+        prog_passes = all_passes[
+            all_passes['is_progressive_attempt'].fillna(False).astype(bool)
+        ].copy()
 
         if prog_passes.empty:
-            return dbc.Alert("No progressive passes found in the match.", color="warning")
+            return dbc.Alert(
+                "No open-play progressive pass attempts found in the match.",
+                color="warning",
+            )
 
-        # --- Funzione helper interna per non duplicare il codice ---
         def create_prog_pass_layout_for_team(team_name, team_color, is_away):
             team_passes = prog_passes[prog_passes['team_name'] == team_name]
-            
-            fig = pass_plotly.plot_progressive_passes_plotly(team_passes, team_name, team_color, is_away)
-            graph_component = dcc.Graph(figure=fig, config={'displayModeBar': False})
-            
-            table_content = dbc.Alert("No data", color="secondary", className="mt-4")
-            if not team_passes.empty:
-                # 1. Conta i passaggi per giocatore
-                top_passers_series = team_passes['playerName'].value_counts().nlargest(5)
-                top_passers_df = top_passers_series.reset_index()
-                top_passers_df.columns = ['Player', 'Progressive Passes']
+            summary = pass_metrics.progressive_pass_summary(team_passes)
+            fig = pass_plotly.plot_progressive_passes_plotly(
+                team_passes, team_name, team_color, is_away
+            )
+            graph_component = dcc.Graph(
+                figure=fig,
+                config={'displayModeBar': False, 'responsive': True},
+                className='progressive-map-graph',
+            )
 
-                # **2. Crea la mappa Nome -> Numero Maglia**
-                player_jersey_map = team_passes.drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number']
+            def metric_card(label, value, detail):
+                return dash_html.Div([
+                    dash_html.Span(label, className='progressive-kpi-label'),
+                    dash_html.Strong(value, className='progressive-kpi-value'),
+                    dash_html.Small(detail, className='progressive-kpi-detail'),
+                ], className='progressive-kpi-card')
 
-                # **3. Funzione per formattare il nome**
+            main_channel_count = summary['channel_counts'].get(
+                summary['main_channel'], 0
+            )
+            kpis = dash_html.Div([
+                metric_card(
+                    'Completed / attempted',
+                    f"{summary['successful']} / {summary['attempted']}",
+                    'Open-play progressive passes',
+                ),
+                metric_card(
+                    'Completion',
+                    f"{summary['completion_pct']:.1f}%",
+                    'Precision on progressive attempts',
+                ),
+                metric_card(
+                    'Progression gained',
+                    f"{summary['total_progression_m']:.0f} m",
+                    'Successful passes only',
+                ),
+                metric_card(
+                    'Main origin channel',
+                    summary['main_channel'],
+                    f"{main_channel_count} of {summary['attempted']} attempts",
+                ),
+            ], className='progressive-kpi-grid')
+
+            channel_total = max(summary['attempted'], 1)
+            channel_profile = dash_html.Div([
+                dash_html.Div([
+                    dash_html.Span(channel),
+                    dash_html.Div(
+                        dash_html.Span(style={
+                            'width': (
+                                f"{summary['channel_counts'][channel] / channel_total * 100:.1f}%"
+                            )
+                        }),
+                        className='progressive-channel-track',
+                    ),
+                    dash_html.Strong(str(summary['channel_counts'][channel])),
+                ], className='progressive-channel-row')
+                for channel in ('Left', 'Central', 'Right')
+            ], className='progressive-channel-profile')
+
+            top_passers = pass_metrics.progressive_pass_player_summary(team_passes)
+            if top_passers.empty:
+                table_content = dbc.Alert('No player data', color='secondary')
+            else:
+                player_jersey_map = (
+                    team_passes.drop_duplicates('playerName')
+                    .set_index('playerName')['Mapped Jersey Number']
+                )
+
                 def format_player_name_with_jersey(player_name):
                     jersey_raw = player_jersey_map.get(player_name)
                     try:
                         jersey = str(int(jersey_raw))
                     except (ValueError, TypeError):
                         jersey = '?'
-                    return f"#{jersey} - {player_name}"
+                    return f"#{jersey} · {player_name}"
 
-                # **4. Applica la formattazione**
-                top_passers_df['Player'] = top_passers_df['Player'].apply(format_player_name_with_jersey)
-                
-                table_component = dbc.Table.from_dataframe(
-                    top_passers_df, 
-                    striped=True, bordered=True, hover=True, color="dark"
-                    
+                top_passers['Player'] = top_passers['Player'].apply(
+                    format_player_name_with_jersey
                 )
-                table_content = dash_html.Div([
-                    dash_html.H6("Top Progressive Passers", className="text-white text-center mt-4"),
-                    table_component
-                ])
-            
-            return dbc.Row([
-                dbc.Col(graph_component, md=9),
-                dbc.Col(table_content, md=3, className="align-self-center")
-            ], className="mb-4", align="center")
+                top_passers['Completed'] = (
+                    top_passers['Successful'].astype(str)
+                    + ' / '
+                    + top_passers['Attempted'].astype(str)
+                )
+                top_passers['Rate'] = top_passers['Completion %'].astype(str) + '%'
+                top_passers['Gain'] = top_passers['Progression m'].astype(str) + ' m'
+                display_table = top_passers[['Player', 'Completed', 'Rate', 'Gain']]
+                table_content = dbc.Table.from_dataframe(
+                    display_table,
+                    striped=False,
+                    bordered=False,
+                    hover=True,
+                    responsive=True,
+                    className='progressive-player-table',
+                )
 
-        # --- Crea i layout per entrambe le squadre ---
+            sidebar = dash_html.Div([
+                kpis,
+                dash_html.Div([
+                    dash_html.H6('Origin-channel profile'),
+                    channel_profile,
+                ], className='progressive-sidebar-section'),
+                dash_html.Div([
+                    dash_html.H6('Top progressive passers'),
+                    table_content,
+                ], className='progressive-sidebar-section'),
+            ], className='progressive-sidebar')
+
+            return dash_html.Section([
+                dash_html.Div([
+                    dash_html.Div([
+                        dash_html.Span(
+                            'HOME TEAM' if not is_away else 'AWAY TEAM',
+                            className='match-panel-eyebrow',
+                        ),
+                        dash_html.H4(team_name),
+                    ]),
+                    dash_html.Span(
+                        'All teams attack left to right',
+                        className='match-panel-hint',
+                    ),
+                ], className='match-panel-header'),
+                dbc.Row([
+                    dbc.Col(graph_component, lg=8),
+                    dbc.Col(sidebar, lg=4),
+                ], className='g-0'),
+            ], className='match-panel progressive-team-panel')
+
         home_layout = create_prog_pass_layout_for_team(HTEAM_NAME, HCOL, is_away=False)
         away_layout = create_prog_pass_layout_for_team(ATEAM_NAME, ACOL, is_away=True)
 
         return dash_html.Div([
+            dash_html.Div([
+                dash_html.I(className='fas fa-info-circle'),
+                dash_html.Span(
+                    'Open-play only. A pass is progressive when it reduces the '
+                    'distance to the centre of goal by at least 30 m in the own '
+                    'half, 15 m across halfway or 10 m in the opposition half. '
+                    'Crosses and restarts are excluded.'
+                ),
+            ], className='match-analysis-note progressive-definition-note'),
             home_layout,
-            dash_html.Hr(),
             away_layout
-        ])
+        ], className='progressive-analysis')
 
     except Exception as e:
         tb_str = traceback.format_exc()
@@ -1815,6 +1933,7 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             
             table_content = dbc.Alert("No receivers in the final third.", color="secondary", className="mt-4")
             if not df_all_final_third.empty:
+                receiver_coverage = pass_processing.receiver_coverage_summary(df_all_final_third)
                 # 1. Conta i passaggi ricevuti per ogni giocatore
                 top_receivers_series = df_all_final_third['receiver'].value_counts().nlargest(5)
                 
@@ -1842,8 +1961,16 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                     #style={'fontSize': '0.8rem'} # Riduci la dimensione del font
                 )
                 table_content = dash_html.Div([
-                    dash_html.H6("Top Receivers in Final Third", className="text-white text-center mt-4"),
-                    table_component
+                    dash_html.H6("Top Inferred Receivers in Final Third", className="text-white text-center mt-4"),
+                    table_component,
+                    dash_html.Div([
+                        dash_html.I(className="fa-solid fa-circle-check"),
+                        dash_html.Span(
+                            f"Receiver resolved for {receiver_coverage['resolved']}/"
+                            f"{receiver_coverage['eligible']} entries "
+                            f"({receiver_coverage['coverage_pct']:.1f}%)."
+                        ),
+                    ], className="match-analysis-note mt-2"),
                 ])
             
             # Layout a due colonne per questo team
@@ -2702,7 +2829,7 @@ def calculate_and_store_player_stats(stored_data_json, search_query):
             if df_processed.empty: return None
 
             assist_qualifier_col_name = 'Assist' 
-            prog_pass_exclusions = ['cross', 'Launch', 'ThrowIn']
+            prog_pass_exclusions = None
             
             player_stats_df = player_metrics.calculate_player_stats(
                 df_processed.copy(),

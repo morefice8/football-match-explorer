@@ -549,7 +549,7 @@ def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_awa
     if pd.notna(avg_line_x):
         fig.add_shape(
             type='line', x0=avg_line_x, y0=-5, x1=avg_line_x, y1=105,
-            line=dict(color='dimgrey', width=3, dash='dash')
+            line=dict(color='#6f8797', width=2, dash='dash')
         )
         
         pitch_length_meters = 105.0
@@ -566,17 +566,18 @@ def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_awa
             xref="paper", yref="paper",
             text=f"<b>Avg. Line: {avg_line_meters:.1f}m</b>",
             showarrow=False,
-            font=dict(color="white", size=14, family="Arial"),
-            bgcolor="rgba(46, 52, 57, 0.8)",
-            bordercolor="white", borderwidth=1, borderpad=4
+            font=dict(color="#16324a", size=12, family="Inter, Arial"),
+            bgcolor="rgba(255, 255, 255, 0.94)",
+            bordercolor="#cbdde6", borderwidth=1, borderpad=5
         )
 
     fig.update_layout(
         showlegend=False,
         plot_bgcolor="white",
-        paper_bgcolor="#2E3439",
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=600, 
+        paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, Arial", color="#27445b"),
+        margin=dict(l=12, r=12, t=54, b=12),
+        height=500,
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
         yaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True, scaleanchor="x", scaleratio=0.68)
     )

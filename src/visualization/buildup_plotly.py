@@ -692,12 +692,16 @@ def plot_opponent_buildup_after_loss_plotly(
     # --- START: AGGIORNAMENTO TITOLO ---
     fig.update_layout(
         title=f"<b>{title_line1}</b><br>Time: {time_str} | Duration: {duration_str} | Outcome: {outcome_text}",
-        title_font=dict(color='black', size=18),
+        title_font=dict(color='#18344d', size=16, family='Inter, Arial'),
         title_x=0.5,
-        plot_bgcolor=bg_color,
-        paper_bgcolor=bg_color,
+        title_y=0.97,
+        plot_bgcolor='#ffffff',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#27445b', family='Inter, Arial'),
         showlegend=False,
-        margin=dict(l=10, r=10, t=80, b=10)
+        margin=dict(l=16, r=16, t=76, b=16),
+        height=500,
+        autosize=True,
     )
     # --- END: AGGIORNAMENTO TITOLO ---
 

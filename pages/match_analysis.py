@@ -6,14 +6,14 @@ from src.components.brand_components import app_footer, brand_lockup
 
 def layout(match_id):
     tabs_config = [
-        {"label": "Match Overview", "value": "overview", "icon": "fas fa-clipboard-list"},
-        {"label": "Formation", "value": "formation", "icon": "fas fa-users"},
-        {"label": "Passes", "value": "passes", "icon": "fas fa-exchange-alt"},
-        {"label": "Buildup", "value": "buildup", "icon": "fas fa-sitemap"},
-        {"label": "Def. Transition", "value": "defensive-transition", "icon": "fas fa-shield-alt"},
-        {"label": "Off. Transition", "value": "offensive-transition", "icon": "fas fa-bolt"},
-        {"label": "Set Piece", "value": "set-piece", "icon": "fas fa-flag"},
-        {"label": "Player Analysis", "value": "player_analysis", "icon": "fas fa-user-astronaut"},
+        {"label": "Overview", "value": "overview", "icon": "fas fa-chart-simple"},
+        {"label": "Shape & Formation", "value": "formation", "icon": "fas fa-people-group"},
+        {"label": "Passing", "value": "passes", "icon": "fas fa-arrow-right-arrow-left"},
+        {"label": "Build-up", "value": "buildup", "icon": "fas fa-diagram-project"},
+        {"label": "Defending", "value": "defensive-transition", "icon": "fas fa-shield-halved"},
+        {"label": "Transitions", "value": "offensive-transition", "icon": "fas fa-bolt"},
+        {"label": "Set Pieces", "value": "set-piece", "icon": "fas fa-flag"},
+        {"label": "Players", "value": "player_analysis", "icon": "fas fa-user-group"},
     ]
 
     sidebar = html.Aside([

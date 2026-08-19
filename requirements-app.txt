@@ -14,3 +14,4 @@ pycountry>=24.6.1
 python-dotenv>=1.0,<2
 requests>=2.32,<3
 scipy==1.15.2
+openpyxl==3.1.5
