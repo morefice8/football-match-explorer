@@ -327,6 +327,349 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
     
     return fig
 
+def plot_final_third_entries_plotly(
+    entries_df,
+    stats,
+    team_name,
+    team_color,
+    is_away=False,
+    zone14_color='orange',
+    carry_color='#ffb366',
+):
+    """
+    Plot all final-third entries for one team.
+
+    Pass entries are shown with solid lines.
+    Carry entries are shown with dashed lines.
+    Zone 14 and the half-spaces remain contextual destination zones,
+    rather than defining the metric itself.
+    """
+    fig = go.Figure()
+
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.2)",
+        "white",
+    )
+
+    final_third_x = 100 * 2 / 3
+
+    # Contextual tactical zones.
+    zone_shapes = [
+        # Final-third boundary
+        dict(
+            type="line",
+            x0=final_third_x,
+            y0=0,
+            x1=final_third_x,
+            y1=100,
+            line=dict(
+                color="rgba(255,255,255,0.45)",
+                width=1.5,
+                dash="dot",
+            ),
+            layer="below",
+        ),
+
+        # Zone 14
+        dict(
+            type="rect",
+            x0=final_third_x,
+            y0=100 / 3,
+            x1=82.0,
+            y1=200 / 3,
+            fillcolor=zone14_color,
+            opacity=0.16,
+            layer="below",
+            line_width=0,
+        ),
+
+        # Left half-space
+        dict(
+            type="rect",
+            x0=final_third_x,
+            y0=200 / 3,
+            x1=100,
+            y1=500 / 6,
+            fillcolor=team_color,
+            opacity=0.12,
+            layer="below",
+            line_width=0,
+        ),
+
+        # Right half-space
+        dict(
+            type="rect",
+            x0=final_third_x,
+            y0=100 / 6,
+            x1=100,
+            y1=100 / 3,
+            fillcolor=team_color,
+            opacity=0.12,
+            layer="below",
+            line_width=0,
+        ),
+    ]
+
+    if entries_df is not None and not entries_df.empty:
+
+        # -----------------------------------------------------
+        # PASS ENTRIES
+        # -----------------------------------------------------
+        pass_entries = entries_df[
+            entries_df['entry_type'] == 'Pass'
+        ].copy()
+
+        if not pass_entries.empty:
+            x_coords = []
+            y_coords = []
+            hover_texts = []
+
+            for _, row in pass_entries.iterrows():
+                x_coords.extend([
+                    row['x'],
+                    row['end_x'],
+                    None,
+                ])
+                y_coords.extend([
+                    row['y'],
+                    row['end_y'],
+                    None,
+                ])
+
+                receiver = row.get('receiver')
+                if pd.notna(receiver):
+                    receiver_label = receiver
+                else:
+                    receiver_label = 'Unresolved receiver'
+
+                confidence = row.get('receiver_confidence')
+
+                confidence_label = (
+                    f"<br>Receiver confidence: "
+                    f"{str(confidence).title()}"
+                    if pd.notna(confidence)
+                    else ''
+                )
+
+                hover_text = (
+                    f"<b>{row.get('playerName', 'Unknown')}</b>"
+                    f" → {receiver_label}"
+                    f"<br>Pass entry"
+                    f"<br>Min {row.get('timeMin', '?')}'"
+                    f"<br>Channel: "
+                    f"{row.get('final_third_channel', 'Unknown')}"
+                    f"<br>Destination: "
+                    f"{row.get('destination_zone', 'Unknown')}"
+                    f"{confidence_label}"
+                )
+
+                hover_texts.extend([
+                    hover_text,
+                    hover_text,
+                    None,
+                ])
+
+            fig.add_trace(go.Scattergl(
+                x=x_coords,
+                y=y_coords,
+                mode='lines',
+                line=dict(
+                    color=team_color,
+                    width=2.2,
+                ),
+                name=f"Pass entries ({len(pass_entries)})",
+                hoverinfo='text',
+                hovertext=hover_texts,
+            ))
+
+            fig.add_trace(go.Scattergl(
+                x=pass_entries['end_x'],
+                y=pass_entries['end_y'],
+                mode='markers',
+                marker=dict(
+                    size=6,
+                    color=team_color,
+                ),
+                showlegend=False,
+                hoverinfo='none',
+            ))
+
+        # -----------------------------------------------------
+        # CARRY ENTRIES
+        # -----------------------------------------------------
+        carry_entries = entries_df[
+            entries_df['entry_type'] == 'Carry'
+        ].copy()
+
+        if not carry_entries.empty:
+            x_coords = []
+            y_coords = []
+            hover_texts = []
+
+            for _, row in carry_entries.iterrows():
+                x_coords.extend([
+                    row['x'],
+                    row['end_x'],
+                    None,
+                ])
+                y_coords.extend([
+                    row['y'],
+                    row['end_y'],
+                    None,
+                ])
+
+                distance = row.get('carry_distance_m')
+                distance_label = (
+                    f"{distance:.1f} m"
+                    if pd.notna(distance)
+                    else "Unknown"
+                )
+
+                hover_text = (
+                    f"<b>{row.get('playerName', 'Unknown')}</b>"
+                    f"<br>Carry entry"
+                    f"<br>Distance: {distance_label}"
+                    f"<br>Channel: "
+                    f"{row.get('final_third_channel', 'Unknown')}"
+                    f"<br>Destination: "
+                    f"{row.get('destination_zone', 'Unknown')}"
+                )
+
+                hover_texts.extend([
+                    hover_text,
+                    hover_text,
+                    None,
+                ])
+
+            fig.add_trace(go.Scattergl(
+                x=x_coords,
+                y=y_coords,
+                mode='lines',
+                line=dict(
+                    color=carry_color,
+                    width=2.5,
+                    dash='dash',
+                ),
+                name=f"Carry entries ({len(carry_entries)})",
+                hoverinfo='text',
+                hovertext=hover_texts,
+            ))
+
+            fig.add_trace(go.Scattergl(
+                x=carry_entries['end_x'],
+                y=carry_entries['end_y'],
+                mode='markers',
+                marker=dict(
+                    size=7,
+                    color=carry_color,
+                    symbol='diamond',
+                ),
+                showlegend=False,
+                hoverinfo='none',
+            ))
+
+    # Tactical-zone counts.
+    annotations = [
+        dict(
+            x=74,
+            y=50,
+            text=f"<b>Z14<br>{stats.get('zone14', 0)}</b>",
+            showarrow=False,
+            font=dict(color='white', size=13),
+        ),
+        dict(
+            x=90,
+            y=75,
+            text=f"<b>LHS<br>{stats.get('hs_left', 0)}</b>",
+            showarrow=False,
+            font=dict(color='white', size=12),
+        ),
+        dict(
+            x=90,
+            y=25,
+            text=f"<b>RHS<br>{stats.get('hs_right', 0)}</b>",
+            showarrow=False,
+            font=dict(color='white', size=12),
+        ),
+    ]
+
+    if entries_df is None or entries_df.empty:
+        annotations.append(
+            dict(
+                x=82,
+                y=50,
+                text="<b>No final-third entries</b>",
+                showarrow=False,
+                font=dict(
+                    color='rgba(255,255,255,0.7)',
+                    size=16,
+                ),
+            )
+        )
+
+    fig.update_layout(
+        title=dict(
+            text=(
+                f"<b>{team_name} - Final Third Entries</b>"
+                f"<br><sup>"
+                f"{stats.get('total_final_third', 0)} total · "
+                f"{stats.get('pass_entries', 0)} pass · "
+                f"{stats.get('carry_entries', 0)} carry"
+                f"</sup>"
+            ),
+            font=dict(
+                size=16,
+                color='white',
+            ),
+            x=0.5,
+            y=0.98,
+            xanchor='center',
+            yanchor='top',
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.01,
+            xanchor='center',
+            x=0.5,
+            font=dict(color='white'),
+        ),
+        shapes=pitch_shapes + zone_shapes,
+        annotations=annotations,
+        xaxis=dict(
+            range=[-2, 102],
+            visible=False,
+            fixedrange=True,
+        ),
+        yaxis=dict(
+            range=[-2, 102],
+            visible=False,
+            fixedrange=True,
+        ),
+        plot_bgcolor='#2E3439',
+        paper_bgcolor='#2E3439',
+        height=660,
+        margin=dict(
+            l=20,
+            r=20,
+            t=95,
+            b=20,
+        ),
+        hoverlabel=dict(
+            bgcolor='#102f45',
+            font_color='white',
+        ),
+    )
+
+    if is_away:
+        fig.update_layout(
+            xaxis_autorange='reversed',
+            yaxis_autorange='reversed',
+        )
+
+    return fig
+
 def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
     """
     Versione 3: Corregge il disegno del campo su subplot e migliora lo stile.

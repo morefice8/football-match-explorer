@@ -92,48 +92,261 @@ def plot_shot_sequence_bar(ax, player_stats_df, num_players=10, title="Shot Sequ
     ax.set_title(title, color=LINE_COLOR, fontsize=16, fontweight='bold')
 
 
-def plot_passer_stats_bar(ax, player_stats_df, num_players=10, title="Top Passers Stats"):
-    """Plots a stacked bar chart for key passing stats for top players."""
-    print(f"Plotting {title} bar chart...")
-    # Ensure required columns exist
-    req_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists', 'Offensive Pass Total'] # Assuming KeyPasses = Shot Assists
-    if not all(col in player_stats_df.columns for col in req_cols):
-        print(f"Warning: Missing required columns for passer stats plot. Skipping.")
-        ax.text(0.5, 0.5, "Data Unavailable", ha='center', va='center', fontsize=12, color='red')
-        return
+# def plot_passer_stats_bar(ax, player_stats_df, num_players=10, title="Top Passers Stats"):
+#     """Plots a stacked bar chart for key passing stats for top players."""
+#     print(f"Plotting {title} bar chart...")
+#     # Ensure required columns exist
+#     req_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists', 'Offensive Pass Contributions'] # Assuming KeyPasses = Shot Assists
+#     if not all(col in player_stats_df.columns for col in req_cols):
+#         print(f"Warning: Missing required columns for passer stats plot. Skipping.")
+#         ax.text(0.5, 0.5, "Data Unavailable", ha='center', va='center', fontsize=12, color='red')
+#         return
 
-    top_players_df = player_stats_df.sort_values('Offensive Pass Total', ascending=False).head(num_players).iloc[::-1]
+#     top_players_df = player_stats_df.sort_values('Offensive Pass Contributions', ascending=False).head(num_players).iloc[::-1]
 
-    players = top_players_df.index.tolist()
-    prog_p = top_players_df['Progressive Passes'].tolist()
-    box_p = top_players_df['Passes into Box'].tolist()
-    key_p = top_players_df['Shot Assists'].tolist() # Use Shot Assists as Key Passes
+#     players = top_players_df.index.tolist()
+#     prog_p = top_players_df['Progressive Passes'].tolist()
+#     box_p = top_players_df['Passes into Box'].tolist()
+#     key_p = top_players_df['Shot Assists'].tolist() # Use Shot Assists as Key Passes
 
-    left_box = np.array(prog_p)
-    left_key = left_box + np.array(box_p)
+#     left_box = np.array(prog_p)
+#     left_key = left_box + np.array(box_p)
 
-    ax.barh(players, prog_p, label='Prog. Pass', color=HCOL, left=0, zorder=3)
-    ax.barh(players, box_p, label='Pass into Box', color=ACOL, left=left_box, zorder=3)
-    ax.barh(players, key_p, label='Key Pass', color=VIOLET, left=left_key, zorder=3)
+#     ax.barh(players, prog_p, label='Prog. Pass', color=HCOL, left=0, zorder=3)
+#     ax.barh(players, box_p, label='Pass into Box', color=ACOL, left=left_box, zorder=3)
+#     ax.barh(players, key_p, label='Key Pass', color=VIOLET, left=left_key, zorder=3)
 
-    for i, player in enumerate(players):
-        counts = [prog_p[i], box_p[i], key_p[i]]
-        lefts = [0, left_box[i], left_key[i]]
-        for j, count in enumerate(counts):
-            if count > 0:
-                x_pos = lefts[j] + count / 2
-                ax.text(x_pos, i, str(int(count)), ha='center', va='center', color=BG_COLOR, fontsize=10, fontweight='bold', zorder=4)
+#     for i, player in enumerate(players):
+#         counts = [prog_p[i], box_p[i], key_p[i]]
+#         lefts = [0, left_box[i], left_key[i]]
+#         for j, count in enumerate(counts):
+#             if count > 0:
+#                 x_pos = lefts[j] + count / 2
+#                 ax.text(x_pos, i, str(int(count)), ha='center', va='center', color=BG_COLOR, fontsize=10, fontweight='bold', zorder=4)
 
-    max_total = top_players_df['Offensive Pass Total'].max()
-    ax.set_xlim(0, max_total * 1.05)
-    x_ticks = np.arange(0, max_total + 1, 2)
-    for x in x_ticks:
-        if x > 0: ax.axvline(x=x, color='grey', linestyle='--', zorder=2, alpha=0.5)
+#     max_total = top_players_df['Offensive Pass Contributions'].max()
+#     ax.set_xlim(0, max_total * 1.05)
+#     x_ticks = np.arange(0, max_total + 1, 2)
+#     for x in x_ticks:
+#         if x > 0: ax.axvline(x=x, color='grey', linestyle='--', zorder=2, alpha=0.5)
 
-    ax.set_facecolor(BG_COLOR); ax.tick_params(axis='both', colors=LINE_COLOR, labelsize=12)
-    for spine in ax.spines.values(): spine.set_edgecolor(BG_COLOR)
-    ax.legend(fontsize=10)
-    ax.set_title(title, color=LINE_COLOR, fontsize=16, fontweight='bold')
+#     ax.set_facecolor(BG_COLOR); ax.tick_params(axis='both', colors=LINE_COLOR, labelsize=12)
+#     for spine in ax.spines.values(): spine.set_edgecolor(BG_COLOR)
+#     ax.legend(fontsize=10)
+#     ax.set_title(title, color=LINE_COLOR, fontsize=16, fontweight='bold')
+    
+def create_offensive_pass_contributions_table(
+    player_stats_df,
+    df_processed,
+    home_team_name,
+    hcol='tomato',
+    acol='skyblue',
+    num_players=10,
+):
+    required_cols = [
+        'Progressive Passes',
+        'Passes into Box',
+        'Shot Assists',
+        'Offensive Pass Contributions',
+    ]
+
+    if not all(
+        col in player_stats_df.columns
+        for col in required_cols
+    ):
+        return dbc.Alert(
+            'Player passing data unavailable.',
+            color='warning',
+        )
+
+    top_players = (
+        player_stats_df
+        .sort_values(
+            'Offensive Pass Contributions',
+            ascending=False,
+        )
+        .head(num_players)
+        .copy()
+    )
+
+    if top_players.empty:
+        return dbc.Alert(
+            'No offensive passing contributions found.',
+            color='secondary',
+        )
+
+    player_meta = (
+        df_processed
+        .dropna(subset=['playerName'])
+        .drop_duplicates(
+            'playerName',
+            keep='last',
+        )
+        .set_index('playerName')
+    )
+
+    max_contributions = max(
+        int(
+            top_players[
+                'Offensive Pass Contributions'
+            ].max()
+        ),
+        1,
+    )
+
+    rows = []
+
+    for rank, (player_name, row) in enumerate(
+        top_players.iterrows(),
+        start=1,
+    ):
+        # -----------------------------------------------------
+        # PLAYER METADATA
+        # -----------------------------------------------------
+        team_name = (
+            player_meta.at[
+                player_name,
+                'team_name',
+            ]
+            if (
+                player_name in player_meta.index
+                and 'team_name' in player_meta.columns
+            )
+            else None
+        )
+
+        team_color = (
+            hcol
+            if team_name == home_team_name
+            else acol
+        )
+
+        jersey_raw = (
+            player_meta.at[
+                player_name,
+                'Mapped Jersey Number',
+            ]
+            if (
+                player_name in player_meta.index
+                and 'Mapped Jersey Number'
+                in player_meta.columns
+            )
+            else None
+        )
+
+        try:
+            jersey = str(
+                int(float(jersey_raw))
+            )
+        except (TypeError, ValueError):
+            jersey = '?'
+
+        # -----------------------------------------------------
+        # METRICS
+        # -----------------------------------------------------
+        contributions = int(
+            row['Offensive Pass Contributions']
+        )
+        progressive = int(
+            row['Progressive Passes']
+        )
+        into_box = int(
+            row['Passes into Box']
+        )
+        key_passes = int(
+            row['Shot Assists']
+        )
+
+        bar_width = (
+            contributions
+            / max_contributions
+            * 100
+        )
+
+        # -----------------------------------------------------
+        # ROW
+        # -----------------------------------------------------
+        rows.append(
+            dash_html.Div([
+
+                # Rank
+                dash_html.Div(
+                    f'{rank:02d}',
+                    className='passing-rank',
+                ),
+
+                # Player
+                dash_html.Div([
+                    dash_html.Strong(
+                        f'#{jersey} · {player_name}',
+                        style={
+                            'color': team_color
+                        },
+                    ),
+                    dash_html.Small(
+                        team_name or '',
+                        className='passing-player-team',
+                    ),
+                ], className='passing-player'),
+
+                # Offensive contribution bar
+                dash_html.Div([
+                    dash_html.Span(
+                        style={
+                            'width': (
+                                f'{bar_width:.1f}%'
+                            )
+                        }
+                    ),
+                ], className='passing-contribution-track'),
+
+                # Unique offensive contribution total
+                dash_html.Div(
+                    str(contributions),
+                    className='passing-total-value',
+                ),
+
+                # Progressive passes
+                dash_html.Div(
+                    str(progressive),
+                    className='passing-metric-value',
+                ),
+
+                # Passes into box
+                dash_html.Div(
+                    str(into_box),
+                    className='passing-metric-value',
+                ),
+
+                # Key passes
+                dash_html.Div(
+                    str(key_passes),
+                    className='passing-metric-value',
+                ),
+
+            ], className='passing-player-row')
+        )
+
+    # ---------------------------------------------------------
+    # HEADER
+    # ---------------------------------------------------------
+    header = dash_html.Div([
+        dash_html.Div('#'),
+        dash_html.Div('Player'),
+        dash_html.Div('Offensive contributions'),
+        dash_html.Div('Total'),
+        dash_html.Div('Prog.'),
+        dash_html.Div('Into box'),
+        dash_html.Div('Key passes'),
+    ], className='passing-player-header')
+
+    return dash_html.Div(
+        [
+            header,
+            *rows,
+        ],
+        className='passing-player-ranking',
+    )
 
 
 def plot_defender_stats_bar(ax, player_stats_df, num_players=10, title="Top Defenders Stats"):
@@ -738,77 +951,297 @@ def plot_defender_stats_bar_by_team(ax, player_stats_df, df_processed, home_team
 
 
 ############# PLOTLY PASSER STATS BAR PLOT #############
-def plot_passer_stats_bar_plotly(player_stats_df, df_processed, home_team_name, hcol='tomato', acol='skyblue', violet_col='#a369ff', num_players=10):
+def plot_passer_stats_bar_plotly(
+    player_stats_df,
+    df_processed,
+    home_team_name,
+    hcol='tomato',
+    acol='skyblue',
+    violet_col='#a369ff',
+    num_players=10,
+):
     """
-    Versione Definitiva: Usa dati invertiti per l'ordinamento e annotazioni per etichette colorate.
+    Offensive passing profile.
+
+    Players are ranked by unique Offensive Pass Contributions.
+    Progressive passes, passes into the box and key passes are
+    displayed independently because the categories can overlap.
     """
-    req_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists', 'Offensive Pass Total']
-    if not all(col in player_stats_df.columns for col in req_cols):
+
+    required_cols = [
+        'Progressive Passes',
+        'Passes into Box',
+        'Shot Assists',
+        'Offensive Pass Contributions',
+    ]
+
+    if not all(
+        col in player_stats_df.columns
+        for col in required_cols
+    ):
         fig = go.Figure()
+
         fig.update_layout(
-            plot_bgcolor='#2E3439', paper_bgcolor='#2E3439', font_color='white',
-            xaxis={'visible': False}, yaxis={'visible': False},
-            annotations=[dict(text="Player Passing Data Unavailable", showarrow=False, font=dict(size=16, color="orange"))]
+            plot_bgcolor='#ffffff',
+            paper_bgcolor='#ffffff',
+            font_color='#29465b',
+            xaxis={'visible': False},
+            yaxis={'visible': False},
+            annotations=[
+                dict(
+                    text='Player passing data unavailable',
+                    showarrow=False,
+                    font=dict(
+                        size=15,
+                        color='#708697',
+                    ),
+                )
+            ],
+            height=420,
         )
+
         return fig
 
-    # 1. Ordina per trovare i migliori, poi inverti l'ordine per il plotting
-    top_players_sorted = player_stats_df.sort_values('Offensive Pass Total', ascending=False).head(num_players)
-    plot_df = top_players_sorted.iloc[::-1]
+    # ---------------------------------------------------------
+    # RANKING
+    # ---------------------------------------------------------
+    top_players = (
+        player_stats_df
+        .sort_values(
+            'Offensive Pass Contributions',
+            ascending=False,
+        )
+        .head(num_players)
+        .copy()
+    )
 
-    # 2. Mappe per i dati dei giocatori
-    player_to_team_map = df_processed.drop_duplicates('playerName').set_index('playerName')['team_name'].to_dict()
-    player_jersey_map = df_processed.drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number'].to_dict()
+    # Lowest-ranked player at the bottom.
+    plot_df = top_players.iloc[::-1].copy()
 
-    # --- Creazione della Figura ---
+    # ---------------------------------------------------------
+    # PLAYER METADATA
+    # ---------------------------------------------------------
+    player_meta = (
+        df_processed
+        .dropna(subset=['playerName'])
+        .drop_duplicates(
+            'playerName',
+            keep='last',
+        )
+        .set_index('playerName')
+    )
+
+    player_to_team = (
+        player_meta['team_name'].to_dict()
+        if 'team_name' in player_meta.columns
+        else {}
+    )
+
+    player_to_jersey = (
+        player_meta['Mapped Jersey Number'].to_dict()
+        if 'Mapped Jersey Number' in player_meta.columns
+        else {}
+    )
+
+    players = list(plot_df.index)
+    base_y = np.arange(len(players))
+
+    # ---------------------------------------------------------
+    # FIGURE
+    # ---------------------------------------------------------
     fig = go.Figure()
 
-    # Aggiungi le tracce usando il DataFrame invertito `plot_df`
-    # L'asse Y userà l'indice di plot_df (i nomi dei giocatori)
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Progressive Passes'], name='Progressive Passes', orientation='h', marker_color=hcol, text=plot_df['Progressive Passes'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Prog. Passes: %{x}<extra></extra>'))
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Passes into Box'], name='Passes into Box', orientation='h', marker_color=acol, text=plot_df['Passes into Box'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Passes into Box: %{x}<extra></extra>'))
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shot Assists'], name='Key Passes', orientation='h', marker_color=violet_col, text=plot_df['Shot Assists'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Key Passes: %{x}<extra></extra>'))
-    
-    # --- Configurazione del Layout ---
-    fig.update_layout(
-        title_text='Top Players by Offensive Passes',
-        barmode='stack',
-        yaxis=dict(
-            # Non impostiamo l'ordine qui, lasciamo che Plotly usi l'ordine dei dati.
-            # Nascondiamo le etichette di default perché le creeremo noi.
-            showticklabels=False
-        ),
-        xaxis=dict(title='Total Offensive Passes'),
-        plot_bgcolor='#2E3439', paper_bgcolor='#2E3439',
-        font_color='white',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=180, r=15, t=80, b=40),
-        height=800,
-        annotations=[]
-    )
-    
-    # --- Aggiungi le etichette manualmente come annotazioni ---
-    # Itera sull'indice di plot_df per mantenere l'ordine corretto
-    for player_name in plot_df.index:
-        team_name = player_to_team_map.get(player_name)
-        label_color = hcol if team_name == home_team_name else acol
-        
-        jersey_raw = player_jersey_map.get(player_name)
-        try: jersey = str(int(jersey_raw))
-        except (ValueError, TypeError): jersey = '?'
-        
-        label_text = f"<b>#{jersey} - {player_name}</b>"
+    metric_specs = [
+        {
+            'column': 'Progressive Passes',
+            'label': 'Progressive passes',
+            'color': '#0b8bab',
+            'symbol': 'circle',
+            'offset': 0.20,
+        },
+        {
+            'column': 'Passes into Box',
+            'label': 'Passes into box',
+            'color': '#45b8cf',
+            'symbol': 'diamond',
+            'offset': 0.00,
+        },
+        {
+            'column': 'Shot Assists',
+            'label': 'Key passes',
+            'color': '#8b72cf',
+            'symbol': 'square',
+            'offset': -0.20,
+        },
+    ]
+
+    for metric in metric_specs:
+        values = plot_df[metric['column']].astype(int)
+
+        fig.add_trace(
+            go.Scatter(
+                x=values,
+                y=base_y + metric['offset'],
+                mode='markers+text',
+                name=metric['label'],
+                marker=dict(
+                    size=11,
+                    color=metric['color'],
+                    symbol=metric['symbol'],
+                    line=dict(
+                        color='#ffffff',
+                        width=1.2,
+                    ),
+                ),
+                text=[
+                    str(value) if value > 0 else ''
+                    for value in values
+                ],
+                textposition='middle right',
+                textfont=dict(
+                    size=10,
+                    color=metric['color'],
+                ),
+                customdata=np.column_stack([
+                    plot_df[
+                        'Offensive Pass Contributions'
+                    ].astype(int)
+                ]),
+                hovertemplate=(
+                    '<b>%{hovertext}</b>'
+                    f'<br>{metric["label"]}: %{{x}}'
+                    '<br>Unique offensive contributions: '
+                    '%{customdata[0]}'
+                    '<extra></extra>'
+                ),
+                hovertext=players,
+            )
+        )
+
+    # ---------------------------------------------------------
+    # ROW SEPARATORS
+    # ---------------------------------------------------------
+    for row in range(len(players)):
+        fig.add_shape(
+            type='line',
+            x0=0,
+            x1=1,
+            xref='paper',
+            y0=row - 0.5,
+            y1=row - 0.5,
+            line=dict(
+                color='#edf2f5',
+                width=1,
+            ),
+            layer='below',
+        )
+
+    # ---------------------------------------------------------
+    # PLAYER LABELS
+    # ---------------------------------------------------------
+    for row, player_name in enumerate(players):
+        team_name = player_to_team.get(player_name)
+
+        label_color = (
+            hcol
+            if team_name == home_team_name
+            else acol
+        )
+
+        jersey_raw = player_to_jersey.get(
+            player_name
+        )
+
+        try:
+            jersey = str(int(float(jersey_raw)))
+        except (ValueError, TypeError):
+            jersey = '?'
 
         fig.add_annotation(
-            x=0, y=player_name,
-            xref="paper", yref="y",
-            text=label_text,
+            x=-0.015,
+            xref='paper',
+            y=row,
+            yref='y',
+            text=(
+                f'<b>#{jersey}</b> · '
+                f'{player_name}'
+            ),
             showarrow=False,
-            xanchor="right",
-            align="right",
-            font=dict(color=label_color, size=12),
-            xshift=-10
+            xanchor='right',
+            align='right',
+            font=dict(
+                color=label_color,
+                size=11,
+            ),
         )
+
+    # ---------------------------------------------------------
+    # AXIS
+    # ---------------------------------------------------------
+    max_value = int(
+        max(
+            plot_df['Progressive Passes'].max(),
+            plot_df['Passes into Box'].max(),
+            plot_df['Shot Assists'].max(),
+            1,
+        )
+    )
+
+    fig.update_xaxes(
+        title=None,
+        range=[-0.15, max_value + 0.8],
+        dtick=1,
+        showgrid=True,
+        gridcolor='#e5edf1',
+        gridwidth=1,
+        zeroline=False,
+        tickfont=dict(
+            color='#708697',
+            size=10,
+        ),
+        fixedrange=True,
+    )
+
+    fig.update_yaxes(
+        visible=False,
+        range=[-0.65, len(players) - 0.35],
+        fixedrange=True,
+    )
+
+    # ---------------------------------------------------------
+    # LAYOUT
+    # ---------------------------------------------------------
+    fig.update_layout(
+        plot_bgcolor='#ffffff',
+        paper_bgcolor='#ffffff',
+        font=dict(
+            family='Inter, Arial, sans-serif',
+            color='#29465b',
+        ),
+        hovermode='closest',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.015,
+            xanchor='left',
+            x=0,
+            font=dict(
+                size=10,
+                color='#536d80',
+            ),
+            bgcolor='rgba(0,0,0,0)',
+        ),
+        margin=dict(
+            l=195,
+            r=35,
+            t=55,
+            b=35,
+        ),
+        height=max(
+            460,
+            54 * len(players) + 95,
+        ),
+    )
 
     return fig
 

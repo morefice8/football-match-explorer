@@ -3,6 +3,94 @@ import pandas as pd
 import numpy as np
 from .pass_metrics import analyze_progressive_passes # Assuming correct relative import
 
+def calculate_offensive_pass_contributions(
+    df_processed,
+    df_progressive_passes,
+):
+    """
+    Count unique offensive pass events per player.
+
+    A pass contributes once if it is at least one of:
+    - progressive pass
+    - pass into the box
+    - shot assist / key pass
+
+    Categories may overlap, but the event is counted only once.
+    """
+    if df_processed is None or df_processed.empty:
+        return pd.Series(dtype='int64', name='Offensive Pass Contributions')
+
+    df = df_processed.copy()
+
+    pass_mask = df['type_name'].eq('Pass')
+
+    into_box_mask = (
+        pass_mask
+        & (pd.to_numeric(df['end_x'], errors='coerce') >= 83)
+        & (pd.to_numeric(df['end_y'], errors='coerce') >= 21.1)
+        & (pd.to_numeric(df['end_y'], errors='coerce') <= 78.9)
+    )
+
+    shot_assist_mask = (
+        pass_mask
+        & (
+            df['is_key_pass'].fillna(False).astype(bool)
+            | df['is_assist'].fillna(False).astype(bool)
+        )
+    )
+
+    progressive_mask = pd.Series(
+        False,
+        index=df.index,
+    )
+
+    if (
+        df_progressive_passes is not None
+        and not df_progressive_passes.empty
+    ):
+        if (
+            'id' in df.columns
+            and 'id' in df_progressive_passes.columns
+        ):
+            progressive_ids = set(
+                df_progressive_passes['id'].dropna()
+            )
+            progressive_mask = df['id'].isin(progressive_ids)
+
+        elif (
+            'eventId' in df.columns
+            and 'eventId' in df_progressive_passes.columns
+        ):
+            progressive_ids = set(
+                df_progressive_passes['eventId'].dropna()
+            )
+            progressive_mask = df['eventId'].isin(progressive_ids)
+
+        else:
+            # analyze_progressive_passes preserves original indices.
+            progressive_mask = df.index.isin(
+                df_progressive_passes.index
+            )
+
+    contribution_mask = (
+        pass_mask
+        & (
+            progressive_mask
+            | into_box_mask
+            | shot_assist_mask
+        )
+    )
+
+    counts = (
+        df.loc[contribution_mask]
+        .groupby('playerName')
+        .size()
+        .rename('Offensive Pass Contributions')
+        .astype(int)
+    )
+
+    return counts
+
 def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
                            key_pass_values=[13, 14, 15], assist_values=[16],
                            prog_pass_exclusions=None):
@@ -114,9 +202,30 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     if all(col in player_stats.columns for col in shooting_seq_cols): player_stats['Shooting Seq Total'] = player_stats[shooting_seq_cols].sum(axis=1)
     else: print("Warning: Could not calculate 'Shooting Seq Total'."); player_stats['Shooting Seq Total'] = 0
 
-    offensive_pass_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists']
-    if all(col in player_stats.columns for col in offensive_pass_cols): player_stats['Offensive Pass Total'] = player_stats[offensive_pass_cols].sum(axis=1)
-    else: print("Warning: Could not calculate 'Offensive Pass Total'."); player_stats['Offensive Pass Total'] = 0
+    # offensive_pass_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists']
+    # if all(col in player_stats.columns for col in offensive_pass_cols): player_stats['Offensive Pass Total'] = player_stats[offensive_pass_cols].sum(axis=1)
+    # else: print("Warning: Could not calculate 'Offensive Pass Total'."); player_stats['Offensive Pass Total'] = 0
+    
+        # --- Unique Offensive Pass Contributions ---
+    offensive_contribution_counts = (
+        calculate_offensive_pass_contributions(
+            df_processed,
+            df_prog_passes_all,
+        )
+    )
+
+    player_stats = player_stats.merge(
+        offensive_contribution_counts,
+        left_index=True,
+        right_index=True,
+        how='left',
+    )
+
+    player_stats['Offensive Pass Contributions'] = (
+        player_stats['Offensive Pass Contributions']
+        .fillna(0)
+        .astype(int)
+    )
 
     # defensive_cols = ['Tackles Won', 'Interceptions', 'Clearances']
     # if all(col in player_stats.columns for col in defensive_cols): player_stats['Defensive Actions Total'] = player_stats[defensive_cols].sum(axis=1)

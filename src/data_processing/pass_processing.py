@@ -217,6 +217,252 @@ def infer_pass_receivers(
     results['receiver_is_reliable'] = results['receiver_is_reliable'].fillna(False).astype(bool)
     return results
 
+CARRY_RESULT_COLUMNS = [
+    'playerName',
+    'playerId',
+    'team_name',
+    'contestantId',
+    'x',
+    'y',
+    'end_x',
+    'end_y',
+    'carry_distance_m',
+    'carry_time_gap_seconds',
+    'carry_source_event_id',
+    'carry_end_event_id',
+    'carry_confidence',
+    'carry_is_reliable',
+]
+
+
+def _same_player(event_a, event_b):
+    player_a_id = event_a.get('playerId')
+    player_b_id = event_b.get('playerId')
+
+    if pd.notna(player_a_id) and pd.notna(player_b_id):
+        return str(player_a_id) == str(player_b_id)
+
+    player_a_name = event_a.get('playerName')
+    player_b_name = event_b.get('playerName')
+
+    return (
+        pd.notna(player_a_name)
+        and pd.notna(player_b_name)
+        and str(player_a_name) == str(player_b_name)
+    )
+
+
+def infer_carries(
+    df_processed,
+    min_distance_m=2.0,
+    max_distance_m=30.0,
+    max_time_gap_seconds=12.0,
+):
+    """
+    Infer ball carries from the gap between consecutive credible technical events.
+
+    A carry is accepted when possession continuity can be established and the
+    movement from the previous event endpoint to the next event start is
+    spatially and temporally plausible.
+
+    Two situations are supported:
+
+    1. Previous event is a successful pass:
+       the next player must be the reliably inferred receiver of that pass.
+
+    2. Previous event is another on-ball event:
+       the next technical event must belong to the same player.
+
+    The inferred carry belongs to the player performing the NEXT event, since
+    that player moved the ball from the previous endpoint to their new action
+    location.
+    """
+
+    if df_processed is None or df_processed.empty:
+        return pd.DataFrame(columns=CARRY_RESULT_COLUMNS)
+
+    events = df_processed.copy()
+    events['_carry_source_index'] = events.index
+
+    sort_columns = [
+        column for column in
+        ('periodId', 'timeMin', 'timeSec', 'timeStamp', 'id', 'eventId')
+        if column in events.columns
+    ]
+
+    if sort_columns:
+        events = events.sort_values(sort_columns, kind='mergesort')
+
+    events = events.reset_index(drop=True)
+
+    # Reuse the reliable receiver inference already implemented.
+    receiver_info = infer_pass_receivers(
+        df_processed,
+        max_time_gap_seconds=max_time_gap_seconds,
+    )
+
+    carry_rows = []
+
+    for position in range(len(events) - 1):
+        source = events.iloc[position]
+
+        start_x = _numeric(source.get('end_x'))
+        start_y = _numeric(source.get('end_y'))
+
+        if pd.isna(start_x) or pd.isna(start_y):
+            continue
+
+        source_seconds = _event_seconds(source)
+        source_period = source.get('periodId')
+
+        candidate = None
+        candidate_gap_seconds = np.nan
+
+        # Find the next credible technical event.
+        for candidate_position in range(position + 1, len(events)):
+            next_event = events.iloc[candidate_position]
+
+            if pd.notna(source_period) and pd.notna(next_event.get('periodId')):
+                if str(next_event.get('periodId')) != str(source_period):
+                    break
+
+            next_seconds = _event_seconds(next_event)
+
+            gap_seconds = (
+                next_seconds - source_seconds
+                if pd.notna(source_seconds) and pd.notna(next_seconds)
+                else np.nan
+            )
+
+            if pd.notna(gap_seconds) and gap_seconds < 0:
+                continue
+
+            if (
+                pd.notna(gap_seconds)
+                and gap_seconds > max_time_gap_seconds
+            ):
+                break
+
+            if _is_administrative_event(next_event):
+                continue
+
+            if (
+                pd.isna(next_event.get('playerName'))
+                and pd.isna(next_event.get('playerId'))
+            ):
+                continue
+
+            end_x = _numeric(next_event.get('x'))
+            end_y = _numeric(next_event.get('y'))
+
+            if pd.isna(end_x) or pd.isna(end_y):
+                continue
+
+            candidate = next_event
+            candidate_gap_seconds = gap_seconds
+            break
+
+        if candidate is None:
+            continue
+
+        # Possession must remain with the same team.
+        if not _same_team(source, candidate):
+            continue
+
+        source_is_pass = (
+            _numeric(source.get('typeId')) == 1
+            or str(source.get('type_name') or '').strip().lower() == 'pass'
+        )
+
+        if source_is_pass:
+            # An unsuccessful pass cannot start a reliable carry.
+            if not _is_successful_pass(source):
+                continue
+
+            source_index = source['_carry_source_index']
+
+            if source_index not in receiver_info.index:
+                continue
+
+            receiver = receiver_info.loc[source_index]
+
+            if not bool(receiver.get('receiver_is_reliable', False)):
+                continue
+
+            receiver_id = receiver.get('receiver_player_id')
+            candidate_id = candidate.get('playerId')
+
+            receiver_name = receiver.get('receiver')
+            candidate_name = candidate.get('playerName')
+
+            receiver_matches_candidate = (
+                pd.notna(receiver_id)
+                and pd.notna(candidate_id)
+                and str(receiver_id) == str(candidate_id)
+            ) or (
+                pd.isna(receiver_id)
+                and pd.isna(candidate_id)
+                and pd.notna(receiver_name)
+                and pd.notna(candidate_name)
+                and str(receiver_name) == str(candidate_name)
+            )
+
+            if not receiver_matches_candidate:
+                continue
+
+            confidence = receiver.get('receiver_confidence', 'medium')
+
+        else:
+            # For other event types, require continuity of the same player.
+            if not _same_player(source, candidate):
+                continue
+
+            confidence = 'high'
+
+        end_x = _numeric(candidate.get('x'))
+        end_y = _numeric(candidate.get('y'))
+
+        delta_x_m = (end_x - start_x) * 1.05
+        delta_y_m = (end_y - start_y) * 0.68
+
+        carry_distance_m = math.hypot(delta_x_m, delta_y_m)
+
+        if carry_distance_m < min_distance_m:
+            continue
+
+        if carry_distance_m > max_distance_m:
+            continue
+
+        carry_rows.append({
+            'playerName': candidate.get('playerName'),
+            'playerId': candidate.get('playerId'),
+            'team_name': candidate.get('team_name'),
+            'contestantId': candidate.get('contestantId'),
+
+            'x': start_x,
+            'y': start_y,
+            'end_x': end_x,
+            'end_y': end_y,
+
+            'carry_distance_m': carry_distance_m,
+            'carry_time_gap_seconds': candidate_gap_seconds,
+
+            'carry_source_event_id': (
+                source.get('id') or source.get('eventId')
+            ),
+            'carry_end_event_id': (
+                candidate.get('id') or candidate.get('eventId')
+            ),
+
+            'carry_confidence': confidence,
+            'carry_is_reliable': True,
+        })
+
+    if not carry_rows:
+        return pd.DataFrame(columns=CARRY_RESULT_COLUMNS)
+
+    return pd.DataFrame(carry_rows, columns=CARRY_RESULT_COLUMNS)
+
 
 def receiver_coverage_summary(passes_df):
     """Return transparent receiver-attribution coverage for successful passes."""

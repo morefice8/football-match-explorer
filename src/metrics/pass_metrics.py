@@ -569,90 +569,446 @@ def analyze_progressive_passes(
 
 # --- Final Third Passes (Zone 14 / Half-Spaces) ---
 # This function identifies successful passes ending in Zone 14 or Left/Right Half-Spaces for a specific team.
+# def analyze_final_third_passes(passes_df_team_successful):
+#     """
+#     Identifies successful passes ending in Zone 14 or Left/Right Half-Spaces
+#     for a specific team. Excludes passes starting very close to the corner flag.
+
+#     Args:
+#         passes_df_team_successful (pd.DataFrame): DataFrame containing ONLY successful passes
+#                                                  for the team being analyzed.
+
+#     Returns:
+#         tuple: A tuple containing:
+#             - pd.DataFrame: DataFrame with Zone 14 passes.
+#             - pd.DataFrame: DataFrame with Left Half-Space passes.
+#             - pd.DataFrame: DataFrame with Right Half-Space passes.
+#             - dict: Counts {'zone14': count, 'hs_left': count, 'hs_right': count,
+#                            'hs_total': count, 'total_final_third': count}.
+#             Returns (empty df, empty df, empty df, default counts dict) if no relevant passes.
+#     """
+#     print(f"Analyzing Zone 14 / Half-Space passes...")
+
+#     default_counts = {'zone14': 0, 'hs_left': 0, 'hs_right': 0, 'hs_total': 0, 'total_final_third': 0}
+#     empty_df = pd.DataFrame()
+
+#     # Ensure required coordinate columns exist
+#     required_cols = ['x', 'y', 'end_x', 'end_y']
+#     if not all(col in passes_df_team_successful.columns for col in required_cols):
+#         missing = set(required_cols) - set(passes_df_team_successful.columns)
+#         print(f"Error: Missing required columns for final third analysis: {missing}")
+#         return empty_df, empty_df, empty_df, default_counts
+
+#     # Filter out passes starting too close to corner flag (x > ~99 is likely corner)
+#     df_filtered = passes_df_team_successful[passes_df_team_successful['x'] < 99.5].copy()
+
+#     if df_filtered.empty:
+#         print("Info: No relevant successful passes found after filtering.")
+#         return empty_df, empty_df, empty_df, default_counts
+
+#     # Define Zone Boundaries (Opta Coordinates 0-100)
+#     zone14_x_min, zone14_x_max = 66.67, 82.0
+#     zone14_y_min, zone14_y_max = 100/3, 200/3
+#     halfspace_x_min = 66.67
+#     rhs_y_min, rhs_y_max = 100/6, 100/3
+#     lhs_y_min, lhs_y_max = 200/3, 500/6 # Using original 200/3 to 500/6 (~66.7 to 83.3)
+
+#     # --- Classify Passes based on END coordinates ---
+#     # Zone 14 Passes
+#     zone14_mask = (
+#         (df_filtered['end_x'] >= zone14_x_min) & (df_filtered['end_x'] <= zone14_x_max) &
+#         (df_filtered['end_y'] >= zone14_y_min) & (df_filtered['end_y'] <= zone14_y_max)
+#     )
+#     df_zone14 = df_filtered[zone14_mask].copy()
+#     z14_count = len(df_zone14)
+
+#     # Right Half-Space Passes (Low Y values)
+#     rhs_mask = (
+#         (df_filtered['end_x'] >= halfspace_x_min) &
+#         (df_filtered['end_y'] >= rhs_y_min) & (df_filtered['end_y'] < rhs_y_max)
+#     )
+#     df_rhs = df_filtered[rhs_mask & (~zone14_mask)].copy() # Exclude Zone 14 overlap
+#     rhs_count = len(df_rhs)
+
+#     # Left Half-Space Passes (High Y values)
+#     lhs_mask = (
+#         (df_filtered['end_x'] >= halfspace_x_min) &
+#         (df_filtered['end_y'] >= lhs_y_min) & (df_filtered['end_y'] <= lhs_y_max)
+#     )
+#     df_lhs = df_filtered[lhs_mask & (~zone14_mask)].copy() # Exclude Zone 14 overlap
+#     lhs_count = len(df_lhs)
+
+#     # Calculate totals
+#     hs_total_count = lhs_count + rhs_count
+#     total_final_third_count = z14_count + hs_total_count
+
+#     # Store counts
+#     zone_stats_dict = {
+#         'zone14': z14_count,
+#         'hs_left': lhs_count,
+#         'hs_right': rhs_count,
+#         'hs_total': hs_total_count,
+#         'total_final_third': total_final_third_count
+#     }
+#     print(f"Found: Zone 14={z14_count}, L HS={lhs_count}, R HS={rhs_count} (Total FT={total_final_third_count})")
+
+#     return df_zone14, df_lhs, df_rhs, zone_stats_dict
+
+# --- Final Third Entries via Pass ---
 def analyze_final_third_passes(passes_df_team_successful):
     """
-    Identifies successful passes ending in Zone 14 or Left/Right Half-Spaces
-    for a specific team. Excludes passes starting very close to the corner flag.
+    Identifies completed passes that ENTER the attacking final third.
+
+    A pass counts as a Final Third Entry only when:
+        - it starts outside the attacking final third
+        - it ends inside the attacking final third
+
+    Opta coordinates are assumed to be 0-100, attacking from left to right.
+
+    Each entry is also classified by:
+        - entry channel: Left / Central / Right
+        - destination zone:
+            Zone 14
+            Left Half-Space
+            Right Half-Space
+            Wide / Other
 
     Args:
-        passes_df_team_successful (pd.DataFrame): DataFrame containing ONLY successful passes
-                                                 for the team being analyzed.
+        passes_df_team_successful (pd.DataFrame):
+            Successful passes for one team.
 
     Returns:
-        tuple: A tuple containing:
-            - pd.DataFrame: DataFrame with Zone 14 passes.
-            - pd.DataFrame: DataFrame with Left Half-Space passes.
-            - pd.DataFrame: DataFrame with Right Half-Space passes.
-            - dict: Counts {'zone14': count, 'hs_left': count, 'hs_right': count,
-                           'hs_total': count, 'total_final_third': count}.
-            Returns (empty df, empty df, empty df, default counts dict) if no relevant passes.
-    """
-    print(f"Analyzing Zone 14 / Half-Space passes...")
+        tuple:
+            df_zone14,
+            df_lhs,
+            df_rhs,
+            stats
 
-    default_counts = {'zone14': 0, 'hs_left': 0, 'hs_right': 0, 'hs_total': 0, 'total_final_third': 0}
+        stats contains:
+            total_final_third
+            zone14
+            hs_left
+            hs_right
+            hs_total
+            wide_other
+            channel_left
+            channel_central
+            channel_right
+    """
+
+    final_third_x = 100 * 2 / 3
+
+    default_counts = {
+        'zone14': 0,
+        'hs_left': 0,
+        'hs_right': 0,
+        'hs_total': 0,
+        'wide_other': 0,
+        'channel_left': 0,
+        'channel_central': 0,
+        'channel_right': 0,
+        'total_final_third': 0,
+    }
+
     empty_df = pd.DataFrame()
 
-    # Ensure required coordinate columns exist
     required_cols = ['x', 'y', 'end_x', 'end_y']
+
     if not all(col in passes_df_team_successful.columns for col in required_cols):
         missing = set(required_cols) - set(passes_df_team_successful.columns)
         print(f"Error: Missing required columns for final third analysis: {missing}")
         return empty_df, empty_df, empty_df, default_counts
 
-    # Filter out passes starting too close to corner flag (x > ~99 is likely corner)
-    df_filtered = passes_df_team_successful[passes_df_team_successful['x'] < 99.5].copy()
+    df = passes_df_team_successful.copy()
 
-    if df_filtered.empty:
-        print("Info: No relevant successful passes found after filtering.")
+    for col in required_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df = df.dropna(subset=required_cols)
+
+    if df.empty:
         return empty_df, empty_df, empty_df, default_counts
 
-    # Define Zone Boundaries (Opta Coordinates 0-100)
-    zone14_x_min, zone14_x_max = 66.67, 82.0
-    zone14_y_min, zone14_y_max = 100/3, 200/3
-    halfspace_x_min = 66.67
-    rhs_y_min, rhs_y_max = 100/6, 100/3
-    lhs_y_min, lhs_y_max = 200/3, 500/6 # Using original 200/3 to 500/6 (~66.7 to 83.3)
+    # ---------------------------------------------------------
+    # TRUE FINAL THIRD ENTRY
+    #
+    # The ball must cross the final-third boundary.
+    # Passes starting inside the final third are NOT new entries.
+    # ---------------------------------------------------------
+    entry_mask = (
+        (df['x'] < final_third_x) &
+        (df['end_x'] >= final_third_x)
+    )
 
-    # --- Classify Passes based on END coordinates ---
-    # Zone 14 Passes
+    entries = df[entry_mask].copy()
+
+    if entries.empty:
+        return empty_df, empty_df, empty_df, default_counts
+
+    # ---------------------------------------------------------
+    # ENTRY CHANNEL
+    # Based on where the ball crosses / arrives into final third.
+    #
+    # Pitch divided into three equal vertical channels.
+    # ---------------------------------------------------------
+    def classify_channel(end_y):
+        if end_y < 100 / 3:
+            return 'Right'
+        elif end_y <= 200 / 3:
+            return 'Central'
+        else:
+            return 'Left'
+
+    entries['final_third_channel'] = entries['end_y'].apply(classify_channel)
+
+    # ---------------------------------------------------------
+    # DESTINATION ZONES
+    # ---------------------------------------------------------
+
+    # Zone 14:
+    # central area immediately outside the penalty area.
     zone14_mask = (
-        (df_filtered['end_x'] >= zone14_x_min) & (df_filtered['end_x'] <= zone14_x_max) &
-        (df_filtered['end_y'] >= zone14_y_min) & (df_filtered['end_y'] <= zone14_y_max)
+        (entries['end_x'] >= final_third_x) &
+        (entries['end_x'] <= 82.0) &
+        (entries['end_y'] >= 100 / 3) &
+        (entries['end_y'] <= 200 / 3)
     )
-    df_zone14 = df_filtered[zone14_mask].copy()
-    z14_count = len(df_zone14)
 
-    # Right Half-Space Passes (Low Y values)
+    # Right half-space
     rhs_mask = (
-        (df_filtered['end_x'] >= halfspace_x_min) &
-        (df_filtered['end_y'] >= rhs_y_min) & (df_filtered['end_y'] < rhs_y_max)
+        (entries['end_y'] >= 100 / 6) &
+        (entries['end_y'] < 100 / 3)
     )
-    df_rhs = df_filtered[rhs_mask & (~zone14_mask)].copy() # Exclude Zone 14 overlap
+
+    # Left half-space
+    lhs_mask = (
+        (entries['end_y'] > 200 / 3) &
+        (entries['end_y'] <= 500 / 6)
+    )
+
+    df_zone14 = entries[zone14_mask].copy()
+
+    # Keep categories mutually exclusive.
+    df_rhs = entries[rhs_mask & ~zone14_mask].copy()
+    df_lhs = entries[lhs_mask & ~zone14_mask].copy()
+
+    classified_mask = (
+        zone14_mask |
+        rhs_mask |
+        lhs_mask
+    )
+
+    df_wide_other = entries[~classified_mask].copy()
+
+    channel_counts = entries['final_third_channel'].value_counts()
+
+    z14_count = len(df_zone14)
+    lhs_count = len(df_lhs)
     rhs_count = len(df_rhs)
 
-    # Left Half-Space Passes (High Y values)
-    lhs_mask = (
-        (df_filtered['end_x'] >= halfspace_x_min) &
-        (df_filtered['end_y'] >= lhs_y_min) & (df_filtered['end_y'] <= lhs_y_max)
-    )
-    df_lhs = df_filtered[lhs_mask & (~zone14_mask)].copy() # Exclude Zone 14 overlap
-    lhs_count = len(df_lhs)
+    stats = {
+        'zone14': int(z14_count),
+        'hs_left': int(lhs_count),
+        'hs_right': int(rhs_count),
+        'hs_total': int(lhs_count + rhs_count),
 
-    # Calculate totals
-    hs_total_count = lhs_count + rhs_count
-    total_final_third_count = z14_count + hs_total_count
+        'wide_other': int(len(df_wide_other)),
 
-    # Store counts
-    zone_stats_dict = {
-        'zone14': z14_count,
-        'hs_left': lhs_count,
-        'hs_right': rhs_count,
-        'hs_total': hs_total_count,
-        'total_final_third': total_final_third_count
+        'channel_left': int(channel_counts.get('Left', 0)),
+        'channel_central': int(channel_counts.get('Central', 0)),
+        'channel_right': int(channel_counts.get('Right', 0)),
+
+        # THIS is now the true total.
+        'total_final_third': int(len(entries)),
     }
-    print(f"Found: Zone 14={z14_count}, L HS={lhs_count}, R HS={rhs_count} (Total FT={total_final_third_count})")
 
-    return df_zone14, df_lhs, df_rhs, zone_stats_dict
+    print(
+        "Final Third Entries via pass: "
+        f"Total={stats['total_final_third']}, "
+        f"Zone14={stats['zone14']}, "
+        f"LHS={stats['hs_left']}, "
+        f"RHS={stats['hs_right']}, "
+        f"Other={stats['wide_other']}"
+    )
+
+    return df_zone14, df_lhs, df_rhs, stats
+
+
+def analyze_final_third_entries(successful_passes_df, carries_df=None):
+    """
+    Identify all reliable entries into the attacking final third.
+
+    An entry occurs when the ball crosses the final-third boundary:
+        start_x < 66.67
+        end_x >= 66.67
+
+    Supported entry types:
+        - Pass: completed passes
+        - Carry: reliably inferred carries
+
+    Each entry is classified by:
+        - entry_type: Pass / Carry
+        - final_third_channel: Left / Central / Right
+        - destination_zone:
+            Zone 14
+            Left Half-Space
+            Right Half-Space
+            Other
+
+    Returns:
+        entries_df, stats
+    """
+
+    final_third_x = 100 * 2 / 3
+
+    stats_default = {
+        'total_final_third': 0,
+        'pass_entries': 0,
+        'carry_entries': 0,
+
+        'channel_left': 0,
+        'channel_central': 0,
+        'channel_right': 0,
+
+        'zone14': 0,
+        'hs_left': 0,
+        'hs_right': 0,
+        'hs_total': 0,
+        'other': 0,
+    }
+
+    entry_frames = []
+
+    # ---------------------------------------------------------
+    # PASS ENTRIES
+    # ---------------------------------------------------------
+    if successful_passes_df is not None and not successful_passes_df.empty:
+        required_cols = ['x', 'y', 'end_x', 'end_y']
+
+        if all(col in successful_passes_df.columns for col in required_cols):
+            passes = successful_passes_df.copy()
+
+            for col in required_cols:
+                passes[col] = pd.to_numeric(passes[col], errors='coerce')
+
+            passes = passes.dropna(subset=required_cols)
+
+            pass_entry_mask = (
+                (passes['x'] < final_third_x) &
+                (passes['end_x'] >= final_third_x)
+            )
+
+            pass_entries = passes[pass_entry_mask].copy()
+
+            if not pass_entries.empty:
+                pass_entries['entry_type'] = 'Pass'
+                entry_frames.append(pass_entries)
+
+    # ---------------------------------------------------------
+    # CARRY ENTRIES
+    # ---------------------------------------------------------
+    if carries_df is not None and not carries_df.empty:
+        required_cols = ['x', 'y', 'end_x', 'end_y']
+
+        if all(col in carries_df.columns for col in required_cols):
+            carries = carries_df.copy()
+
+            for col in required_cols:
+                carries[col] = pd.to_numeric(carries[col], errors='coerce')
+
+            carries = carries.dropna(subset=required_cols)
+
+            # Only reliable inferred carries.
+            if 'carry_is_reliable' in carries.columns:
+                carries = carries[
+                    carries['carry_is_reliable'].fillna(False).astype(bool)
+                ]
+
+            carry_entry_mask = (
+                (carries['x'] < final_third_x) &
+                (carries['end_x'] >= final_third_x)
+            )
+
+            carry_entries = carries[carry_entry_mask].copy()
+
+            if not carry_entries.empty:
+                carry_entries['entry_type'] = 'Carry'
+                entry_frames.append(carry_entries)
+
+    if not entry_frames:
+        return pd.DataFrame(), stats_default
+
+    entries = pd.concat(entry_frames, ignore_index=True, sort=False)
+
+    # ---------------------------------------------------------
+    # ENTRY CHANNEL
+    # ---------------------------------------------------------
+    def classify_channel(end_y):
+        if end_y < 100 / 3:
+            return 'Right'
+        elif end_y <= 200 / 3:
+            return 'Central'
+        else:
+            return 'Left'
+
+    entries['final_third_channel'] = (
+        entries['end_y'].apply(classify_channel)
+    )
+
+    # ---------------------------------------------------------
+    # DESTINATION ZONES
+    # ---------------------------------------------------------
+    def classify_destination(row):
+        end_x = row['end_x']
+        end_y = row['end_y']
+
+        # Zone 14
+        if (
+            final_third_x <= end_x <= 82.0
+            and 100 / 3 <= end_y <= 200 / 3
+        ):
+            return 'Zone 14'
+
+        # Right half-space: low Opta Y
+        if 100 / 6 <= end_y < 100 / 3:
+            return 'Right Half-Space'
+
+        # Left half-space: high Opta Y
+        if 200 / 3 < end_y <= 500 / 6:
+            return 'Left Half-Space'
+
+        return 'Other'
+
+    entries['destination_zone'] = entries.apply(
+        classify_destination,
+        axis=1,
+    )
+
+    type_counts = entries['entry_type'].value_counts()
+    channel_counts = entries['final_third_channel'].value_counts()
+    zone_counts = entries['destination_zone'].value_counts()
+
+    stats = {
+        'total_final_third': int(len(entries)),
+
+        'pass_entries': int(type_counts.get('Pass', 0)),
+        'carry_entries': int(type_counts.get('Carry', 0)),
+
+        'channel_left': int(channel_counts.get('Left', 0)),
+        'channel_central': int(channel_counts.get('Central', 0)),
+        'channel_right': int(channel_counts.get('Right', 0)),
+
+        'zone14': int(zone_counts.get('Zone 14', 0)),
+        'hs_left': int(zone_counts.get('Left Half-Space', 0)),
+        'hs_right': int(zone_counts.get('Right Half-Space', 0)),
+        'hs_total': int(
+            zone_counts.get('Left Half-Space', 0)
+            + zone_counts.get('Right Half-Space', 0)
+        ),
+        'other': int(zone_counts.get('Other', 0)),
+    }
+
+    return entries, stats
 
 # --- Analyze Chance Creation Passes ---
 # This function identifies chance-creating passes (Key Passes + Assists) based on specific qualifier values.
