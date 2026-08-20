@@ -57,12 +57,12 @@ def _is_point_in_plot_big_chance_area(point_x, point_y, is_attacking_right_to_le
         return dist_sq <= BC_SEMICIRCLE_RADIUS_SQUARED_STD
 
 # --- Function: Find Opponent Buildup After Specific Team's trigger ---
-def find_buildup_sequences(df_processed, attacking_team, 
+def find_buildup_sequences(df_processed, attacking_team,
                         defending_team, # Team that lost possession
                         metric_to_analyze = 'buildup_phase',
                         triggers_buildups=['Out', 'Foul', 'Card', 'Miss', 'Offside provoked', 'Save', 'Claim', 'Keeper pick-up', 'Ball recovery', 'Corner Awarded', 'Attempt Saved'], # Triggers that start a buildup
                         max_passes_in_buildup_sequence=50,
-                        shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'], 
+                        shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'],
                         start_x = 50):
     """
     Identifies sequences of successful passes by the TEAM THAT GAINED POSSESSION
@@ -88,14 +88,14 @@ def find_buildup_sequences(df_processed, attacking_team,
                      'end_x', 'end_y', 'playerName', 'Mapped Jersey Number',
                      'timeMin', 'timeSec', 'lb', 'Length',  'cross', 'Corner taken']
     # Optional columns that may be present
-    optional_cols = ['positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger', 'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal', 'Blocked', 'Goal mouth y co-ordinate']
+    optional_cols = ['positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger', 'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal', 'Blocked', 'Goal mouth y co-ordinate','periodId']
 
     # Check base requirements
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns: {missing}"); 
+        print(f"Error: Missing required columns: {missing}");
         return pd.DataFrame()
-    
+
     # Build list of columns to actually select
     cols_to_select = required_cols
     found_optional = []
@@ -113,11 +113,11 @@ def find_buildup_sequences(df_processed, attacking_team,
 
     # --- Identify Buildup Triggers ---
     triggers_filter = pd.Series(False, index=df.index)
-    if 'Out' in triggers_buildups: 
+    if 'Out' in triggers_buildups:
         triggers_filter |= ((df['team_name'] == defending_team) & (df['type_name'] == 'Out') & (df['outcome'] == 'Unsuccessful'))
-    if 'Foul' in triggers_buildups: 
+    if 'Foul' in triggers_buildups:
         triggers_filter |= ((df['team_name'] == defending_team) & (df['type_name'] == 'Foul') & (df['outcome'] == 'Unsuccessful'))
-    if 'Card' in triggers_buildups: triggers_filter |= ((df['team_name'] == defending_team) & (df['type_name'] == 'Card') & (df['outcome'] == 'Successful')) 
+    if 'Card' in triggers_buildups: triggers_filter |= ((df['team_name'] == defending_team) & (df['type_name'] == 'Card') & (df['outcome'] == 'Successful'))
     if 'Keeper pick-up' in triggers_buildups: triggers_filter |= ((df['team_name'] == attacking_team) & (df['type_name'] == 'Keeper pick-up') & (df['outcome'] == 'Successful'))
     if 'Claim' in triggers_buildups: triggers_filter |= ((df['team_name'] == attacking_team) & (df['type_name'] == 'Claim') & (df['outcome'] == 'Successful'))
     # if 'Attempt Saved' in triggers_buildups: triggers_filter |= ((df['team_name'] == defending_team) & (df['type_name'] == 'Attempt Saved') & (df['outcome'] == 'Successful') & (df['Blocked'].isin([1, '1', True])))
@@ -127,29 +127,59 @@ def find_buildup_sequences(df_processed, attacking_team,
 
     df_triggers_raw = df[triggers_filter].copy()
     if df_triggers_raw.empty: print(f"No triggers events for {attacking_team}."); return pd.DataFrame()
-    
+
     if metric_to_analyze == 'buildup_phase':
-        own_half_filter = pd.Series(False, index=df.index)
-        own_half_filter |= (((df_triggers_raw['x'] <= start_x) & (df_triggers_raw['team_name'] == attacking_team)) | ((df_triggers_raw['x'] >= start_x) & (df_triggers_raw['team_name'] == defending_team)))
-        df_triggers_own_half = df_triggers_raw[own_half_filter].copy()
+        own_half_filter = (
+            (
+                (df_triggers_raw['x'] <= start_x)
+                & (
+                    df_triggers_raw['team_name']
+                    == attacking_team
+                )
+            )
+            |
+            (
+                (df_triggers_raw['x'] >= start_x)
+                & (
+                    df_triggers_raw['team_name']
+                    == defending_team
+                )
+            )
+        )
+        df_triggers_own_half = df_triggers_raw.loc[own_half_filter].copy()
         if df_triggers_own_half.empty: print(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
-        
+
         # df_triggers = df_triggers_raw.drop_duplicates(subset=['id'], keep='first').copy()
         # if df_triggers_raw.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
         # print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
         df_triggers = df_triggers_own_half.drop_duplicates(subset=['id'], keep='first').copy()
-        if df_triggers_own_half.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
+        if df_triggers.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
         print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
-    elif metric_to_analyze == 'set_piece':   
-        opponent_half_filter = pd.Series(False, index=df.index)
-        opponent_half_filter |= (((df_triggers_raw['x'] >= start_x) & (df_triggers_raw['team_name'] == attacking_team)) | ((df_triggers_raw['x'] <= start_x) & (df_triggers_raw['team_name'] == defending_team)))
-        df_triggers_own_half = df_triggers_raw[opponent_half_filter].copy()
+    elif metric_to_analyze == 'set_piece':
+        opponent_half_filter = (
+            (
+                (df_triggers_raw['x'] >= start_x)
+                & (
+                    df_triggers_raw['team_name']
+                    == attacking_team
+                )
+            )
+            |
+            (
+                (df_triggers_raw['x'] <= start_x)
+                & (
+                    df_triggers_raw['team_name']
+                    == defending_team
+                )
+            )
+        )
+        df_triggers_own_half = df_triggers_raw.loc[opponent_half_filter].copy()
         if df_triggers_own_half.empty: print(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
 
         df_triggers = df_triggers_own_half.drop_duplicates(subset=['id'], keep='first').copy()
-        if df_triggers_own_half.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
+        if df_triggers.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
         print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
 
@@ -162,7 +192,8 @@ def find_buildup_sequences(df_processed, attacking_team,
 
     for trigger_original_df_idx in df_triggers.index:
         trigger_event = df.iloc[trigger_original_df_idx]
-        
+        trigger_period = trigger_event.get('periodId')
+
         # Zone where possession was gained by attacking team
         if trigger_event['type_name'] in ('Out', 'Foul'):
             trigger_coord = 100 - trigger_event['x']
@@ -174,9 +205,9 @@ def find_buildup_sequences(df_processed, attacking_team,
         elif trigger_event['type_name'] in ('Keeper pick-up', 'Claim', 'Ball recovery'):
             trigger_zone = get_pitch_third(trigger_event['x'])
         elif trigger_event['type_name'] in ('Corner Awarded'):
-            if trigger_event['team_name'] == attacking_team: 
+            if trigger_event['team_name'] == attacking_team:
                 trigger_zone = get_pitch_third(trigger_event['x'])
-            else: 
+            else:
                 trigger_coord = 100 - trigger_event['x']
                 trigger_zone = get_pitch_third(trigger_coord)
 
@@ -184,7 +215,7 @@ def find_buildup_sequences(df_processed, attacking_team,
 
         time_min_at_trigger = trigger_event.get('timeMin'); time_sec_at_trigger = trigger_event.get('timeSec')
         type_of_trigger = trigger_event.get('type_name', 'Unknown trigger')
-        
+
         current_opponent_sequence_events = []
         num_passes_in_seq = 0
         sequence_outcome_type = 'Unknown' # Default value
@@ -195,6 +226,15 @@ def find_buildup_sequences(df_processed, attacking_team,
             while current_event_original_df_idx < len(df) - 1 and num_passes_in_seq < max_passes_in_buildup_sequence:
                 current_event_original_df_idx += 1 # Move to the event *after* the trigger or last pass
                 action_by_gaining_team = df.iloc[current_event_original_df_idx]
+                action_period = action_by_gaining_team.get(
+                        'periodId'
+                )
+                if (
+                    pd.notna(trigger_period)
+                    and pd.notna(action_period)
+                    and action_period != trigger_period
+                ):
+                    break
 
                 is_correct_team = (action_by_gaining_team['team_name'] == team_building_up)
                 is_pass = (action_by_gaining_team['type_name'] == 'Pass')
@@ -232,15 +272,11 @@ def find_buildup_sequences(df_processed, attacking_team,
                     if is_successful_event: #successful pass
                         current_opponent_sequence_events.append(action_data)
                         num_passes_in_seq += 1
-                    elif is_not_successful_event: # Unsuccessful pass
+                    elif is_not_successful_event:
                         current_opponent_sequence_events.append(action_data)
-                        if action_by_gaining_team['end_x'] >= 83 and (21.1 <= action_by_gaining_team['end_y'] <= 78.9): # If in the goal area
-                        # if _is_point_in_plot_big_chance_area(action_by_gaining_team['end_x'], action_by_gaining_team['end_y'], is_attacking_right_to_left):
-                            print(_is_point_in_plot_big_chance_area)
-                            sequence_outcome_type = f"Big Chances"
-                        else:
-                            sequence_outcome_type = f"Lost Possessions"
-                        break # End the sequence here
+                        sequence_outcome_type = 'Lost Possessions'
+                        break
+
                 elif is_correct_team and is_shot: # Gaining team attempted a shot
                     action_data['shot_end_y'] = action_by_gaining_team['Goal mouth y co-ordinate']
                     current_opponent_sequence_events.append(action_data)
@@ -256,7 +292,7 @@ def find_buildup_sequences(df_processed, attacking_team,
                         sequence_outcome_type = f"Shots"
                     break # End the sequence here
                 elif is_unknown: # Unknown event type
-                    continue # Skip this event   
+                    continue # Skip this event
                 elif is_ball_touch and is_successful_event: # Any unintentional ball touch
                     current_opponent_sequence_events.append(action_data)
                     continue # Skip this event
@@ -275,7 +311,8 @@ def find_buildup_sequences(df_processed, attacking_team,
                 elif is_defending_team and is_not_successful_event: # Losing team fail to regain possession
                     processed_trigger_event_ids.add(action_by_gaining_team['id'])
                     continue # Skip this event
-                elif is_defending_team and is_successful_event: # Initial team regained possession
+                elif (is_defending_team and is_successful_event):
+                    sequence_outcome_type = 'Lost Possessions'
                     break
                 else: # Some other event or end of data
                     break
@@ -333,7 +370,7 @@ def calculate_team_cross_stats(df_team_crosses, team_name):
     ]
     return summary_data, total_crosses
 
-# 
+#
 def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     """
     Prepares cross data and summary statistics for both home and away teams.
@@ -386,7 +423,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     # Ensure 'x' and 'y' are numeric and handle potential NaNs for plottable crosses
     all_crosses_df['x'] = pd.to_numeric(all_crosses_df['x'], errors='coerce')
     all_crosses_df['y'] = pd.to_numeric(all_crosses_df['y'], errors='coerce')
-    
+
     # Home Team
     home_df = all_crosses_df[all_crosses_df['team_name'] == home_team_name].copy()
     home_df_plottable = home_df.dropna(subset=['x', 'y']) # For count in summary
@@ -493,11 +530,11 @@ def calculate_buildup_stats(sequence_list, attacking_team_is_home):
         return {}
 
     total_sequences = len(sequence_list)
-    
+
     # 1. Outcome Analysis (this logic is correct)
     outcomes = [seq.iloc[-1]['sequence_outcome_type'] for seq in sequence_list if not seq.empty]
     outcome_counts = pd.Series(outcomes).value_counts().to_dict()
-    
+
     # --- FIX 2: Correctly calculate flank based on the 'trigger_zone' ---
     # Your `find_buildup_sequences` function already calculates this for us.
     flanks = [seq.iloc[0].get('dominant_flank', 'Unknown') for seq in sequence_list if not seq.empty]
@@ -663,24 +700,24 @@ def create_buildup_summary_cards(stats, active_filter=None):
 
 #     # 2. Sort the outcome items based on the hierarchy list
 #     outcome_counts = stats.get('outcomes', {})
-    
+
 #     # Create a mapping from outcome name to its rank in the hierarchy
 #     # Unlisted outcomes get a high rank to place them at the end
 #     outcome_rank_map = {outcome: i for i, outcome in enumerate(outcome_hierarchy)}
-    
+
 #     # Sort the dictionary items by the rank of their key
 #     sorted_outcome_items = sorted(
 #         outcome_counts.items(),
 #         key=lambda item: outcome_rank_map.get(item[0], 99) # Use .get() for safety
 #     )
-    
+
 #     # 3. Create the list items from the now-sorted data
 #     outcome_items = [
 #         dash_html.Li(f"{outcome}: {count} ({count/stats['total']:.0%})", className="list-group-item bg-dark text-white border-secondary")
 #         for outcome, count in sorted_outcome_items
 #     ]
 #     # --- END OF FIX ---
-    
+
 #     outcome_card = dbc.Card([
 #         dbc.CardHeader("Buildup Outcomes"),
 #         dbc.ListGroup(outcome_items, flush=True)
@@ -695,7 +732,7 @@ def create_buildup_summary_cards(stats, active_filter=None):
 #         dbc.CardHeader("Starting Flank"),
 #         dbc.ListGroup(flank_items, flush=True)
 #     ], className="mb-3")
-    
+
 #     # Card 3: Buildup Type (no changes needed)
 #     type_items = [
 #         dash_html.Li(f"{b_type}: {count} ({count/stats['total']:.0%})", className="list-group-item bg-dark text-white border-secondary")

@@ -72,118 +72,381 @@ def get_team_logo_src_by_code(team_short_code): # Removed default here, handle i
 
 def plot_loss_heatmap_on_pitch(
     sequences,
-    is_away=False,
-    grid_size=6
+    losing_team_is_away=False,
+    grid_size=6,
 ):
-    x_coords, y_coords, hover_texts = [], [], []
+    """
+    Plot the locations where possession was lost before
+    defensive transitions.
+
+    Coordinates come directly from the triggering turnover
+    event stored by transition_metrics.
+    """
+
+    x_coords = []
+    y_coords = []
+    hover_texts = []
+
+    # ---------------------------------------------------------
+    # POSSESSION LOSS LOCATIONS
+    # ---------------------------------------------------------
 
     for seq in sequences:
         if seq.empty:
             continue
+
         first = seq.iloc[0]
-        x = first['end_x'] if first['type_name'] in ('Pass') else first['x']
-        y = first['end_y'] if first['type_name'] in ('Pass') else first['y']
-        if is_away:
-            x = 100 - x
-            y = 100 - y
-        x_coords.append(x)
-        y_coords.append(y)
-        hover_texts.append(first.get("sequence_outcome_type", "Unknown"))
 
-    # Binning
-    bin_edges = np.linspace(0, 100, grid_size + 1)
-    heatmap, _, _ = np.histogram2d(x_coords, y_coords, bins=[bin_edges, bin_edges])
+        x = pd.to_numeric(
+            first.get('loss_x'),
+            errors='coerce',
+        )
+
+        y = pd.to_numeric(
+            first.get('loss_y'),
+            errors='coerce',
+        )
+
+        if pd.isna(x) or pd.isna(y):
+            continue
+
+        # Coordinates are metric-normalized.
+        # Mirror only for the visual convention used
+        # for the away team.
+        if losing_team_is_away:
+            x = 100.0 - float(x)
+            y = 100.0 - float(y)
+
+        x_coords.append(
+            float(x)
+        )
+
+        y_coords.append(
+            float(y)
+        )
+
+        loss_type = first.get(
+            'type_of_initial_loss',
+            'Unknown turnover',
+        )
+
+        loss_zone = first.get(
+            'loss_zone',
+            'Unknown zone',
+        )
+
+        outcome = first.get(
+            'sequence_outcome_type',
+            'Unknown',
+        )
+
+        hover_texts.append(
+            (
+                f"<b>{loss_type}</b>"
+                f"<br>Zone: {loss_zone}"
+                f"<br>Outcome: {outcome}"
+            )
+        )
+
+    # ---------------------------------------------------------
+    # EMPTY STATE
+    # ---------------------------------------------------------
+
+    if not x_coords:
+        fig = go.Figure()
+
+        draw_plotly_pitch(fig)
+
+        fig.update_shapes(
+            line_color='#718797',
+            line_width=1.15,
+        )
+
+        fig.add_annotation(
+            x=0.5,
+            y=0.5,
+            xref='paper',
+            yref='paper',
+            text='No possession-loss data to plot',
+            showarrow=False,
+            font=dict(
+                color='#647c8e',
+                size=13,
+            ),
+        )
+
+        fig.update_layout(
+            paper_bgcolor='#ffffff',
+            plot_bgcolor='#ffffff',
+        )
+
+        return fig
+
+    # ---------------------------------------------------------
+    # BINNING
+    # ---------------------------------------------------------
+
+    bin_edges = np.linspace(
+        0,
+        100,
+        grid_size + 1,
+    )
+
+    heatmap, _, _ = np.histogram2d(
+        x_coords,
+        y_coords,
+        bins=[
+            bin_edges,
+            bin_edges,
+        ],
+    )
+
     total = heatmap.sum()
-    heatmap_pct = heatmap / total * 100 if total > 0 else heatmap
-    max_val = heatmap_pct.max() if heatmap_pct.max() > 0 else 1
 
-    # Helper per rettangolo
-    def rectangle(x0, x1, y0, y1):
+    heatmap_pct = (
+        heatmap / total * 100
+        if total > 0
+        else heatmap
+    )
+
+    max_val = (
+        heatmap_pct.max()
+        if heatmap_pct.max() > 0
+        else 1
+    )
+
+    # ---------------------------------------------------------
+    # MATCH ANALYSIS PALETTE
+    #
+    # Home = coral
+    # Away = cyan
+    # ---------------------------------------------------------
+
+    if losing_team_is_away:
+        colorscale = [
+            [0.0, '#edf9fc'],
+            [0.5, '#74cbdc'],
+            [1.0, '#0b88a8'],
+        ]
+    else:
+        colorscale = [
+            [0.0, '#fff1ed'],
+            [0.5, '#f3a08d'],
+            [1.0, '#e7644a'],
+        ]
+
+    def rectangle(
+        x0,
+        x1,
+        y0,
+        y1,
+    ):
         return {
-            "x": [x0, x1, x1, x0, x0],
-            "y": [y0, y0, y1, y1, y0]
+            'x': [
+                x0,
+                x1,
+                x1,
+                x0,
+                x0,
+            ],
+            'y': [
+                y0,
+                y0,
+                y1,
+                y1,
+                y0,
+            ],
         }
 
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)  # Disegna il campo
 
-    # Disegna i poligoni bin
-    for i, x0 in enumerate(bin_edges[:-1]):
-        x1 = bin_edges[i+1]
-        for j, y0 in enumerate(bin_edges[:-1]):
-            y1 = bin_edges[j+1]
-            perc = heatmap_pct[i, j]
-            intensity = perc / max_val  # Normalizzazione
-            colorscale = 'Blues' if is_away else 'Reds'
-            color = sample_colorscale(colorscale, [intensity])[0] if perc > 0 else "rgba(0,0,0,0)"
-            poly = rectangle(x0, x1, y0, y1)
+    draw_plotly_pitch(fig)
 
-            # Riempimento colorato
-            fig.add_trace(go.Scatter(
-                x=poly["x"], y=poly["y"],
-                fill="toself",
-                mode="lines",
-                fillcolor=color,
-                line=dict(color='rgba(0,0,0,0.2)'),
-                hoverinfo="skip",
-                showlegend=False
-            ))
+    fig.update_shapes(
+        line_color='#718797',
+        line_width=1.15,
+    )
 
-            # Etichetta della % al centro del bin
-            if perc > 1:
-                cx = (x0 + x1) / 2
-                cy = (y0 + y1) / 2
-                fig.add_trace(go.Scatter(
-                    x=[cx], y=[cy],
-                    mode="text",
-                    text=[f"{perc:.1f}%"],
-                    textfont=dict(size=15, color='white', weight='bold'),
+    # ---------------------------------------------------------
+    # HEATMAP CELLS
+    # ---------------------------------------------------------
+
+    for i, x0 in enumerate(
+        bin_edges[:-1]
+    ):
+        x1 = bin_edges[i + 1]
+
+        for j, y0 in enumerate(
+            bin_edges[:-1]
+        ):
+            y1 = bin_edges[j + 1]
+
+            count = int(
+                heatmap[i, j]
+            )
+
+            if count == 0:
+                continue
+
+            perc = float(
+                heatmap_pct[i, j]
+            )
+
+            intensity = min(
+                perc / max_val,
+                1.0,
+            )
+
+            color = sample_colorscale(
+                colorscale,
+                [intensity],
+            )[0]
+
+            poly = rectangle(
+                x0,
+                x1,
+                y0,
+                y1,
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=poly['x'],
+                    y=poly['y'],
+                    fill='toself',
+                    mode='lines',
+                    fillcolor=color,
+                    line=dict(
+                        color=(
+                            'rgba(75, 101, 119, 0.22)'
+                        ),
+                        width=1,
+                    ),
+                    text=(
+                        f'{count} possession losses'
+                        f'<br>{perc:.1f}%'
+                    ),
+                    hovertemplate=(
+                        '%{text}'
+                        '<extra></extra>'
+                    ),
                     showlegend=False,
-                    hoverinfo="skip"
-                ))
+                )
+            )
 
-    # Eventi singoli con hover personalizzato
-    fig.add_trace(go.Scatter(
-        x=x_coords, y=y_coords,
-        mode='markers',
-        marker=dict(size=8, color='black'),
-        text=hover_texts,
-        hovertemplate="Outcome: %{text}<br>X: %{x:.1f}, Y: %{y:.1f}<extra></extra>",
-        name="Loss Events"
-    ))
+            # One event stays visible as a dot only.
+            # Permanent percentage labels start at 2 events.
+            if count >= 2:
 
-    arrow_y = 50 
-    if is_away:
-        arrow_x_start = 125
-        arrow_x_end = 105
-        text_position = "middle left"
-    else:
-        arrow_x_start = -25
-        arrow_x_end = -5
-        text_position = "middle right"
+                cx = (
+                    x0 + x1
+                ) / 2
 
-    fig.add_trace(go.Scatter(
-        x=[arrow_x_start, arrow_x_end],
-        y=[arrow_y, arrow_y],
-        mode="lines+markers",
-        marker=dict(symbol="arrow", size=15, angleref="previous", color="black"),
-        line=dict(color="black", width=3),
-        # text=[None, direction_symbol],
-        textposition=text_position,
-        hoverinfo="skip",
-        showlegend=False
-    ))
+                cy = (
+                    y0 + y1
+                ) / 2
 
-    # Layout tipo pitch (senza assi visibili)
+                text_color = (
+                    '#ffffff'
+                    if intensity >= 0.48
+                    else '#17354d'
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[cx],
+                        y=[cy],
+                        mode='text',
+                        text=[
+                            f'{perc:.1f}%'
+                        ],
+                        textfont=dict(
+                            size=13,
+                            color=text_color,
+                            weight='bold',
+                        ),
+                        showlegend=False,
+                        hoverinfo='skip',
+                    )
+                )
+
+    # ---------------------------------------------------------
+    # INDIVIDUAL TURNOVERS
+    # ---------------------------------------------------------
+
+    fig.add_trace(
+        go.Scatter(
+            x=x_coords,
+            y=y_coords,
+            mode='markers',
+            marker=dict(
+                size=6,
+                color='#17354d',
+                opacity=0.70,
+                line=dict(
+                    color='#ffffff',
+                    width=0.8,
+                ),
+            ),
+            text=hover_texts,
+            hovertemplate=(
+                '%{text}'
+                '<br>X: %{x:.1f}'
+                '<br>Y: %{y:.1f}'
+                '<extra></extra>'
+            ),
+            name='Possession loss',
+            showlegend=False,
+        )
+    )
+
+    # ---------------------------------------------------------
+    # LAYOUT
+    # ---------------------------------------------------------
+
     fig.update_layout(
-        title="Possession Loss Heatmap",
-        title_font_color='black', title_x=0.5,
-        plot_bgcolor="white",
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[0, 100]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[0, 100], scaleanchor="x", scaleratio=0.68),
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=600,
-        showlegend=False
+        title=None,
+
+        plot_bgcolor='#ffffff',
+        paper_bgcolor='#ffffff',
+
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            fixedrange=True,
+            range=[0, 100],
+        ),
+
+        yaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            showticklabels=False,
+            fixedrange=True,
+            range=[0, 100],
+            scaleanchor='x',
+            scaleratio=0.68,
+        ),
+
+        margin=dict(
+            l=8,
+            r=8,
+            t=12,
+            b=8,
+        ),
+
+        height=540,
+
+        showlegend=False,
+
+        hoverlabel=dict(
+            bgcolor='#ffffff',
+            bordercolor='#dbe7ed',
+            font=dict(
+                color='#17354d',
+                size=12,
+            ),
+        ),
     )
 
     return fig

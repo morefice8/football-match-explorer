@@ -616,6 +616,17 @@
   }
 }
 
+@media (max-width: 991.98px) {
+  .sequence-comparison-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .sequence-profile-block,
+  .sequence-outcome-block {
+    max-width: none;
+  }
+}
+
 /* ========================================================================== */
 /* Match intelligence workspace                                               */
 /* ========================================================================== */
@@ -1381,6 +1392,441 @@
   text-align: center;
 }
 
+/* Sequence comparison — buildup / transitions */
+
+.sequence-comparison-panel {
+  margin-top: 0.25rem;
+}
+
+.sequence-funnel {
+  padding: 1rem 1.1rem 0.7rem;
+}
+
+.sequence-team-header,
+.sequence-comparison-row,
+.sequence-profile-row,
+.sequence-outcome-row {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    9rem
+    minmax(0, 1fr);
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.sequence-team-header {
+  padding: 0 0 0.7rem;
+  border-bottom: 1px solid var(--match-border);
+}
+
+.sequence-team-name {
+  color: var(--match-ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.sequence-team-name--away {
+  text-align: right;
+}
+
+.sequence-team-middle {
+  color: var(--match-muted);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.sequence-comparison-row {
+  min-height: 3.65rem;
+  border-bottom: 1px solid #edf2f4;
+}
+
+.sequence-comparison-row:last-child {
+  border-bottom: 0;
+}
+
+.sequence-comparison-side {
+  min-width: 0;
+}
+
+.sequence-comparison-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-bottom: 0.34rem;
+}
+
+.sequence-comparison-value--away {
+  justify-content: flex-start;
+}
+
+.sequence-comparison-count {
+  color: var(--match-ink);
+  font-size: 0.88rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.sequence-comparison-percent {
+  color: var(--match-muted);
+  font-size: 0.62rem;
+  font-weight: 750;
+}
+
+.sequence-comparison-label {
+  color: #526d80;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.sequence-comparison-track {
+  overflow: hidden;
+  width: 100%;
+  height: 0.38rem;
+  background: #e3edf1;
+  border-radius: 999px;
+}
+
+.sequence-comparison-bar {
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+}
+
+.sequence-comparison-bar--home {
+  margin-left: auto;
+}
+
+.sequence-comparison-bar--away {
+  margin-right: auto;
+}
+
+.sequence-comparison-detail {
+  display: grid;
+  grid-template-columns: repeat(
+    2,
+    minmax(0, 1fr)
+  );
+  gap: 1rem;
+  padding: 1rem 1.1rem 1.15rem;
+  background: var(--match-soft);
+  border-top: 1px solid var(--match-border);
+}
+
+.sequence-profile-block,
+.sequence-outcome-block {
+  width: 100%;
+  max-width: 34rem;
+  min-width: 0;
+  justify-self: center;
+  align-self: start;
+  padding: 0.85rem 1rem;
+  background: #ffffff;
+  border: 1px solid #dce8ed;
+  border-radius: 0.72rem;
+}
+
+.sequence-detail-header,
+.sequence-profile-row,
+.sequence-outcome-row {
+  display: grid;
+  grid-template-columns:
+    5rem
+    minmax(9rem, 1fr)
+    5rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sequence-detail-header {
+  margin-top: 0.65rem;
+  padding: 0 0 0.5rem;
+  border-bottom: 1px solid #dfe9ed;
+}
+
+.sequence-detail-team {
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.sequence-detail-team--away {
+  text-align: right;
+}
+
+.sequence-detail-middle {
+  color: #8a9ba7;
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.sequence-profile-row,
+.sequence-outcome-row {
+  min-height: 2.45rem;
+  border-bottom: 1px solid #edf2f4;
+}
+
+.sequence-profile-row:last-child,
+.sequence-outcome-row:last-child {
+  border-bottom: 0;
+}
+
+.sequence-profile-value,
+.sequence-outcome-count {
+  color: var(--match-ink);
+  font-size: 0.9rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.sequence-profile-value:last-child,
+.sequence-outcome-count:last-child {
+  text-align: right;
+}
+
+.sequence-profile-label,
+.sequence-outcome-label {
+  color: #536f82;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.sequence-outcome-list {
+  margin-top: 0;
+}
+
+@media (max-width: 767.98px) {
+  .sequence-team-header,
+  .sequence-comparison-row,
+  .sequence-profile-row,
+  .sequence-outcome-row {
+    grid-template-columns:
+      minmax(0, 1fr)
+      6.5rem
+      minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .sequence-comparison-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .sequence-comparison-label {
+    font-size: 0.6rem;
+  }
+}
+
+/* ========================================================================== */
+/* Offensive transition explorer                                              */
+/* ========================================================================== */
+
+.off-transition-summary-panel {
+  overflow: hidden;
+}
+
+.off-transition-summary-content {
+  padding: 1rem;
+}
+
+
+/* Main desktop workspace:
+   recovery map left, individual transition right. */
+
+.off-transition-explorer-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(20rem, 0.82fr)
+    minmax(0, 1.18fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+
+/* --------------------------------------------------------------------------
+   Recovery map
+   -------------------------------------------------------------------------- */
+
+.off-transition-map-panel,
+.off-transition-sequence-panel {
+  min-width: 0;
+}
+
+.off-transition-map-body {
+  padding: 0.35rem;
+}
+
+.off-transition-map-graph {
+  width: 100%;
+  height: 34rem;
+  min-height: 34rem;
+}
+
+
+/* --------------------------------------------------------------------------
+   Sequence
+   -------------------------------------------------------------------------- */
+
+.off-transition-sequence-panel {
+  padding-bottom: 0.85rem;
+}
+
+.off-transition-sequence-body {
+  position: relative;
+  min-height: 34rem;
+  padding: 0.2rem 0.8rem 0;
+}
+
+.off-transition-sequence-body
+.js-plotly-plot,
+.off-transition-sequence-body
+.plot-container {
+  width: 100% !important;
+}
+
+
+/* Keep both panel headers visually aligned. */
+
+.off-transition-map-panel
+> .match-panel-header,
+.off-transition-sequence-panel
+> .match-panel-header {
+  min-height: 6.4rem;
+}
+
+/* Transition filter/profile */
+
+.off-transition-summary-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.off-transition-filter-cards {
+  min-width: 0;
+}
+
+.off-transition-pattern-block {
+  padding-top: 1rem;
+  border-top: 1px solid var(--match-border);
+}
+
+.off-transition-pattern-header {
+  margin-bottom: 0.8rem;
+}
+
+.off-transition-pattern-title {
+  margin: 0.18rem 0 0;
+  color: var(--match-ink);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: -0.015em;
+}
+
+
+/* --------------------------------------------------------------------------
+   Responsive
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1199.98px) {
+  .off-transition-explorer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .off-transition-map-graph,
+  .off-transition-sequence-body {
+    min-height: 30rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .off-transition-map-graph,
+  .off-transition-sequence-body {
+    height: auto;
+    min-height: 26rem;
+  }
+}
+
+/* Common transition patterns table */
+
+.match-analysis-content
+.off-transition-pattern-table {
+  width: 100%;
+  margin: 0 !important;
+  overflow: hidden;
+  color: #36566c !important;
+  background: #ffffff !important;
+  border: 1px solid #dce8ed !important;
+  border-radius: 0.72rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.74rem;
+}
+
+.match-analysis-content
+.off-transition-pattern-table thead th {
+  padding: 0.72rem 0.8rem !important;
+  color: #6b8292 !important;
+  background: #f5f9fb !important;
+  border: 0 !important;
+  border-bottom: 1px solid #dce8ed !important;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.match-analysis-content
+.off-transition-pattern-table tbody td {
+  padding: 0.7rem 0.8rem !important;
+  color: #36566c !important;
+  background: #ffffff !important;
+  border: 0 !important;
+  border-bottom: 1px solid #e8eff2 !important;
+  vertical-align: middle;
+}
+
+.match-analysis-content
+.off-transition-pattern-table tbody tr:last-child td {
+  border-bottom: 0 !important;
+}
+
+.match-analysis-content
+.off-transition-pattern-table tbody tr:hover td {
+  background: #f5fafb !important;
+}
+
+.match-analysis-content
+.off-transition-pattern-table th:nth-child(3),
+.match-analysis-content
+.off-transition-pattern-table td:nth-child(3) {
+  color: #17354d !important;
+  font-weight: 900;
+  text-align: center;
+}
+
+.match-analysis-content
+.off-transition-pattern-table th:nth-child(4),
+.match-analysis-content
+.off-transition-pattern-table td:nth-child(4) {
+  text-align: right;
+}
+
+.match-analysis-content
+.off-transition-pattern-table td:nth-child(4) {
+  color: #087d9d !important;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Analyst notes */
 .match-comment-panel {
   padding: 1rem;
@@ -1825,5 +2271,204 @@
   .passing-player-header,
   .passing-player-row {
     min-width: 720px;
+  }
+}
+
+/* ========================================================================== */
+/* Match Analysis — desktop readability pass                                  */
+/* ========================================================================== */
+
+.match-module-eyebrow,
+.match-panel-eyebrow {
+  font-size: 0.68rem;
+}
+
+.match-module-description,
+.match-panel-description {
+  font-size: 0.84rem;
+}
+
+.match-panel-title {
+  font-size: 1.08rem !important;
+}
+
+.match-analysis-content .nav-tabs .nav-link {
+  font-size: 0.74rem;
+}
+
+.match-panel-hint,
+.match-analysis-note {
+  font-size: 0.72rem;
+}
+
+.match-action-button,
+.match-secondary-button,
+.match-carousel-button {
+  font-size: 0.74rem !important;
+}
+
+.match-analysis-content .match-summary-card .card-header {
+  font-size: 0.74rem;
+}
+
+.match-analysis-content .match-summary-row.list-group-item {
+  font-size: 0.74rem;
+}
+
+.match-summary-row .badge {
+  font-size: 0.62rem;
+}
+
+.match-carousel-indicator {
+  font-size: 0.72rem;
+}
+
+/* Sequence comparison readability */
+
+.sequence-team-name {
+  font-size: 0.86rem;
+}
+
+.sequence-team-middle {
+  font-size: 0.64rem;
+}
+
+.sequence-comparison-label {
+  font-size: 0.72rem;
+}
+
+.sequence-comparison-count {
+  font-size: 1rem;
+}
+
+.sequence-comparison-percent {
+  font-size: 0.68rem;
+}
+
+.sequence-outcome-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.32rem;
+}
+
+.sequence-outcome-value--away {
+  justify-content: flex-end;
+}
+
+.sequence-outcome-percent {
+  color: var(--match-muted);
+  font-size: 0.62rem;
+  font-weight: 750;
+}
+
+/* =========================================================
+   DEFENSIVE TRANSITION EXPLORER
+   ========================================================= */
+
+.def-transition-summary-panel {
+  overflow: hidden;
+}
+
+.def-transition-summary-content {
+  padding: 1rem;
+}
+
+.def-transition-profile-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.def-transition-active-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+  color: var(--match-muted);
+  font-size: 0.72rem;
+}
+
+.def-transition-filter-cards {
+  width: 100%;
+}
+
+.def-transition-explorer-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(20rem, 0.82fr)
+    minmax(0, 1.18fr);
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1rem;
+}
+
+.def-transition-map-panel,
+.def-transition-sequence-panel {
+  min-width: 0;
+}
+
+.def-transition-map-panel > .match-panel-header,
+.def-transition-sequence-panel > .match-panel-header {
+  min-height: 6.4rem;
+}
+
+.def-transition-map-body {
+  padding: 0.35rem;
+}
+
+.def-transition-map-graph {
+  width: 100%;
+  height: 34rem;
+  min-height: 34rem;
+}
+
+.def-transition-sequence-panel {
+  padding-bottom: 0.85rem;
+}
+
+.def-transition-sequence-body {
+  position: relative;
+  min-height: 34rem;
+  padding: 0.2rem 0.8rem 0;
+}
+
+.def-transition-sequence-graph {
+  width: 100%;
+  height: 34rem;
+  min-height: 34rem;
+}
+
+.def-transition-sequence-body .js-plotly-plot,
+.def-transition-sequence-body .plot-container {
+  width: 100% !important;
+}
+
+@media (max-width: 1199.98px) {
+  .def-transition-explorer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .def-transition-map-graph,
+  .def-transition-sequence-graph,
+  .def-transition-sequence-body {
+    height: 30rem;
+    min-height: 30rem;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .def-transition-profile-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .def-transition-map-graph,
+  .def-transition-sequence-graph,
+  .def-transition-sequence-body {
+    height: 26rem;
+    min-height: 26rem;
   }
 }

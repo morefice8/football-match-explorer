@@ -67,7 +67,7 @@ def find_recovery_to_first_pass(df_processed,
     required_cols = ['eventId', 'typeId', 'team_name', 'playerName', 'x', 'y',
                      'end_x', 'end_y', 'outcome', 'Mapped Jersey Number']
     # Check for 'Out of play' if filtering tackles (assuming it's a renamed qualifier)
-    OUT_OF_PLAY_COL = 'Out of play' 
+    OUT_OF_PLAY_COL = 'Out of play'
     if OUT_OF_PLAY_COL not in df_processed.columns:
         print(f"Warning: Column '{OUT_OF_PLAY_COL}' not found. Tackles won't be filtered for staying in play.")
         # Decide if this is critical. For now, proceed without it.
@@ -147,7 +147,7 @@ def find_recovery_to_first_pass(df_processed,
                 'first_pass_end_x': next_event['end_x'],
                 'first_pass_end_y': next_event['end_y'],
                 'first_pass_outcome': next_event['outcome'],
-                'timeMin': recovery_event['timeMin'], 
+                'timeMin': recovery_event['timeMin'],
                 'timeSec': recovery_event['timeSec']
             })
 
@@ -162,11 +162,11 @@ def find_recovery_to_first_pass(df_processed,
 # --- Function: Find Opponent Buildup After Specific Team's Loss ---
 def find_buildup_after_possession_loss(df_processed,
                                        team_that_lost_possession, # Team that lost possession
-                                       possession_loss_types=['Goal', 'Pass', 'Take On', 'Error', 'Dispossessed', 'Aerial', 'Challenge', 'Clearance', 'Save'], # Types of loss
+                                       possession_loss_types=['Pass', 'Take On', 'Error', 'Dispossessed', 'Aerial', 'Challenge', 'Clearance', 'Save'], # Types of loss
                                        max_passes_in_buildup_sequence=35,
                                        shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'],
                                        metric_to_analyze='defensive_transitions',
-                                       time_threshold_seconds=2):
+                                       max_transition_seconds=12):
     """
     Identifies sequences of successful passes by the TEAM THAT GAINED POSSESSION
     immediately following a possession loss by the specified 'team_that_lost_possession'.
@@ -183,7 +183,6 @@ def find_buildup_after_possession_loss(df_processed,
         pd.DataFrame: DataFrame of buildup sequences by the team that gained possession,
                       with 'loss_sequence_id' and 'loss_zone' (where possession was lost).
     """
-    print(f"Identifying buildup sequences after {team_that_lost_possession} lost possession...")
 
     # --- Define Base and Optional Columns to Select ---
     # Required columns always needed
@@ -191,7 +190,14 @@ def find_buildup_after_possession_loss(df_processed,
                      'end_x', 'end_y', 'playerName', 'Mapped Jersey Number',
                      'timeMin', 'timeSec']
     # Optional columns that may be present
-    optional_cols = ['receiver', 'receiver_jersey_number', 'Own goal', 'From corner', 'Goal mouth y co-ordinate']
+    optional_cols = [
+        'receiver',
+        'receiver_jersey_number',
+        'Own goal',
+        'From corner',
+        'Goal mouth y co-ordinate',
+        'periodId',
+    ]
 
     all_teams = df_processed['team_name'].unique()
     team_that_gained_possession = [t for t in all_teams if t != team_that_lost_possession][0]
@@ -199,9 +205,9 @@ def find_buildup_after_possession_loss(df_processed,
     # Check base requirements
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns: {missing}"); 
+        print(f"Error: Missing required columns: {missing}");
         return pd.DataFrame()
-    
+
     # Build list of columns to actually select
     cols_to_select = required_cols
     found_optional = []
@@ -212,7 +218,6 @@ def find_buildup_after_possession_loss(df_processed,
 
     # Use set to ensure unique columns if any overlap, then convert back to list
     cols_to_select = list(set(cols_to_select))
-    print(f"  Including optional columns found: {found_optional}")
 
     df = df_processed[cols_to_select].copy()
     df = df.reset_index(drop=True)
@@ -221,7 +226,7 @@ def find_buildup_after_possession_loss(df_processed,
     # --- Identify Possession Loss Events by 'team_that_lost_possession' ---
     loss_filter = pd.Series(False, index=df.index)
     # ... (build loss_filter based on possession_loss_types) ...
-    if 'Goal' in possession_loss_types: loss_filter |= ((df['type_name'] == 'Goal'))
+    #if 'Goal' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Goal'))
     if 'Pass' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Pass') & (df['outcome'] == 'Unsuccessful'))
     if 'Take On' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Take On') & (df['outcome'] == 'Unsuccessful'))
     if 'Error' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Error'))
@@ -233,22 +238,21 @@ def find_buildup_after_possession_loss(df_processed,
     if 'Save' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_gained_possession) & (df['type_name'] == 'Save') & (df['outcome'] == 'Successful'))
 
     df_losses_raw = df[loss_filter].copy()
-    if df_losses_raw.empty: print(f"No loss events for {team_that_lost_possession}."); return pd.DataFrame()
-    
+    if df_losses_raw.empty: return pd.DataFrame()
+
     df_losses = df_losses_raw.drop_duplicates(subset=['id'], keep='first').copy()
-    if df_losses.empty: print(f"No unique loss events after deduplication by 'id' for {team_that_lost_possession}."); return pd.DataFrame()
-    print(f"Found {len(df_losses)} unique possession loss events by {team_that_lost_possession}. Tracing...")
+    if df_losses.empty: return pd.DataFrame()
 
     # indices_to_keep = []
     # last_trigger_time = -9999
-    
+
     # for index, row in df_losses_raw.iterrows():
     #     current_time = row['total_seconds']
     #     # Se l'evento attuale è troppo vicino al precedente, lo saltiamo.
     #     if current_time - last_trigger_time > time_threshold_seconds:
     #         indices_to_keep.append(index)
     #         last_trigger_time = current_time
-    
+
     # df_losses = df_losses_raw.loc[indices_to_keep].drop_duplicates(subset=['id'], keep='first').copy()
     # if df_losses.empty: print(f"No unique loss events after deduplication by 'id' for {team_that_lost_possession}."); return pd.DataFrame()
     # print(f"Found {len(df_losses)} unique possession loss events by {team_that_lost_possession}. Tracing...")
@@ -261,25 +265,206 @@ def find_buildup_after_possession_loss(df_processed,
 
     processed_loss_event_ids = set()
 
+    def _first_gaining_team_x_after_trigger(
+        trigger_idx,
+    ):
+        """
+        Find the first known location of the team that gains
+        possession after the trigger.
+
+        Coordinates of that event are already expressed in
+        the gaining team's attacking direction.
+        """
+
+        trigger_event = df.iloc[
+            trigger_idx
+        ]
+
+        trigger_time = trigger_event.get(
+            'total_seconds',
+            np.nan,
+        )
+
+        trigger_period = trigger_event.get(
+            'periodId',
+            np.nan,
+        )
+
+        for candidate_idx in range(
+            trigger_idx + 1,
+            len(df),
+        ):
+            candidate = df.iloc[
+                candidate_idx
+            ]
+
+            # Never borrow a recovery location
+            # from another period.
+            candidate_period = candidate.get(
+                'periodId',
+                np.nan,
+            )
+
+            if (
+                pd.notna(trigger_period)
+                and pd.notna(candidate_period)
+                and candidate_period
+                    != trigger_period
+            ):
+                break
+
+            candidate_time = candidate.get(
+                'total_seconds',
+                np.nan,
+            )
+
+            if (
+                pd.notna(trigger_time)
+                and pd.notna(candidate_time)
+            ):
+                elapsed = (
+                    float(candidate_time)
+                    - float(trigger_time)
+                )
+
+                if elapsed > max_transition_seconds:
+                    break
+
+            if (
+                candidate.get('team_name')
+                == team_that_gained_possession
+                and pd.notna(
+                    candidate.get('x')
+                )
+            ):
+                return float(
+                    candidate.get('x')
+                )
+
+        return np.nan
+
     for loss_original_df_idx in df_losses.index:
         loss_event = df.iloc[loss_original_df_idx]
+        loss_period = loss_event.get('periodId')
+        loss_total_seconds = loss_event.get('total_seconds')
 
         # Zone where possession was gained by the opponent
+        loss_x = np.nan
+        loss_y = np.nan
+
+        # Zone where possession was lost / gained.
         if metric_to_analyze == 'defensive_transitions':
-            if loss_event['type_name'] in ('Pass'):
-                loss_zone = get_pitch_third(loss_event['end_x'])
-                print(f"DEBUG: Loss event {loss_event['type_name']} in {loss_event['end_x']} for zone '{loss_zone}'")
-            else: 
-                loss_zone = get_pitch_third(loss_event['x']) 
-                print(f"DEBUG: Loss event {loss_event['type_name']} in {loss_event['x']} for zone '{loss_zone}'")
-            
-        else: # Offensive transitions
-            if loss_event['type_name'] in ('Aerial', 'Dispossessed', 'Challenge', 'Take On', 'Error'):
-                recovery_coord = 100 - loss_event['x']
-                loss_zone = get_pitch_third(recovery_coord)
+
+            if (
+                loss_event.get('type_name') == 'Pass'
+                and pd.notna(
+                    loss_event.get('end_x')
+                )
+            ):
+                # For an unsuccessful pass, the turnover
+                # happens at the pass destination.
+                loss_x = pd.to_numeric(
+                    loss_event.get('end_x'),
+                    errors='coerce',
+                )
+
+                loss_y = pd.to_numeric(
+                    loss_event.get('end_y'),
+                    errors='coerce',
+                )
+
             else:
-                recovery_coord = 100 - loss_event['end_x']
-                loss_zone = get_pitch_third(recovery_coord)
+                # Point-like turnovers:
+                # dispossession, duel, clearance, etc.
+                loss_x = pd.to_numeric(
+                    loss_event.get('x'),
+                    errors='coerce',
+                )
+
+                loss_y = pd.to_numeric(
+                    loss_event.get('y'),
+                    errors='coerce',
+                )
+
+            loss_zone = get_pitch_third(
+                loss_x
+            )
+
+        else:  # Offensive transitions
+
+            event_type = loss_event.get(
+                'type_name'
+            )
+
+            # -----------------------------------------------------
+            # 1. Recovery event recorded directly for the team
+            #    that gains possession.
+            # -----------------------------------------------------
+
+            if event_type == 'Save':
+
+                recovery_coord = loss_event.get(
+                    'x',
+                    np.nan,
+                )
+
+            # -----------------------------------------------------
+            # 2. Point-like turnover events recorded from the
+            #    losing team's coordinate system.
+            # -----------------------------------------------------
+
+            elif event_type in (
+                'Aerial',
+                'Dispossessed',
+                'Challenge',
+                'Take On',
+                'Error',
+            ):
+
+                loss_x = loss_event.get(
+                    'x',
+                    np.nan,
+                )
+
+                recovery_coord = (
+                    100.0 - float(loss_x)
+                    if pd.notna(loss_x)
+                    else np.nan
+                )
+
+            # -----------------------------------------------------
+            # 3. Events with a known destination.
+            # -----------------------------------------------------
+
+            elif pd.notna(
+                loss_event.get('end_x')
+            ):
+
+                recovery_coord = (
+                    100.0
+                    - float(
+                        loss_event.get('end_x')
+                    )
+                )
+
+            # -----------------------------------------------------
+            # 4. Missing destination, e.g. Clearance.
+            #
+            #    Use the first actual location recorded for the
+            #    team that gains possession.
+            # -----------------------------------------------------
+
+            else:
+
+                recovery_coord = (
+                    _first_gaining_team_x_after_trigger(
+                        loss_original_df_idx
+                    )
+                )
+
+            loss_zone = get_pitch_third(
+                recovery_coord
+            )
 
         time_min_at_loss = loss_event.get('timeMin'); time_sec_at_loss = loss_event.get('timeSec')
         type_of_loss = loss_event.get('type_name', 'Unknown Loss')
@@ -304,11 +489,60 @@ def find_buildup_after_possession_loss(df_processed,
         if loss_event['id'] not in processed_loss_event_ids:
             while current_event_original_df_idx < len(df) - 1 and num_passes_in_seq < max_passes_in_buildup_sequence:
                 current_event_original_df_idx += 1 # Move to the event *after* the loss or last pass
-                
-                action_by_gaining_team = df.iloc[current_event_original_df_idx]
+
+                action_by_gaining_team = df.iloc[
+                current_event_original_df_idx
+                ]
+
+                # 1. Never cross period boundary
+                action_period = action_by_gaining_team.get(
+                    'periodId'
+                )
+
+                if (
+                    pd.notna(loss_period)
+                    and pd.notna(action_period)
+                    and action_period != loss_period
+                ):
+                    break
+
+                # 2. Transition cannot last indefinitely
+                action_total_seconds = (
+                    action_by_gaining_team.get(
+                        'total_seconds'
+                    )
+                )
+
+                if (
+                    pd.notna(loss_total_seconds)
+                    and pd.notna(action_total_seconds)
+                ):
+                    elapsed_seconds = (
+                        action_total_seconds
+                        - loss_total_seconds
+                    )
+
+                    if elapsed_seconds > max_transition_seconds:
+                        if current_opponent_sequence_events:
+                            if (
+                                metric_to_analyze
+                                == 'defensive_transitions'
+                            ):
+                                sequence_outcome_type = (
+                                    'Opponent Possession Consolidated'
+                                )
+                            else:
+                                sequence_outcome_type = (
+                                    'Possession Consolidated'
+                                )
+
+                        break
+
                 action_data = action_by_gaining_team.to_dict()
                 action_data['loss_sequence_id'] = sequence_id_counter
                 action_data['loss_zone'] = loss_zone
+                action_data['loss_x'] = loss_x
+                action_data['loss_y'] = loss_y
                 action_data['triggering_loss_Opta_id'] = loss_event['id']
                 action_data['timeMin_at_loss'] = time_min_at_loss
                 action_data['timeSec_at_loss'] = time_sec_at_loss
@@ -356,29 +590,31 @@ def find_buildup_after_possession_loss(df_processed,
 
                 elif is_end_sequence:
                     break # End the sequence here
-                
+
                 elif is_correct_team and is_pass:
                     if is_successful_event: #successful pass
                         current_opponent_sequence_events.append(action_data)
                         num_passes_in_seq += 1
-                    elif is_not_successful_event: # Unsuccessful pass
-                        current_opponent_sequence_events.append(action_data)
-                        if action_by_gaining_team['end_x'] >= 83 and (21.1 <= action_by_gaining_team['end_y'] <= 78.9): # If in the goal area
-                            if metric_to_analyze == 'defensive_transitions':
-                                sequence_outcome_type = f"Big Chances conceded"
-                            else:
-                                sequence_outcome_type = f"Big Chances"
+                    elif is_not_successful_event:
+                        current_opponent_sequence_events.append(
+                            action_data
+                        )
+
+                        if metric_to_analyze == 'defensive_transitions':
+                            sequence_outcome_type = (
+                                'Regained Possessions'
+                            )
                         else:
-                            if metric_to_analyze == 'defensive_transitions':
-                                sequence_outcome_type = f"Regained Possessions"
-                            else:
-                                sequence_outcome_type = f"Lost Possessions"
+                            sequence_outcome_type = (
+                                'Lost Possessions'
+                            )
+
                         break # End the sequence here
-                
+
                 elif is_correct_team and is_shot and not is_own_goal: # It's a regular shot/goal
                     action_data['shot_end_y'] = action_by_gaining_team.get('Goal mouth y co-ordinate')
                     current_opponent_sequence_events.append(action_data)
-                    
+
                     if action_by_gaining_team['type_name'] == 'Goal':
                         if metric_to_analyze == 'defensive_transitions':
                             sequence_outcome_type = "Goals conceded"
@@ -389,12 +625,12 @@ def find_buildup_after_possession_loss(df_processed,
                             sequence_outcome_type = "Shots conceded"
                         else: # offensive_transitions
                             sequence_outcome_type = "Shots"
-                            
+
                     break # End the sequence here
 
 
                 elif is_unknown: # Unknown event type
-                    continue # Skip this event   
+                    continue # Skip this event
                 elif is_ball_touch and is_successful_event: # Any unintentional ball touch
                     continue # Skip this event
                 elif is_correct_team and is_successful_event: # Gaining team still has ball
@@ -403,7 +639,7 @@ def find_buildup_after_possession_loss(df_processed,
                     current_opponent_sequence_events.append(action_data)
                     if metric_to_analyze == 'defensive_transitions':
                         sequence_outcome_type = f"Regained Possessions"
-                    else: 
+                    else:
                         sequence_outcome_type = f"Lost Possessions"
                     break
                 elif is_correct_team and is_ball_touch and is_not_successful_event: # Gaining team lost possession due to unsuccessful control
@@ -424,10 +660,20 @@ def find_buildup_after_possession_loss(df_processed,
                 elif is_correct_team and is_ball_recovery and is_successful_event:
                     processed_loss_event_ids.add(action_by_gaining_team['id'])
                     # print(f"DEBUG: Seen lost possession events: {processed_loss_event_ids}")
-                    continue # Skip this event      
-                                      
-                elif is_team_that_lost_possession and is_successful_event: # Initial team regained possession
+                    continue # Skip this event
+
+                elif (is_team_that_lost_possession and is_successful_event):
+                    if metric_to_analyze == 'defensive_transitions':
+                        sequence_outcome_type = (
+                            'Regained Possessions'
+                        )
+                    else:
+                        sequence_outcome_type = (
+                            'Lost Possessions'
+                        )
+
                     break
+
                 else: # Some other event or end of data
                     break
 
@@ -459,7 +705,6 @@ def find_buildup_after_possession_loss(df_processed,
 
     if not all_buildup_events_with_loss_info: return pd.DataFrame()
     df_all_sequences = pd.DataFrame(all_buildup_events_with_loss_info)
-    print(f"Constructed {df_all_sequences['loss_sequence_id'].nunique()} opponent buildup sequences (incl. terminating event).")
     return df_all_sequences
 
 def calculate_transition_success_by_zone(df_processed, team_name,
@@ -600,7 +845,7 @@ def calculate_flank(y_vals):
         return "Right"
     else:
         return "Center"
-    
+
 def assign_bin(x, y, grid_size=6):
     """
     Assigns a bin number based on x and y coordinates using the grid size.
@@ -761,7 +1006,7 @@ def create_def_transition_summary_cards(stats, active_filter=None):
             )
         )
     outcome_card = dbc.Card([
-        dbc.CardHeader("Conceded Outcomes"), 
+        dbc.CardHeader("Conceded Outcomes"),
         dbc.ListGroup(outcome_list, flush=True)
     ], className="mb-3")
 
@@ -833,12 +1078,12 @@ def calculate_off_transition_stats(sequence_list, is_away=False):
     # 3. Tipo di recupero palla iniziale (era "tipo di perdita")
     recovery_types = [seq.iloc[0].get("type_of_initial_loss", "Unknown") for seq in sequence_list if not seq.empty]
     recovery_type_counts = pd.Series(recovery_types).value_counts().to_dict()
-    
+
     # 4. Profilo di transizione (riutilizziamo la stessa logica)
     profile = defaultdict(lambda: defaultdict(list))
     for seq in sequence_list:
         if seq.empty: continue
-        
+
         # Qui la zona è dove la palla è stata RECUPERATA
         zone = seq.iloc[0].get("loss_zone", "Unknown") # La funzione find_buildup... calcola già la zona corretta
         flank = calculate_flank(seq["y"])
@@ -885,7 +1130,7 @@ def create_off_transition_summary_cards(stats, active_filter=None):
     outcome_order = ['Goals', 'Forced Own Goal', 'Shots', 'Big Chances', 'Lost Possessions', 'Out', 'Offside', 'Foul']
     outcome_rank = {v: i for i, v in enumerate(outcome_order)}
     outcome_items = sorted(stats.get('outcomes', {}).items(), key=lambda x: outcome_rank.get(x[0], 99))
-    
+
     outcome_list = [
         dbc.ListGroupItem(
             [dash_html.Div(outcome), dbc.Badge(f"{count} ({count / stats['total']:.0%})", className="ms-auto")],

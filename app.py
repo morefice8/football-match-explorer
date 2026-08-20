@@ -36,7 +36,17 @@ from src.visualization import pitch_plots, player_plots, buildup_plotly, defensi
 from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
 from src import config
-from src.metrics import pass_metrics, player_metrics, buildup_metrics, transition_metrics, set_piece_metrics, cross_metrics, league_metrics, defensive_metrics
+from src.metrics import (
+    pass_metrics,
+    player_metrics,
+    buildup_metrics,
+    transition_metrics,
+    sequence_outcome_metrics,
+    set_piece_metrics,
+    cross_metrics,
+    league_metrics,
+    defensive_metrics,
+)
 
 # Define colors
 HCOL = getattr(config, 'DEFAULT_HCOL', 'tomato')
@@ -66,7 +76,7 @@ def serve_data_files(filepath):
 # -----------------------------------------------------------------------------
 app.layout = dash_html.Div([
     dcc.Location(id='url', refresh=False),
-    
+
     # Stores per i dati
     dcc.Store(id="store-df-match"),
     dcc.Store(id='store-uploaded-data', storage_type='session'),
@@ -97,7 +107,7 @@ app.layout = dash_html.Div([
     dcc.Store(id="cross-filter-store", data=None),
     dcc.Store(id="cross-selection-store", data=None),
     dcc.Store(id="report-html-content-store"),
-    
+
     # Contenitore dove verranno caricate le pagine
     dash_html.Div(id='page-content')
 ])
@@ -165,6 +175,495 @@ def match_kpi_card(icon, label, value, note=None, accent="blue"):
         ], className="match-kpi-copy")
     ], className="match-kpi-card")
 
+def render_sequence_comparison_panel(
+    comparison,
+    home_color,
+    away_color,
+    title="Sequence progression",
+    description=None,
+    funnel_keys=None,
+    funnel_label_overrides=None,
+    profile_labels=None,
+    hint_text=None,
+):
+    """
+    Render a Home vs Away sequence comparison.
+
+    The component is intentionally presentation-only:
+    all calculations come from sequence_outcome_metrics.
+    """
+
+    if not comparison:
+        return None
+
+    funnel_label_overrides = (
+        funnel_label_overrides
+        or {}
+    )
+
+    profile_labels = (
+        profile_labels
+        or {}
+    )
+
+    if funnel_keys is None:
+        funnel_keys = [
+            'total_sequences',
+            'reached_opposition_half',
+            'reached_final_third',
+            'entered_penalty_area',
+            'produced_shot',
+            'produced_goal',
+        ]
+
+    home_team = comparison.get(
+        'home_team',
+        'Home',
+    )
+
+    away_team = comparison.get(
+        'away_team',
+        'Away',
+    )
+
+    funnel_rows = [
+        row
+        for row in comparison.get(
+            'funnel',
+            []
+        )
+        if row.get('key') in funnel_keys
+    ]
+
+    def format_percentage(value):
+        try:
+            return f"{float(value):.0f}%"
+        except (TypeError, ValueError):
+            return "0%"
+
+    def funnel_row(row):
+        home_percentage = float(
+            row.get(
+                'home_percentage',
+                0,
+            )
+            or 0
+        )
+
+        away_percentage = float(
+            row.get(
+                'away_percentage',
+                0,
+            )
+            or 0
+        )
+
+        return dash_html.Div([
+            dash_html.Div([
+                dash_html.Div([
+                    dash_html.Strong(
+                        str(
+                            row.get(
+                                'home_count',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-comparison-count"
+                        ),
+                    ),
+                    dash_html.Span(
+                        format_percentage(
+                            home_percentage
+                        ),
+                        className=(
+                            "sequence-comparison-percent"
+                        ),
+                    ),
+                ], className="sequence-comparison-value"),
+
+                dash_html.Div([
+                    dash_html.Div(
+                        className=(
+                            "sequence-comparison-bar "
+                            "sequence-comparison-bar--home"
+                        ),
+                        style={
+                            "width":
+                                f"{min(home_percentage, 100):.1f}%",
+                            "backgroundColor":
+                                home_color,
+                        },
+                    ),
+                ], className="sequence-comparison-track"),
+            ], className="sequence-comparison-side"),
+
+            dash_html.Div(
+                funnel_label_overrides.get(
+                    row.get('key'),
+                    row.get(
+                        'label',
+                        row.get('key', ''),
+                    ),
+                ),
+                className="sequence-comparison-label",
+            ),
+
+            dash_html.Div([
+                dash_html.Div([
+                    dash_html.Strong(
+                        str(
+                            row.get(
+                                'away_count',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-comparison-count"
+                        ),
+                    ),
+                    dash_html.Span(
+                        format_percentage(
+                            away_percentage
+                        ),
+                        className=(
+                            "sequence-comparison-percent"
+                        ),
+                    ),
+                ], className=(
+                    "sequence-comparison-value "
+                    "sequence-comparison-value--away"
+                )),
+
+                dash_html.Div([
+                    dash_html.Div(
+                        className=(
+                            "sequence-comparison-bar "
+                            "sequence-comparison-bar--away"
+                        ),
+                        style={
+                            "width":
+                                f"{min(away_percentage, 100):.1f}%",
+                            "backgroundColor":
+                                away_color,
+                        },
+                    ),
+                ], className="sequence-comparison-track"),
+            ], className="sequence-comparison-side"),
+        ], className="sequence-comparison-row")
+
+    outcome_rows = []
+
+    for outcome in comparison.get(
+        'outcomes',
+        []
+    ):
+        outcome_rows.append(
+            dash_html.Div([
+
+                # -----------------------------------------
+                # HOME
+                # -----------------------------------------
+
+                dash_html.Div([
+                    dash_html.Strong(
+                        str(
+                            outcome.get(
+                                'home_count',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-outcome-count"
+                        ),
+                    ),
+
+                    dash_html.Span(
+                        format_percentage(
+                            outcome.get(
+                                'home_percentage',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-outcome-percent"
+                        ),
+                    ),
+
+                ], className=(
+                    "sequence-outcome-value"
+                )),
+
+                # -----------------------------------------
+                # OUTCOME
+                # -----------------------------------------
+
+                dash_html.Span(
+                    outcome.get(
+                        'label',
+                        outcome.get(
+                            'outcome',
+                            '',
+                        ),
+                    ),
+                    className=(
+                        "sequence-outcome-label"
+                    ),
+                ),
+
+                # -----------------------------------------
+                # AWAY
+                # -----------------------------------------
+
+                dash_html.Div([
+                    dash_html.Strong(
+                        str(
+                            outcome.get(
+                                'away_count',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-outcome-count"
+                        ),
+                    ),
+
+                    dash_html.Span(
+                        format_percentage(
+                            outcome.get(
+                                'away_percentage',
+                                0,
+                            )
+                        ),
+                        className=(
+                            "sequence-outcome-percent"
+                        ),
+                    ),
+
+                ], className=(
+                    "sequence-outcome-value "
+                    "sequence-outcome-value--away"
+                )),
+
+            ], className="sequence-outcome-row")
+        )
+
+    profile = comparison.get(
+        'profile',
+        {},
+    )
+
+    home_profile = profile.get(
+        'home',
+        {},
+    )
+
+    away_profile = profile.get(
+        'away',
+        {},
+    )
+
+    def format_number(
+        value,
+        suffix="",
+    ):
+        try:
+            if pd.isna(value):
+                return "—"
+
+            return (
+                f"{float(value):.1f}"
+                f"{suffix}"
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return "—"
+
+    def profile_metric(
+        label,
+        home_value,
+        away_value,
+    ):
+        return dash_html.Div([
+            dash_html.Strong(
+                home_value,
+                className="sequence-profile-value",
+            ),
+            dash_html.Span(
+                label,
+                className="sequence-profile-label",
+            ),
+            dash_html.Strong(
+                away_value,
+                className="sequence-profile-value",
+            ),
+        ], className="sequence-profile-row")
+
+    def detail_header(
+        middle_label,
+    ):
+        return dash_html.Div([
+            dash_html.Strong(
+                home_team,
+                className=(
+                    "sequence-detail-team "
+                    "sequence-detail-team--home"
+                ),
+                style={
+                    "color": home_color,
+                },
+            ),
+
+            dash_html.Span(
+                middle_label,
+                className="sequence-detail-middle",
+            ),
+
+            dash_html.Strong(
+                away_team,
+                className=(
+                    "sequence-detail-team "
+                    "sequence-detail-team--away"
+                ),
+                style={
+                    "color": away_color,
+                },
+            ),
+        ], className="sequence-detail-header")
+
+    return dash_html.Section([
+        dash_html.Div([
+            dash_html.Div([
+                dash_html.Span(
+                    "MATCH COMPARISON",
+                    className="match-panel-eyebrow",
+                ),
+                dash_html.H3(
+                    title,
+                    className="match-panel-title",
+                ),
+                dash_html.P(
+                    description
+                    or (
+                        "Independent milestones show how "
+                        "far each sequence progressed."
+                    ),
+                    className="match-panel-description",
+                ),
+            ]),
+            dash_html.Div([
+                dash_html.I(
+                    className="fa-solid fa-circle-info"
+                ),
+                dash_html.Span(
+                    hint_text
+                    or (
+                        "Percentages use all detected "
+                        "sequences as the denominator."
+                    )
+                ),
+            ], className="match-panel-hint"),
+        ], className="match-panel-header"),
+
+        dash_html.Div([
+            dash_html.Div([
+                dash_html.Strong(
+                    home_team,
+                    className="sequence-team-name",
+                    style={
+                        "color": home_color,
+                    },
+                ),
+                dash_html.Span(
+                    "Milestone",
+                    className="sequence-team-middle",
+                ),
+                dash_html.Strong(
+                    away_team,
+                    className=(
+                        "sequence-team-name "
+                        "sequence-team-name--away"
+                    ),
+                    style={
+                        "color": away_color,
+                    },
+                ),
+            ], className="sequence-team-header"),
+
+            *[
+                funnel_row(row)
+                for row in funnel_rows
+            ],
+        ], className="sequence-funnel"),
+
+        dash_html.Div([
+
+            dash_html.Div([
+                dash_html.Span(
+                    "SEQUENCE PROFILE",
+                    className="match-panel-eyebrow",
+                ),
+
+                detail_header("Metric"),
+
+                profile_metric(
+                    profile_labels.get(
+                        'duration',
+                        "Avg active duration",
+                    ),
+                    format_number(
+                        home_profile.get(
+                            'avg_duration_seconds'
+                        ),
+                        "s",
+                    ),
+                    format_number(
+                        away_profile.get(
+                            'avg_duration_seconds'
+                        ),
+                        "s",
+                    ),
+                ),
+
+                profile_metric(
+                    profile_labels.get(
+                        'passes',
+                        "Avg completed passes",
+                    ),
+                    format_number(
+                        home_profile.get(
+                            'avg_completed_passes'
+                        ),
+                    ),
+                    format_number(
+                        away_profile.get(
+                            'avg_completed_passes'
+                        ),
+                    ),
+                ),
+            ], className="sequence-profile-block"),
+
+            dash_html.Div([
+                dash_html.Span(
+                    "HOW SEQUENCES ENDED",
+                    className="match-panel-eyebrow",
+                ),
+
+                detail_header("Outcome"),
+
+                dash_html.Div(
+                    outcome_rows,
+                    className="sequence-outcome-list",
+                ),
+            ], className="sequence-outcome-block"),
+        ], className="sequence-comparison-detail"),
+    ], className=(
+        "match-panel "
+        "sequence-comparison-panel"
+    ))
+
 # -----------------------------------------------------------------------------
 # CALLBACKS DI ROUTING E CARICAMENTO DATI
 # -----------------------------------------------------------------------------
@@ -176,7 +675,7 @@ def match_kpi_card(icon, label, value, note=None, accent="blue"):
 )
 def render_page_content(pathname, search):
     print(f"--- Router rendering for path: '{pathname}' ---")
-    
+
     # Decodifica l'intero percorso per gestire caratteri speciali ovunque
     decoded_pathname = unquote(pathname)
 
@@ -188,16 +687,16 @@ def render_page_content(pathname, search):
         return team_stats.layout()
     elif decoded_pathname.startswith("/team-stats/team/"):
         team_name_url = decoded_pathname.split("/")[-1]
-        
+
         available_team_seasons = team_stats.get_available_seasons()
         season = available_team_seasons[0] if available_team_seasons else "2024-2025"
         if search:
             query_params = parse_qs(search.lstrip('?'))
             if 'season' in query_params:
                 season = query_params['season'][0]
-                
+
         return team_profile.layout(team_name_url, season)
-    
+
     elif decoded_pathname.startswith("/team-stats/league/"):
         league_name = decoded_pathname.split("/")[-1].replace('_', ' ')
         return dash_html.Div([
@@ -224,11 +723,11 @@ def render_page_content(pathname, search):
             return player_profile.layout(player_name_url, season)
         else:
             return player_stats.layout()
-    
+
     elif decoded_pathname and decoded_pathname.startswith("/match/"):
         match_id = decoded_pathname.split("/")[-1]
         return match_analysis.layout(match_id)
-        
+
     return home.layout()
 
 @callback(
@@ -244,14 +743,14 @@ def handle_upload(contents, filename):
     print(f"--- Upload Handler: Processing '{filename}' ---")
     json_data = parse_upload_contents(contents, filename)
     if json_data is None: return no_update, no_update, dbc.Alert("Error parsing file. Please ensure it is a valid JSON.", color="danger", duration=4000)
-    
+
     try:
         event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
         qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
         match_info = config.extract_match_info(json_data)
         df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
         if df is None or df.empty: return no_update, no_update, dbc.Alert("Processing resulted in empty data.", color="warning", duration=4000)
-        
+
         match_id = f"upload-{uuid.uuid4().hex[:12]}"
         match_info['id'] = match_id
         data_to_store = {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}
@@ -271,7 +770,7 @@ def handle_upload(contents, filename):
 )
 def populate_main_store(pathname, uploaded_data):
     print(f"--- Main Data Loader triggered for path: {pathname} ---")
-    
+
     # Se andiamo a una pagina che NON è di analisi, puliamo gli store per sicurezza
     if not (pathname and pathname.startswith('/match/')):
         print("  Navigated to a non-match page. Clearing match-specific stores.")
@@ -350,7 +849,7 @@ def update_rounds(league, season):
                     rounds_data.add((float('inf'), original_round_name))
             sorted_rounds_data = sorted(list(rounds_data), key=lambda x: (x[0], x[1]))
             return [name for _, name in sorted_rounds_data]
-        
+
         rounds = extract_rounds(matches)
         options = [{"label": round_name, "value": round_name} for round_name in rounds]
         return options, None
@@ -409,17 +908,17 @@ def show_cards(league, season, team_filter, round_name_filter):
             filename_parsed_info = parse_match(m_filename)
             if not filename_parsed_info: continue
             if round_name_filter and filename_parsed_info['round'] != round_name_filter: continue
-            
+
             match_file_path = os.path.join(base_path_matches, m_filename)
             with open(match_file_path, 'r', encoding='utf-8') as f:
                 json_data_for_card = json.load(f)
-            
+
             temp_match_info = config.extract_match_info(json_data_for_card)
             home_team_display = temp_match_info.get('hteamDisplayName')
             away_team_display = temp_match_info.get('ateamDisplayName')
 
             if team_filter and (team_filter not in [home_team_display, away_team_display]): continue
-            
+
             match_details_for_card = {
                 'filename': m_filename,
                 'parsed_base_info': filename_parsed_info,
@@ -435,7 +934,7 @@ def show_cards(league, season, team_filter, round_name_filter):
                 'numeric_round_sort_key': float('inf'),
                 'original_round_name': filename_parsed_info['round']
             }
-            
+
             numeric_parts_round = re.findall(r"(\d+)", filename_parsed_info['round'])
             if numeric_parts_round:
                 try: match_details_for_card['numeric_round_sort_key'] = int(numeric_parts_round[0])
@@ -449,7 +948,7 @@ def show_cards(league, season, team_filter, round_name_filter):
                     match_details_for_card['date_iso_for_sort'] = dt_obj
                 except ValueError:
                     match_details_for_card['date_iso_for_sort'] = datetime.max
-            
+
             matches_data_for_cards.append(match_details_for_card)
         except Exception as e:
             print(f"Warning: Could not process card data for {m_filename}: {e}")
@@ -462,23 +961,23 @@ def show_cards(league, season, team_filter, round_name_filter):
         date_for_sort = match_data.get('date_iso_for_sort', datetime.max)
         if date_for_sort is None: date_for_sort = datetime.max
         return (match_data['numeric_round_sort_key'], match_data['original_round_name'], date_for_sort, match_data.get('home_team_display_name', ''))
-    
+
     sorted_matches_data = sorted(matches_data_for_cards, key=sort_key_for_card)
-    
+
     cards = []
     logo_style = {"height": "40px", "width": "40px", "objectFit": "contain", "marginRight": "8px", "marginLeft": "8px"}
     for match_data in sorted_matches_data:
         pbi = match_data['parsed_base_info']
         home_logo_src = get_team_logo_src_by_code(match_data['home_team_code_for_logo'])
         away_logo_src = get_team_logo_src_by_code(match_data['away_team_code_for_logo'])
-        
+
         score_display = [dash_html.Span("vs", className="mx-2")]
         if match_data['home_score'] is not None and match_data['away_score'] is not None:
             score_display = [dash_html.Span(f"{match_data['home_score']}", className="fw-bold fs-5"), dash_html.Span("-", className="mx-2"), dash_html.Span(f"{match_data['away_score']}", className="fw-bold fs-5")]
-        
+
         header_content = [dash_html.Span(f"Round: {match_data['original_round_name']}", className="me-3")]
         if match_data['date_formatted_for_display'] != "N/A": header_content.append(dash_html.Span(f"{match_data['date_formatted_for_display']}"))
-        
+
         card = dbc.Col(
             dbc.Card([
                 dbc.CardHeader(dash_html.Div(header_content, className="small text-muted text-center")),
@@ -503,7 +1002,7 @@ def show_cards(league, season, team_filter, round_name_filter):
 @app.callback(
     Output("sidebar-match-header", "children"),
     Input("store-df-match", "data"),
-    Input("url", "pathname") 
+    Input("url", "pathname")
 )
 def update_sidebar_header(stored_data_json, pathname):
     match_id_from_url = "Loading..."
@@ -528,10 +1027,10 @@ def update_sidebar_header(stored_data_json, pathname):
 
         hteam_display_name = match_info.get('hteamDisplayName', 'Home')
         ateam_display_name = match_info.get('ateamDisplayName', 'Away')
-        
+
         home_score = match_info.get('home_score')
         away_score = match_info.get('away_score')
-        
+
         competition = match_info.get('competitionName', '')
         round_name_from_file = match_info.get('roundNameFromFilename', '')
         game_date = match_info.get('date_formatted', '')
@@ -541,7 +1040,7 @@ def update_sidebar_header(stored_data_json, pathname):
         home_logo_src = get_team_logo_path(competition, hteam_display_name)
         away_logo_src = get_team_logo_path(competition, ateam_display_name)
         # ---------------------------
-        
+
         sidebar_logo_style = {"height": "28px", "width": "28px", "objectFit": "contain"}
         team_name_style = {"fontSize": "0.9rem"}
 
@@ -566,20 +1065,20 @@ def update_sidebar_header(stored_data_json, pathname):
         header_content_list = []
         if line1_display_text:
             header_content_list.append(dash_html.P(line1_display_text, className="mb-2 small text-muted opacity-75 text-center"))
-        
+
         header_content_list.append(home_team_display_row)
         header_content_list.append(away_team_display_row)
 
         if game_date:
             header_content_list.append(dash_html.P(game_date, className="mt-2 small text-muted opacity-75 text-center mb-0"))
-        
+
         return dash_html.Div(header_content_list)
-    
+
     except Exception as e:
         tb_str = traceback.format_exc()
         print(f"Error updating sidebar header: {e}\n{tb_str}")
         return dash_html.Div([
-            dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"), 
+            dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"),
             dash_html.P("Error loading details.", className="small text-danger")
         ])
 
@@ -611,13 +1110,13 @@ def render_match_tab_content(search_query, stored_data_json):
         except ValueError:
             print(f"Warning: Could not parse query_params from '{search_query}'. Defaulting to overview.")
             active_tab = "overview" # Fallback in case of parsing error
-            
+
     print(f"Active Tab Determined: {active_tab}")
 
     if not stored_data_json and active_tab not in ["overview", None]: # Allow overview to attempt render even if store is briefly None
         return dbc.Alert("Match data loading...", color="info")
-    
-   
+
+
     # print(f"Rendering tab: {active_tab}") # Moved this print after active_tab is definitely set
 
     if active_tab == "overview":
@@ -727,7 +1226,7 @@ def render_match_tab_content(search_query, stored_data_json):
                 ], className="match-panel"),
                 dcc.Download(id="download-dataframe-csv"),
             ], className="match-module match-overview-module")
-            
+
         except Exception as e:
             return dbc.Alert(f"Error loading overview: {e}", color="danger")
 
@@ -754,7 +1253,7 @@ def render_match_tab_content(search_query, stored_data_json):
                     children=dash_html.Div(id="formation-tab-content")
                 )
             ], className="match-module")
-    
+
     elif active_tab == "passes":
         passes_content = dash_html.Div([
             match_section_header(
@@ -807,7 +1306,7 @@ def render_match_tab_content(search_query, stored_data_json):
         )
     ]
 ),
-                    dbc.Tab(label="Pass Locations", tab_id="pass_locations", children=[ 
+                    dbc.Tab(label="Pass Locations", tab_id="pass_locations", children=[
                         dash_html.Div([ # Main container for this tab's content
                             dcc.Loading(type="circle", children=dash_html.Div(id="div-pass-density-content")),
                             dcc.Loading(type="circle", children=dash_html.Div(id="div-pass-heatmap-content")),
@@ -842,7 +1341,7 @@ def render_match_tab_content(search_query, stored_data_json):
                 "fa-solid fa-user-group",
                 eyebrow="INDIVIDUAL PERFORMANCE",
             ),
-            
+
             # 1. The new PRIMARY tabs
             dbc.Tabs(
                 id="player-analysis-primary-tabs",
@@ -854,11 +1353,11 @@ def render_match_tab_content(search_query, stored_data_json):
                 ],
                 className="match-analysis-tabs"
             ),
-            
+
             # 2. A single content area that will be filled by our new "router" callback
             dcc.Loading(type="circle", children=dash_html.Div(id="player-analysis-primary-tab-content"))
         ], className="match-module")
-    
+
     elif active_tab == "buildup":
         return dash_html.Div([
              match_section_header(
@@ -883,7 +1382,7 @@ def render_match_tab_content(search_query, stored_data_json):
                  children=dash_html.Div(id="buildup-tab-content")
              )
         ], className="match-module")
-    
+
     elif active_tab == "defensive-transition":
         return dash_html.Div([
             match_section_header(
@@ -896,8 +1395,8 @@ def render_match_tab_content(search_query, stored_data_json):
                 id="def-transition-primary-tabs",
                 active_tab="def_shape",
                 children=[
-                    dbc.Tab(label="Defensive Block", tab_id="def_shape"), 
-                    dbc.Tab(label="Defensive Hull", tab_id="def_hull"), 
+                    dbc.Tab(label="Defensive Block", tab_id="def_shape"),
+                    dbc.Tab(label="Defensive Hull", tab_id="def_hull"),
                     dbc.Tab(label="Pressing (PPDA)", tab_id="def_ppda"),
                     dbc.Tab(label="Home Defensive Transitions", tab_id="def_transitions_home"),
                     dbc.Tab(label="Away Defensive Transitions", tab_id="def_transitions_away"),
@@ -909,7 +1408,7 @@ def render_match_tab_content(search_query, stored_data_json):
                  children=dash_html.Div(id="def-transition-tab-content")
              )
         ], className="match-module")
-    
+
     elif active_tab == "offensive-transition":
         return dash_html.Div([
             match_section_header(
@@ -932,7 +1431,7 @@ def render_match_tab_content(search_query, stored_data_json):
                  children=dash_html.Div(id="off-transition-tab-content")
              )
         ], className="match-module")
-    
+
     elif active_tab == "set-piece":
         return dash_html.Div([
             match_section_header(
@@ -980,11 +1479,11 @@ def render_formation_content(active_tab, stored_data_json):
             try:
                 df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
                 df_processed = df_processed.reset_index().rename(columns={'index': 'event_sequence_index'})
-                
+
                 match_info = json.loads(stored_data_json['match_info'])
 
                 # --- 1. SETUP INIZIALE (ROBUSTO) ---
-                
+
                 # Mappa dati giocatori
                 player_data_map = {}
                 if not df_processed.empty:
@@ -1002,23 +1501,23 @@ def render_formation_content(active_tab, stored_data_json):
                 start_events = df_processed[df_processed['typeId'] == 34].sort_values('eventId')
                 if len(start_events) < 2:
                     return dbc.Alert("Error: Could not find starting formation events for both teams.", color="danger")
-                
+
                 home_team_name_from_info = match_info.get('hteamName')
                 event1, event2 = start_events.iloc[0], start_events.iloc[1]
-                
+
                 if home_team_name_from_info and event1['team_name'] == home_team_name_from_info:
                     home_start_event, away_start_event = event1, event2
                 elif home_team_name_from_info and event2['team_name'] == home_team_name_from_info:
                     home_start_event, away_start_event = event2, event1
                 else:
                     home_start_event, away_start_event = event1, event2
-                
+
                 home_id, away_id = home_start_event['contestantId'], away_start_event['contestantId']
                 home_name, away_name = home_start_event['team_name'], away_start_event['team_name']
-                
+
                 home_state = {'formation_id': int(home_start_event['Team formation']), 'players': formations._extract_player_positions(home_start_event)}
                 away_state = {'formation_id': int(away_start_event['Team formation']), 'players': formations._extract_player_positions(away_start_event)}
-                
+
                 # --- 2. LOGICA DI COSTRUZIONE SINCRONA (AGGIORNATA) ---
                 home_plots, timeline_items, away_plots = [], [], []
 
@@ -1035,22 +1534,22 @@ def render_formation_content(active_tab, stored_data_json):
                         className="formation-event-item formation-event-item--kickoff",
                     )
                 )
-                
-                
-                
+
+
+
                 # Prendi solo gli eventi di cambio formazione
                 formation_change_events = df_processed[df_processed['typeId'] == 40].sort_values('event_sequence_index')
 
                 for _, fc_event in formation_change_events.iterrows():
                     time_str = f"{fc_event['timeMin']}'"
                     previous_home_state, previous_away_state = home_state.copy(), away_state.copy()
-                    
+
                     # Aggiorna lo stato della squadra che ha cambiato formazione
                     if fc_event['contestantId'] == home_id:
                         home_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
                     else:
                         away_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
-                    
+
                     # Calcola lo score PRIMA di questo evento, per riflettere lo stato al momento del cambio
                     goals_before = df_processed[(df_processed['typeId'] == 16) & (df_processed['event_sequence_index'] < fc_event['event_sequence_index'])]
                     home_score = (goals_before['contestantId'] == home_id).sum()
@@ -1064,14 +1563,14 @@ def render_formation_content(active_tab, stored_data_json):
                     # Costruisci i titoli per i plot
                     event_team_name = home_name if fc_event['contestantId'] == home_id else away_name
                     title = f"{time_str} | Formation Change: {event_team_name}"
-                    
+
                     # Crea un titolo per lo score
                     away_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
                     home_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
-                    
+
                     home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, home_player_colors, player_data_map, HCOL, home_title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
                     away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, away_player_colors, player_data_map, ACOL, away_title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-                
+
                 # Usa la timeline unificata solo per la colonna centrale
                 central_timeline_events = formations.create_unified_timeline(df_processed, home_id, away_id, player_data_map)
                 for event in central_timeline_events:
@@ -1155,7 +1654,7 @@ def render_formation_content(active_tab, stored_data_json):
             # Crea i grafici con la nuova funzione di plot
             fig_home = formation_plotly.plot_mean_positions_plotly(df_home_touches, df_home_agg, HCOL, is_away=False)
             fig_away = formation_plotly.plot_mean_positions_plotly(df_away_touches, df_away_agg, ACOL, is_away=True)
-            
+
             return dash_html.Div([
                 dash_html.Div([
                     dash_html.I(className="fa-solid fa-circle-info"),
@@ -1217,7 +1716,7 @@ def save_formation_comment(n_clicks, comment_value, pathname, existing_data):
     if not key:
         store_output = existing_data if existing_data is not None else no_update
         return store_output, dbc.Alert("Error: Invalid context for saving comment.", color="danger", duration=3000)
-    
+
     if existing_data is None:
         existing_data = {}
     existing_data[key] = comment_value
@@ -1249,7 +1748,7 @@ def show_pass_network_graph(stored_data_json): # Note: this is now a helper, not
         match_info = json.loads(match_info_json_str)
         if df_processed.empty: return dash_html.P("⚠ DataFrame is empty.", style={"color": "orange"})
 
-        HTEAM_NAME = match_info.get('hteamName', 'Home Team Fallback') 
+        HTEAM_NAME = match_info.get('hteamName', 'Home Team Fallback')
         ATEAM_NAME = match_info.get('ateamName', 'Away Team Fallback')
         HTEAM_COLOR = getattr(config, 'DEFAULT_HCOL', "#FF0000")
         ATEAM_COLOR = getattr(config, 'DEFAULT_ACOL', "#0000FF")
@@ -1259,7 +1758,7 @@ def show_pass_network_graph(stored_data_json): # Note: this is now a helper, not
         passes_df = pass_processing.get_passes_df(df_processed.copy())
         sub_list = pass_processing.get_sub_list(df_processed.copy())
         if passes_df.empty: return dash_html.P("⚠ Could not process passes (passes_df empty).", style={"color": "orange"})
-        
+
         if 'outcome' in passes_df.columns: successful_passes = passes_df[passes_df['outcome'] == 'Successful'].copy()
         elif 'successful' in passes_df.columns and passes_df['successful'].dtype == 'bool': successful_passes = passes_df[passes_df['successful'] == True].copy()
         else: successful_passes = passes_df.copy() # Fallback
@@ -1280,7 +1779,7 @@ def show_pass_network_graph(stored_data_json): # Note: this is now a helper, not
         else: axs_network[0].text(0.5, 0.5, f"{HTEAM_NAME}\nNetwork N/A", ha='center', va='center', color=TEXT_COLOR); axs_network[0].set_facecolor(FIG_BG_COLOR); axs_network[0].axis('off')
         if plot_away_network: pitch_plots.plot_pass_network(axs_network[1], away_passes_between, away_avg_locs, ATEAM_COLOR, ATEAM_NAME, sub_list, True)
         else: axs_network[1].text(0.5, 0.5, f"{ATEAM_NAME}\nNetwork N/A", ha='center', va='center', color=TEXT_COLOR); axs_network[1].set_facecolor(FIG_BG_COLOR); axs_network[1].axis('off')
-        
+
         plt.tight_layout(rect=[0, 0.03, 1, 0.98]) # Adjust if suptitle removed
         buf = io.BytesIO(); plt.savefig(buf, format="png", bbox_inches='tight', facecolor=fig_network.get_facecolor())
         buf.seek(0); encoded_img = base64.b64encode(buf.read()).decode('ascii'); img_src = "data:image/png;base64," + encoded_img
@@ -1304,7 +1803,7 @@ def show_pass_network_graph_plotly(stored_data_json):
         # Dati sui passaggi (la tua logica esistente va bene)
         passes_df = pass_processing.get_passes_df(df_processed)
         successful_passes = passes_df[passes_df['outcome'] == 'Successful']
-        
+
         if successful_passes.empty:
             return dbc.Alert("No successful passes in the match.", color="warning")
 
@@ -1322,18 +1821,18 @@ def show_pass_network_graph_plotly(stored_data_json):
         # --- Dati per Home Team ---
         home_passes_between, home_avg_locs = pass_metrics.calculate_pass_network_data(successful_passes, HTEAM_NAME)
         fig_home = pass_plotly.plot_pass_network_plotly(home_passes_between, home_avg_locs, HTEAM_NAME, HCOL, home_subs, is_away=False)
-        
+
         # **MODIFICA TABELLA: Aggiungi numeri di maglia**
         home_jersey_map = home_avg_locs.set_index('playerName')['jersey_number'].to_dict()
         home_table_df = home_passes_between[['player1', 'player2', 'pass_count']].copy()
         home_table_df['player1'] = home_table_df['player1'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
         home_table_df['player2'] = home_table_df['player2'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
         home_table = dbc.Table.from_dataframe(home_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
-        
+
         # --- Dati per Away Team ---
         away_passes_between, away_avg_locs = pass_metrics.calculate_pass_network_data(successful_passes, ATEAM_NAME)
         fig_away = pass_plotly.plot_pass_network_plotly(away_passes_between, away_avg_locs, ATEAM_NAME, ACOL, away_subs, is_away=True)
-        
+
         # **MODIFICA TABELLA: Aggiungi numeri di maglia**
         away_jersey_map = away_avg_locs.set_index('playerName')['jersey_number'].to_dict()
         away_table_df = away_passes_between[['player1', 'player2', 'pass_count']].copy()
@@ -1439,9 +1938,9 @@ def save_pass_network_comment(n_clicks, comment_value, pathname, existing_commen
     # Store data as a dictionary where keys are our unique comment_storage_key
     if existing_comments_data is None:
         existing_comments_data = {}
-    
+
     existing_comments_data[comment_storage_key] = comment_value
-    
+
     # print(f"Saving comment for {comment_storage_key}: {comment_value}")
     return existing_comments_data, dbc.Alert("Comment saved!", color="success", duration=2000, className="ms-2")
 
@@ -1554,14 +2053,14 @@ def generate_progressive_passes_plot(stored_data_json):
             axs_prog[1].set_facecolor(FIG_BG_COLOR); axs_prog[1].axis('off')
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjusted rect based on your plot function
-        
+
         buf = io.BytesIO()
         plt.savefig(buf, format="png", bbox_inches='tight', facecolor=fig_prog.get_facecolor())
         buf.seek(0)
         encoded_img = base64.b64encode(buf.read()).decode('ascii')
         img_src = f"data:image/png;base64,{encoded_img}"
         plt.close(fig_prog)
-        
+
         print("Helper generate_progressive_passes_plot: Successfully created Img.")
         return dash_html.Img(src=img_src, style={"width": "100%", "maxWidth": "1200px", "display":"block", "margin":"auto"})
 
@@ -1590,7 +2089,7 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
 
         HTEAM_NAME = match_info.get('hteamName', 'Home')
         ATEAM_NAME = match_info.get('ateamName', 'Away')
-        
+
         # Keep attempted and completed progressive passes separate: volume alone
         # must not be presented as passing quality.
         all_passes = pass_processing.get_passes_df(df_processed)
@@ -1886,7 +2385,7 @@ def generate_final_third_plot(stored_data_json):
         buf.seek(0); encoded_img = base64.b64encode(buf.read()).decode('ascii')
         img_src = f"data:image/png;base64,{encoded_img}"
         plt.close(fig)
-        
+
         print("Helper generate_final_third_plot: Successfully created Img.")
         return dash_html.Img(src=img_src, style={"width": "100%", "maxWidth": "100%", "display":"block", "objectFit": "contain"})
 
@@ -2457,7 +2956,7 @@ def generate_pass_density_plots(stored_data_json):
 
         pitch_plots.plot_pass_density(axs[0], home_passes, HTEAM_NAME, cmap=HOME_CMAP_DENSITY, is_away_team=False)
         pitch_plots.plot_pass_density(axs[1], away_passes, ATEAM_NAME, cmap=AWAY_CMAP_DENSITY, is_away_team=True)
-        
+
         # Common title for the dual plot can be handled by the H5 in render_match_tab_content
         # fig.suptitle("Pass Density Comparison", fontsize=18, color=getattr(config, 'LINE_COLOR', 'black'))
         plt.tight_layout(rect=[0, 0, 1, 0.95]) # Adjust for suptitle if you add one in Matplotlib
@@ -2499,7 +2998,7 @@ def generate_pass_heatmap_plots(stored_data_json):
 
         pitch_plots.plot_pass_heatmap(axs[0], home_passes, HTEAM_NAME, cmap=HOME_CMAP_HEATMAP, is_away_team=False)
         pitch_plots.plot_pass_heatmap(axs[1], away_passes, ATEAM_NAME, cmap=AWAY_CMAP_HEATMAP, is_away_team=True)
-        
+
         plt.tight_layout(rect=[0, 0, 1, 0.95])
 
         buf = io.BytesIO(); plt.savefig(buf, format="png", dpi=90, bbox_inches='tight', facecolor=fig.get_facecolor()); buf.seek(0)
@@ -2536,21 +3035,21 @@ def show_pass_location_plots_callback(stored_data_json, active_nested_tab):
 
         HTEAM_NAME = match_info.get('hteamName', 'Home')
         ATEAM_NAME = match_info.get('ateamName', 'Away')
-        
+
         passes_df = pass_processing.get_passes_df(df_processed.copy())
         if passes_df.empty:
             return dbc.Alert("No passes found to generate location plots.", color="warning")
 
         home_passes = passes_df[passes_df['team_name'] == HTEAM_NAME]
         away_passes = passes_df[passes_df['team_name'] == ATEAM_NAME]
-        
+
         # Crea i grafici interattivi separatamente
         fig_home_density = pass_plotly.plot_pass_density_plotly(home_passes, HTEAM_NAME, is_away=False)
         fig_home_heatmap = pass_plotly.plot_pass_heatmap_plotly(home_passes, HTEAM_NAME, is_away=False)
-        
+
         fig_away_density = pass_plotly.plot_pass_density_plotly(away_passes, ATEAM_NAME, is_away=True)
         fig_away_heatmap = pass_plotly.plot_pass_heatmap_plotly(away_passes, ATEAM_NAME, is_away=True)
-        
+
         # Costruisci il layout finale con i subplot gestiti da Dash Bootstrap
         return dash_html.Div([
             # Sezione Home Team
@@ -2672,7 +3171,7 @@ def render_player_analysis_secondary_layout(active_primary_tab):
             ),
             dcc.Loading(type="circle", children=dash_html.Div(id="defending-secondary-tab-content"))
         ])
-    
+
     return dash_html.P("Select an analysis category.")
 
 ########################################################################
@@ -2690,14 +3189,14 @@ def create_player_pass_map_layout(team_type, stored_match_data_json, player_stat
 
         passes_df = pass_processing.get_passes_df(df_processed)
         team_passers_df = passes_df[passes_df['team_name'] == team_name]
-        
+
         # Se non ci sono passaggi per questa squadra, mostra un avviso e fermati.
         if team_passers_df.empty:
             return dbc.Alert(f"No passes recorded for {team_name}", color="warning", className="mt-3")
 
         # Ora che sappiamo che non è vuoto, possiamo procedere in sicurezza.
         player_jersey_map = team_passers_df.drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number']
-        
+
         sorted_player_names = sorted(player_jersey_map.index.tolist())
 
         dropdown_options = []
@@ -2712,7 +3211,7 @@ def create_player_pass_map_layout(team_type, stored_match_data_json, player_stat
         # Trova il top passer per il valore di default
         # Filtra le statistiche solo per i giocatori che hanno effettivamente passato la palla
         team_player_stats = player_stats_df[player_stats_df.index.isin(player_jersey_map.index)]
-        
+
         top_passer_name = None
         # Controlla se il DataFrame delle statistiche per questi giocatori non è vuoto
         if not team_player_stats.empty:
@@ -2751,7 +3250,7 @@ def create_player_pass_map_layout(team_type, stored_match_data_json, player_stat
 @app.callback(
     Output("passing-secondary-tab-content", "children"),
     Input("passing-secondary-tabs", "active_tab"),
-    Input("store-player-stats-df", "data"), 
+    Input("store-player-stats-df", "data"),
     State("store-df-match", "data"),
 )
 def render_passing_analysis_content(active_tab, player_stats_df_json, stored_match_data_json):
@@ -2759,7 +3258,7 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
     # before the player stats data has been calculated.
     if not player_stats_df_json:
         return dash_html.P("Player stats are loading...")
-    
+
     # We reuse the logic from the old callback here
     common_textarea_style = {'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'}
     common_flex_column_style = {"display": "flex", "flexDirection": "column", "height": "calc(100vh - 280px)"}
@@ -2784,7 +3283,7 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
                     num_players=10,
                     )
                 )
-            
+
             return dash_html.Div([
 
     dash_html.Div([
@@ -2909,9 +3408,9 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
         #     if not home_player_stats_df.empty:
         #         top_home_series = home_player_stats_df.sort_values('Offensive Pass Total', ascending=False)
         #         if not top_home_series.empty: top_home_passer_name = top_home_series.index[0]
-        
+
         # home_pass_map_img = generate_player_pass_map_plot(stored_match_data_json, top_home_passer_name, False) if top_home_passer_name else dash_html.P(f"Could not determine top passer for {HTEAM_NAME} map.", style={"color":"orange"})
-        
+
         # return dash_html.Div([ # Flex container
         #     dash_html.Div(home_pass_map_img, style=common_plot_area_style),
         #     dash_html.Div([ # Comment Area
@@ -2928,7 +3427,7 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
     #     print("  Rendering content for 'pa_away_passer_map'")
     #     if not player_stats_df_json:
     #         return dash_html.P("Player stats data not yet available for away map.", style={"color": "orange"})
-            
+
     #     match_info = json.loads(stored_match_data_json['match_info'])
     #     df_processed = pd.read_json(stored_match_data_json['df'], orient='split')
     #     player_stats_df = pd.read_json(player_stats_df_json, orient='split')
@@ -2966,10 +3465,10 @@ def update_home_passer_map(selected_player, stored_data_json):
 
     df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
     team_color = HCOL
-    
+
     all_passes = pass_processing.get_passes_df(df_processed.copy())
     player_passes = all_passes[all_passes['playerName'] == selected_player]
-    
+
     # **Estrai il numero di maglia**
     jersey_num = '?'
     if not player_passes.empty:
@@ -2983,7 +3482,7 @@ def update_home_passer_map(selected_player, stored_data_json):
     fig = player_plots.plot_player_pass_map_plotly(
         player_passes, selected_player, team_color, jersey_num, is_away_team=False
     )
-    
+
     return dcc.Graph(figure=fig)
 
 
@@ -2998,7 +3497,7 @@ def update_away_passer_map(selected_player, stored_data_json):
 
     df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
     team_color = ACOL
-    
+
     all_passes = pass_processing.get_passes_df(df_processed.copy())
     player_passes = all_passes[all_passes['playerName'] == selected_player]
 
@@ -3014,7 +3513,7 @@ def update_away_passer_map(selected_player, stored_data_json):
     fig = player_plots.plot_player_pass_map_plotly(
         player_passes, selected_player, team_color, jersey_num, is_away_team=True
     )
-    
+
     return dcc.Graph(figure=fig)
 
 
@@ -3028,7 +3527,7 @@ def update_away_passer_map(selected_player, stored_data_json):
 def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_match_data_json):
     if not player_stats_df_json:
         return dash_html.P("Player stats are loading...")
-    
+
     # Reuse common styles
     common_textarea_style = {'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'}
     common_flex_column_style = {"display": "flex", "flexDirection": "column", "height": "calc(100vh - 280px)"}
@@ -3051,7 +3550,7 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
                 acol=ACOL,
                 violet_col=VIOLET
             )
-            
+
             # Layout con il grafico interattivo e la sezione commenti
             return dash_html.Div([
                 dbc.Row(
@@ -3082,7 +3581,7 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
 
     elif active_tab == "pa_away_shot_contributor_map":
         return create_shot_contributor_layout('away', stored_match_data_json, player_stats_df_json)
-    
+
     return dash_html.P(f"Content for {active_tab} not found.")
 
 # --- 3. Aggiungi i NUOVI callback di aggiornamento ---
@@ -3097,14 +3596,14 @@ def update_home_shot_contributor_map(selected_player, stored_data_json):
 
     df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
     all_passes = pass_processing.get_passes_df(df_processed.copy())
-    
+
     # Filtra i passaggi ricevuti dal giocatore selezionato
     player_team_name = df_processed[df_processed['playerName'] == selected_player]['team_name'].iloc[0]
     received_passes = all_passes[
         (all_passes['receiver'] == selected_player) &
         (all_passes['team_name'] == player_team_name)
     ].copy()
-    
+
     jersey_num = '?'
     player_info = df_processed[df_processed['playerName'] == selected_player].iloc[0]
     if pd.notna(player_info['Mapped Jersey Number']):
@@ -3132,7 +3631,7 @@ def update_away_shot_contributor_map(selected_player, stored_data_json):
         (all_passes['receiver'] == selected_player) &
         (all_passes['team_name'] == player_team_name)
     ].copy()
-    
+
     jersey_num = '?'
     player_info = df_processed[df_processed['playerName'] == selected_player].iloc[0]
     if pd.notna(player_info['Mapped Jersey Number']):
@@ -3142,12 +3641,12 @@ def update_away_shot_contributor_map(selected_player, stored_data_json):
         received_passes, selected_player, ACOL, jersey_num, is_away_team=True
     )
     return dcc.Graph(figure=fig)
-    
+
     # elif active_tab == "pa_home_shot_contributor_map":
     #     print("  Rendering content for 'pa_home_shot_contributor_map'")
     #     if not player_stats_df_json:
     #         return dash_html.P("Player stats not yet available for home contributor map.", style={"color": "orange"})
-            
+
     #     home_contributor_map = generate_team_top_shot_contributor_map_plot(stored_match_data_json, player_stats_df_json, is_for_home_team=True)
 
     #     return dash_html.Div([ # Flex container
@@ -3165,7 +3664,7 @@ def update_away_shot_contributor_map(selected_player, stored_data_json):
     #     print("  Rendering content for 'pa_away_shot_contributor_map'")
     #     if not player_stats_df_json:
     #         return dash_html.P("Player stats not yet available for away contributor map.", style={"color": "orange"})
-            
+
     #     away_contributor_map = generate_team_top_shot_contributor_map_plot(stored_match_data_json, player_stats_df_json, is_for_home_team=False)
 
     #     return dash_html.Div([ # Flex container
@@ -3185,7 +3684,7 @@ def update_away_shot_contributor_map(selected_player, stored_data_json):
 @app.callback(
     Output("defending-secondary-tab-content", "children"),
     Input("defending-secondary-tabs", "active_tab"),
-    Input("store-player-stats-df", "data"), 
+    Input("store-player-stats-df", "data"),
     State("store-df-match", "data"),
 )
 def render_defending_analysis_content(active_tab, player_stats_df_json, stored_match_data_json):
@@ -3277,7 +3776,7 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
             ), md=6), justify="center", className="mb-3"),
             dash_html.Div(id='away-defender-output', children=layout_content)
         ])
-        
+
     return dash_html.P(f"Content for {active_tab} not found.")
 
 
@@ -3303,9 +3802,9 @@ def calculate_and_store_player_stats(stored_data_json, search_query):
             df_processed = pd.read_json(io.StringIO(df_json_str), orient='split')
             if df_processed.empty: return None
 
-            assist_qualifier_col_name = 'Assist' 
+            assist_qualifier_col_name = 'Assist'
             prog_pass_exclusions = None
-            
+
             player_stats_df = player_metrics.calculate_player_stats(
                 df_processed.copy(),
                 assist_qualifier_col=assist_qualifier_col_name,
@@ -3320,7 +3819,7 @@ def calculate_and_store_player_stats(stored_data_json, search_query):
         except Exception as e:
             print(f"Error in calculate_and_store_player_stats: {e}")
             return None
-    
+
     print(f"  Not Player Analysis main tab ({current_main_tab}), or no base data. No update to player_stats_df.")
     return no_update # Or None if you want to clear it when not on player_analysis tab
 
@@ -3337,7 +3836,7 @@ def generate_top_passer_stats_plot(player_stats_df_json_for_plot):
         player_stats_df = pd.read_json(player_stats_df_json_for_plot, orient='split')
         if player_stats_df.empty:
             return dash_html.P("⚠ Player stats DataFrame is empty.", style={"color": "orange"})
-        
+
         # # --- *** START: Pre-calculate Flags on df_processed *** ---
         # # This ensures flags are available before other metric/processing steps
         # print("Pre-calculating key pass/assist flags...")
@@ -3367,7 +3866,7 @@ def generate_top_passer_stats_plot(player_stats_df_json_for_plot):
 
         fig, ax = plt.subplots(figsize=(10, 7), facecolor=BG_COLOR) # Adjusted figsize
         player_plots.plot_passer_stats_bar(ax, player_stats_df.copy(), num_players=10) # Pass a copy
-        
+
         plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=100, bbox_inches='tight', facecolor=fig.get_facecolor())
@@ -3379,7 +3878,7 @@ def generate_top_passer_stats_plot(player_stats_df_json_for_plot):
     except Exception as e:
         tb_str = traceback.format_exc()
         return dash_html.P(f"❌ Error generating Top Passer Stats: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
-    
+
 # --- HELPER: Generate Individual Player Pass Map ---
 def generate_player_pass_map_plot(stored_data_json, target_player_name, is_target_away_team):
     print(f"--- Helper generate_player_pass_map_plot for {target_player_name} EXECUTING ---")
@@ -3390,7 +3889,7 @@ def generate_player_pass_map_plot(stored_data_json, target_player_name, is_targe
         df_json_str = stored_data_json.get('df')
         match_info_json_str = stored_data_json.get('match_info')
         if not df_json_str or not match_info_json_str: return dash_html.P("Data missing.")
-        
+
         df_processed = pd.read_json(io.StringIO(df_json_str), orient='split')
         match_info = json.loads(match_info_json_str)
         if df_processed.empty: return dash_html.P("DataFrame empty.")
@@ -3454,7 +3953,7 @@ def generate_player_pass_map_plot(stored_data_json, target_player_name, is_targe
 
         fig, ax = plt.subplots(figsize=(12, 8), facecolor=BG_COLOR) # Adjust figsize
         player_plots.plot_player_pass_map(ax, df_player_passes, target_player_name, team_color, is_target_away_team) # Uses global GREEN, VIOLET
-        
+
         buf = io.BytesIO(); plt.savefig(buf, format="png", dpi=90, bbox_inches='tight'); buf.seek(0)
         img_src = f"data:image/png;base64,{base64.b64encode(buf.read()).decode('ascii')}"
         plt.close(fig)
@@ -3531,7 +4030,7 @@ def generate_shot_sequence_bar_plot(player_stats_df_json_for_plot):
         fig, ax = plt.subplots(figsize=(10, 7), facecolor=BG_COLOR)
         # Call the new plot function from your player_plots module
         player_plots.plot_shot_sequence_bar(ax, player_stats_df.copy(), num_players=10)
-        
+
         plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format="png", dpi=100, bbox_inches='tight', facecolor=fig.get_facecolor())
@@ -3560,7 +4059,7 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
 
         if df_processed.empty or player_stats_df.empty:
             return dash_html.P("⚠ DataFrame(s) empty.", style={"color": "orange"})
-        
+
         # --- *** START: Pre-calculate Flags on df_processed *** ---
         # This ensures flags are available before other metric/processing steps
         print("Pre-calculating key pass/assist flags...")
@@ -3592,14 +4091,14 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
         team_name = match_info.get('hteamName') if is_for_home_team else match_info.get('ateamName')
         if not team_name:
             return dash_html.P(f"Could not determine {team_type} team name.", style={"color":"red"})
-            
+
         team_player_names = df_processed[df_processed['team_name'] == team_name]['playerName'].unique()
         team_player_stats = player_stats_df[player_stats_df.index.isin(team_player_names)]
 
         # 2. Find the top player from that team's shot sequence stats
         if 'Shooting Seq Total' not in team_player_stats.columns:
             return dash_html.P("⚠ 'Shooting Seq Total' column not found.", style={"color": "red"})
-        
+
         top_players_df = team_player_stats.sort_values('Shooting Seq Total', ascending=False)
         if top_players_df.empty:
             return dash_html.P(f"Could not determine top shot contributor for {team_name}.", style={"color":"orange"})
@@ -3613,20 +4112,20 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
         # 4. Determine team color and orientation
         team_color = HCOL if is_for_home_team else ACOL
         is_away_team = not is_for_home_team
-        
+
         # 5. Generate the plot
         fig, ax = plt.subplots(figsize=(12, 8), facecolor=BG_COLOR)
         player_plots.plot_player_received_passes(ax, all_passes_df.copy(), target_player_name, team_color, is_away_team)
-        
+
         buf = io.BytesIO(); plt.savefig(buf, format="png", dpi=90, bbox_inches='tight', facecolor=fig.get_facecolor()); buf.seek(0)
         img_src = f"data:image/png;base64,{base64.b64encode(buf.read()).decode('ascii')}"
         plt.close(fig)
-        
+
         return dash_html.Img(src=img_src, style={"width": "100%", "maxWidth": "700px", "display": "block", "margin": "auto"})
     except Exception as e:
         tb_str = traceback.format_exc()
         return dash_html.P(f"❌ Error generating {team_type} Top Contributor Map: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
-    
+
 def create_shot_contributor_layout(team_type, stored_match_data_json, player_stats_df_json):
     """
     Crea il layout (Dropdown + Grafico) per la mappa dei passaggi ricevuti
@@ -3640,18 +4139,18 @@ def create_shot_contributor_layout(team_type, stored_match_data_json, player_sta
         is_away = (team_type == 'away')
         team_name = match_info.get('ateamName') if is_away else match_info.get('hteamName')
         team_color = ACOL if is_away else HCOL
-        
+
         team_players = df_processed[df_processed['team_name'] == team_name].dropna(subset=['playerName']).drop_duplicates('playerName')
         if team_players.empty:
             return dbc.Alert(f"No players found for {team_name}", color="warning")
 
         # player_jersey_map = team_players.set_index('playerName')['Mapped Jersey Number']
         # sorted_player_names = sorted(player_jersey_map.index.tolist())
-        
+
         # dropdown_options = [{'label': f"#{int(player_jersey_map.get(name, '?')) if str(player_jersey_map.get(name, '?')).isdigit() else '?'} - {name}", 'value': name} for name in sorted_player_names]
 
         player_jersey_map = team_players.drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number']
-        
+
         sorted_player_names = sorted(player_jersey_map.index.tolist())
 
         dropdown_options = []
@@ -3665,12 +4164,12 @@ def create_shot_contributor_layout(team_type, stored_match_data_json, player_sta
 
         # Filtra le statistiche solo per i giocatori di questa squadra
         team_player_stats = player_stats_df[player_stats_df.index.isin(player_jersey_map.index)].copy()
-        
+
         top_contributor_name = None
         if not team_player_stats.empty:
             # **NUOVA LOGICA: CALCOLO DEL PUNTEGGIO PONDERATO**
             weights = {'Shots': 3, 'Shot Assists': 2, 'Buildup to Shot': 1}
-            
+
             # Assicurati che le colonne esistano prima di calcolare
             for col in weights.keys():
                 if col not in team_player_stats.columns:
@@ -3681,7 +4180,7 @@ def create_shot_contributor_layout(team_type, stored_match_data_json, player_sta
                 team_player_stats['Shot Assists'] * weights['Shot Assists'] +
                 team_player_stats['Buildup to Shot'] * weights['Buildup to Shot']
             )
-            
+
             # Trova il giocatore con il punteggio ponderato più alto
             top_contributor_name = team_player_stats['Weighted Score'].idxmax()
 
@@ -3690,14 +4189,14 @@ def create_shot_contributor_layout(team_type, stored_match_data_json, player_sta
         if top_contributor_name:
             all_passes = pass_processing.get_passes_df(df_processed.copy())
             received_passes = all_passes[(all_passes['receiver'] == top_contributor_name) & (all_passes['team_name'] == team_name)].copy()
-            
+
             jersey_num_raw = player_jersey_map.get(top_contributor_name)
             try: jersey_num = str(int(jersey_num_raw))
             except (ValueError, TypeError): jersey_num = '?'
-            
+
             fig = player_plots.plot_player_received_passes_plotly(received_passes, top_contributor_name, team_color, jersey_num, is_away)
             initial_graph = dcc.Graph(figure=fig)
-        
+
         return dash_html.Div([
             dbc.Row(
                 dbc.Col(dcc.Dropdown(
@@ -3796,12 +4295,12 @@ def plot_defender_stats_bar_plotly(player_stats_df, df_processed, home_team_name
         'Clearances': 1
     }
     df_with_score = player_stats_df.copy()
-    
+
     # Assicura che le colonne esistano
     for col in weights.keys():
         if col not in df_with_score.columns:
             df_with_score[col] = 0
-            
+
     df_with_score['Weighted Defensive Score'] = sum(df_with_score[col] * w for col, w in weights.items())
 
     # 1. Ordina per punteggio ponderato, poi inverti per il plot
@@ -3821,7 +4320,7 @@ def plot_defender_stats_bar_plotly(player_stats_df, df_processed, home_team_name
     fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Aerials Won'], name='Aerials Won', orientation='h', marker_color=green_col))
     fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Interceptions'], name='Interceptions', orientation='h', marker_color=violet_col))
     fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Tackles Won'], name='Tackles Won', orientation='h', marker_color=hcol))
-    
+
     # --- Configurazione del Layout ---
     fig.update_layout(
         title_text='Top Defenders by Weighted Score',
@@ -3835,16 +4334,16 @@ def plot_defender_stats_bar_plotly(player_stats_df, df_processed, home_team_name
         height=800,
         annotations=[]
     )
-    
+
     # Aggiungi le etichette manualmente come annotazioni
     for player_name in plot_df.index:
         team_name = player_to_team_map.get(player_name)
         label_color = hcol if team_name == home_team_name else acol
-        
+
         jersey_raw = player_jersey_map.get(player_name)
         try: jersey = str(int(jersey_raw))
         except (ValueError, TypeError): jersey = '?'
-        
+
         label_text = f"<b>#{jersey} - {player_name}</b>"
 
         fig.add_annotation(
@@ -3861,7 +4360,7 @@ def plot_defender_stats_bar_plotly(player_stats_df, df_processed, home_team_name
         # Inverti l'ordine per il calcolo degli offset (left)
         data_for_player = plot_df.loc[player_name]
         ordered_metrics = ['Clearances', 'Ball recovery', 'Aerials Won', 'Interceptions', 'Tackles Won']
-        
+
         current_offset = 0
         for metric in ordered_metrics:
             value = data_for_player.get(metric, 0)
@@ -3875,7 +4374,7 @@ def plot_defender_stats_bar_plotly(player_stats_df, df_processed, home_team_name
                     font=dict(color='white', size=10)
                 ))
             current_offset += value
-            
+
     fig.update_layout(annotations=fig.layout.annotations + tuple(annotations))
 
     return fig
@@ -3888,7 +4387,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
     """
     team_type = "Home" if is_for_home_team else "Away"
     print(f"--- Helper generate_team_top_defender_map_plot (Components) for {team_type} Team EXECUTING ---")
-    
+
     try:
         # --- 1. Data Loading (same as before) ---
         df_json_str = stored_data_json.get('df')
@@ -3896,7 +4395,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
         df_processed = pd.read_json(io.StringIO(df_json_str), orient='split')
         match_info = json.loads(match_info_json_str)
         player_stats_df = pd.read_json(player_stats_df_json, orient='split')
-        
+
         team_name = match_info.get('hteamName') if is_for_home_team else match_info.get('ateamName')
         team_player_names_all = df_processed[df_processed['team_name'] == team_name]['playerName'].unique()
 
@@ -3915,10 +4414,10 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
             # Create a mapping of playerName to jersey number.
             # We drop duplicates to get one entry per player.
             player_jersey_map = defensive_players_df[['playerName', 'Mapped Jersey Number']].drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number']
-            
+
             # Sort the player names alphabetically
             sorted_player_names = sorted(player_jersey_map.index.tolist())
-            
+
             # Build the list of dictionaries for the dropdown
             players_for_dropdown = [
                 {
@@ -3935,7 +4434,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
             # Default to the top defender
             team_player_stats = player_stats_df[player_stats_df.index.isin(team_player_names_all)]
             top_defenders_df = team_player_stats.sort_values('Defensive Actions Total', ascending=False)
-            
+
             # Check if there are any defenders to select as default
             if top_defenders_df.empty:
                 # If there are no defenders with stats, check if there are any in the dropdown list
@@ -3948,7 +4447,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
 
         # --- 4. Generate plots and tables for the target player ---
         df_player_def_actions = defensive_players_df[defensive_players_df['playerName'] == target_player_name].copy()
-        
+
         stats_df = player_metrics.calculate_defensive_action_rates(df_player_def_actions)
 
         # Define the desired order for the table rows
@@ -3960,13 +4459,13 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
             'Clearance',
             'Foul' # Keep foul at the bottom
         ]
-        
+
         # Reorder the DataFrame based on the hierarchy.
         # We use pd.Categorical to enforce a custom sort order on the 'Action' column.
         if not stats_df.empty:
             stats_df['Action'] = pd.Categorical(stats_df['Action'], categories=action_hierarchy_order, ordered=True)
             stats_df = stats_df.sort_values('Action')
-        
+
         stats_table = dash_table.DataTable(
             data=stats_df.to_dict('records'),
             columns=[{'name': i, 'id': i} for i in stats_df.columns],
@@ -3974,7 +4473,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
             style_header={'backgroundColor': '#454D55', 'color': 'white', 'fontWeight': 'bold'},
             style_as_list_view=True,
         )
-        
+
         team_color = HCOL if is_for_home_team else ACOL
         is_away_team = not is_for_home_team
         fig = player_plots.plot_player_defensive_actions_plotly(df_player_def_actions, target_player_name, team_color, is_away_team)
@@ -3987,7 +4486,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
         tb_str = traceback.format_exc()
         error_message = dash_html.P(f"❌ Error generating {team_type} Top Defender Layout: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
         return error_message, None, []
-    
+
 # --- COMMENT CALLBACKS FOR DEFENDER STATS BAR CHART ---
 @app.callback(Output("store-comment-defender-stats-bar", "data"), Output("save-status-defender-stats-bar", "children"),
               Input("save-comment-defender-stats-bar", "n_clicks"),
@@ -4034,7 +4533,7 @@ def update_home_defender_view(selected_player, stored_match_data_json, player_st
 def update_away_defender_view(selected_player, stored_match_data_json, player_stats_df_json):
     if not selected_player:
         return dash_html.P("Select a player from the dropdown to view their map.")
-        
+
     layout_content, _, _ = player_plots.generate_defender_layout_and_data(
         stored_match_data_json, player_stats_df_json, is_for_home_team=False, selected_player=selected_player
     )
@@ -4087,7 +4586,7 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
 
     try:
         df_processed = pd.read_json(stored_data_json['df'], orient='split')
-        
+
         DEFENSIVE_ACTION_TYPES = ['Tackle', 'Interception', 'Ball recovery', 'Clearance', 'Foul', 'Aerial', 'Blocked pass']
         df_player_actions = df_processed[
             (df_processed['playerName'] == player_name) &
@@ -4105,7 +4604,7 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
                 colorscale="Viridis",
                 showscale=False
             ))
-        
+
         # --- Layout for the heatmap pitch ---
         fig.update_layout(
             mapbox_style="white-bg", # Use a blank background
@@ -4121,10 +4620,10 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
             height=300 # A smaller pitch for the side view
         )
         return fig
-        
+
     except Exception:
         return go.Figure() # Return empty figure on error
-    
+
 # ----------------------------------------
 
 # @app.callback(
@@ -4150,8 +4649,8 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
 #         return {"type": filter_type, "value": value}
 #     except Exception as e:
 #         print(f"[Errore filtro buildup] ID non valido: {triggered_id}, errore: {e}")
-#         return dash.no_update  
-    
+#         return dash.no_update
+
 @app.callback(
     Output("store-buildup-filter", "data"),
     Input({'type': 'buildup-filter', 'filter_type': ALL, 'value': ALL}, 'n_clicks'),
@@ -4177,7 +4676,7 @@ def update_multi_filter(card_clicks, reset_click, current_filter):
         value = triggered_dict.get("value")
 
         current_filter = current_filter or {}
-        
+
         if current_filter.get(filter_type) == value:
             current_filter.pop(filter_type)
         else:
@@ -4187,7 +4686,7 @@ def update_multi_filter(card_clicks, reset_click, current_filter):
     except Exception as e:
         print(f"[Filtro multiplo] Errore nel parsing dell'ID: {triggered_id} → {e}")
         return dash.no_update
-    
+
 @app.callback(
     Output("buildup-tab-content", "children"),
     Input("buildup-primary-tabs", "active_tab"),
@@ -4226,6 +4725,86 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
 
         if df_buildups is None or df_buildups.empty:
             return dbc.Alert(f"No valid buildup sequences found for {attacking_team}.", color="warning", className="mt-3")
+
+        # ---------------------------------------------------------
+        # HOME vs AWAY BUILDUP COMPARISON
+        # ---------------------------------------------------------
+
+        if active_buildup_tab == 'buildup_home':
+            df_home_buildups = df_buildups
+
+            df_away_buildups = (
+                buildup_metrics.find_buildup_sequences(
+                    df_processed,
+                    ATEAM_NAME,
+                    HTEAM_NAME,
+                    metric_to_analyze='buildup_phase',
+                    triggers_buildups=triggers,
+                )
+            )
+
+        else:
+            df_away_buildups = df_buildups
+
+            df_home_buildups = (
+                buildup_metrics.find_buildup_sequences(
+                    df_processed,
+                    HTEAM_NAME,
+                    ATEAM_NAME,
+                    metric_to_analyze='buildup_phase',
+                    triggers_buildups=triggers,
+                )
+            )
+
+
+        if df_home_buildups is None:
+            df_home_buildups = pd.DataFrame()
+
+        if df_away_buildups is None:
+            df_away_buildups = pd.DataFrame()
+
+
+        home_buildup_summary = (
+            sequence_outcome_metrics
+            .summarize_sequences(
+                df_home_buildups,
+                sequence_kind='buildup',
+            )
+        )
+
+        away_buildup_summary = (
+            sequence_outcome_metrics
+            .summarize_sequences(
+                df_away_buildups,
+                sequence_kind='buildup',
+            )
+        )
+
+
+        buildup_comparison = (
+            sequence_outcome_metrics
+            .build_sequence_comparison(
+                home_buildup_summary,
+                away_buildup_summary,
+                home_team=HTEAM_NAME,
+                away_team=ATEAM_NAME,
+            )
+        )
+
+
+        buildup_comparison_panel = (
+            render_sequence_comparison_panel(
+                buildup_comparison,
+                HCOL,
+                ACOL,
+                title="Buildup progression",
+                description=(
+                    "Compare how often each team's "
+                    "buildups progressed into increasingly "
+                    "dangerous territory."
+                ),
+            )
+        )
 
         all_sequences = [
             df_buildups[df_buildups['trigger_sequence_id'] == seq_id]
@@ -4350,6 +4929,8 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
             }),
             dcc.Store(id='buildup-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
 
+            buildup_comparison_panel,
+
             dash_html.Div([
                 dash_html.Div([
                     dash_html.Span("TEAM IN POSSESSION", className="match-panel-eyebrow"),
@@ -4463,22 +5044,22 @@ def prev_slide(n_clicks, controller_data):
 def update_buildup_plot_and_indicator(controller_data, stored_sequence_data):
     if not controller_data or not stored_sequence_data:
         return no_update, no_update
-        
+
     active_index = controller_data.get('active_index', 0)
     total_items = controller_data.get('total_items', 0)
-    
+
     indicator_text = f"Sequence {active_index + 1} of {total_items}"
-    
+
     try:
         sequences_json = stored_sequence_data['sequences']
         team_color = stored_sequence_data['team_color']
         is_away = stored_sequence_data['is_away']
-        
+
         if active_index >= len(sequences_json):
             return dbc.Alert("Invalid sequence index."), indicator_text
-        
+
         seq_df = pd.read_json(sequences_json[active_index], orient='split')
-        
+
         # Call the Plotly function
         # fig = buildup_plotly.plot_buildup_sequence_plotly(seq_df, team_color, is_away)
         fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
@@ -4488,22 +5069,22 @@ def update_buildup_plot_and_indicator(controller_data, stored_sequence_data):
             color_for_buildup_team=team_color,
             loss_sequence_id=active_index + 1,
             loss_zone=None,                  # Or actual value if available
-            is_buildup_team_away=is_away, 
+            is_buildup_team_away=is_away,
             metric_to_analyze='buildup_phases',
         )
-        
+
         plot_component = dcc.Graph(
             figure=fig,
             config={'displayModeBar': False, 'responsive': True},
             className="match-analysis-graph match-sequence-graph",
         )
         return plot_component, indicator_text
-        
+
     except Exception as e:
         tb_str = traceback.format_exc()
         error_alert = dbc.Alert(f"Error updating buildup plot: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
         return error_alert, indicator_text
-    
+
 @app.callback(
     Output("buildup-summary-collapse", "is_open"),
     Input("buildup-summary-toggle-button", "n_clicks"),
@@ -4567,7 +5148,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
             # Prepara i dati per entrambe le squadre usando la nuova funzione in transition_metrics
             df_home_def_actions, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
             df_away_def_actions, df_away_agg = defensive_metrics.get_defensive_block_data(df_processed, ATEAM_NAME)
-            
+
             # Crea i grafici interattivi
             fig_home = defensive_transitions_plotly.plot_defensive_block_plotly(df_home_def_actions, df_home_agg, HCOL, is_away=False)
             fig_away = defensive_transitions_plotly.plot_defensive_block_plotly(df_away_def_actions, df_away_agg, ACOL, is_away=True)
@@ -4582,7 +5163,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                     dcc.Graph(figure=fig_away, config={'displayModeBar': False})
                 ], md=6)
             ], className="mt-4")
-        
+
         elif active_tab == 'def_hull':
             # Prepara i dati aggregati (la funzione è la stessa)
             _, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
@@ -4602,7 +5183,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                     dcc.Graph(figure=fig_away_hull, config={'displayModeBar': False})
                 ], md=6)
             ], className="mt-4")
-        
+
         elif active_tab == 'def_ppda':
             home_profile = defensive_metrics.calculate_ppda_profile(
                 df_processed, HTEAM_NAME, ATEAM_NAME
@@ -4776,26 +5357,223 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
             ], className="ppda-analysis")
 
         else:
+                        # ---------------------------------------------------------
+            # ACTIVE DEFENSIVE TRANSITION
+            # ---------------------------------------------------------
+
             if active_tab == 'def_transitions_home':
                 team_losing_ball = HTEAM_NAME
                 team_building_up = ATEAM_NAME
+
+                # The sequence being plotted belongs
+                # to the opponent.
                 team_color = ACOL
                 is_away = True
+
             else:
                 team_losing_ball = ATEAM_NAME
                 team_building_up = HTEAM_NAME
+
                 team_color = HCOL
                 is_away = False
 
-            # Step 1 – Trova sequenze di transizione
-            df_transitions = transition_metrics.find_buildup_after_possession_loss(
-                df_processed,
-                team_that_lost_possession=team_losing_ball,
-                metric_to_analyze='defensive_transitions'
+
+            df_transitions = (
+                transition_metrics
+                .find_buildup_after_possession_loss(
+                    df_processed,
+                    team_that_lost_possession=
+                        team_losing_ball,
+                    metric_to_analyze=
+                        'defensive_transitions',
+                )
             )
 
-            if df_transitions is None or df_transitions.empty:
-                return dbc.Alert(f"No defensive transitions found for {team_losing_ball}.", color="warning", className="mt-3")
+
+            # ---------------------------------------------------------
+            # HOME vs AWAY DEFENSIVE COMPARISON
+            # ---------------------------------------------------------
+            #
+            # Home defensive transition:
+            # Home loses possession, Away attacks.
+            #
+            # Away defensive transition:
+            # Away loses possession, Home attacks.
+            # ---------------------------------------------------------
+
+            if active_tab == 'def_transitions_home':
+
+                df_home_def_transitions = (
+                    df_transitions
+                    if df_transitions is not None
+                    else pd.DataFrame()
+                )
+
+                df_away_def_transitions = (
+                    transition_metrics
+                    .find_buildup_after_possession_loss(
+                        df_processed,
+                        team_that_lost_possession=
+                            ATEAM_NAME,
+                        metric_to_analyze=
+                            'defensive_transitions',
+                    )
+                )
+
+            else:
+
+                df_away_def_transitions = (
+                    df_transitions
+                    if df_transitions is not None
+                    else pd.DataFrame()
+                )
+
+                df_home_def_transitions = (
+                    transition_metrics
+                    .find_buildup_after_possession_loss(
+                        df_processed,
+                        team_that_lost_possession=
+                            HTEAM_NAME,
+                        metric_to_analyze=
+                            'defensive_transitions',
+                    )
+                )
+
+
+            if df_home_def_transitions is None:
+                df_home_def_transitions = (
+                    pd.DataFrame()
+                )
+
+            if df_away_def_transitions is None:
+                df_away_def_transitions = (
+                    pd.DataFrame()
+                )
+
+
+            # ---------------------------------------------------------
+            # ONE ROW PER DEFENSIVE TRANSITION
+            # ---------------------------------------------------------
+
+            home_def_transition_summary = (
+                sequence_outcome_metrics
+                .summarize_sequences(
+                    df_home_def_transitions,
+                    sequence_kind=
+                        'defensive_transition',
+                )
+            )
+
+            away_def_transition_summary = (
+                sequence_outcome_metrics
+                .summarize_sequences(
+                    df_away_def_transitions,
+                    sequence_kind=
+                        'defensive_transition',
+                )
+            )
+
+
+            def_transition_comparison = (
+                sequence_outcome_metrics
+                .build_sequence_comparison(
+                    home_def_transition_summary,
+                    away_def_transition_summary,
+                    home_team=HTEAM_NAME,
+                    away_team=ATEAM_NAME,
+                )
+            )
+
+
+            # ---------------------------------------------------------
+            # DEFENSIVE SEMANTICS
+            # ---------------------------------------------------------
+            #
+            # The milestones describe what THE OPPONENT achieved
+            # after the named team lost possession.
+            # ---------------------------------------------------------
+
+            def_transition_comparison_panel = (
+                render_sequence_comparison_panel(
+                    def_transition_comparison,
+                    HCOL,
+                    ACOL,
+
+                    title=(
+                        "Defensive transition containment"
+                    ),
+
+                    description=(
+                        "Compare what opponents achieved "
+                        "during the 12-second window after "
+                        "each team lost possession."
+                    ),
+
+                    funnel_keys=[
+                        'total_sequences',
+                        'reached_opposition_half',
+                        'reached_final_third',
+                        'entered_penalty_area',
+                        'produced_shot',
+                        'produced_goal',
+                    ],
+
+                    funnel_label_overrides={
+                        'total_sequences':
+                            'Transitions defended',
+
+                        'reached_opposition_half':
+                            'Opp. reached our half',
+
+                        'reached_final_third':
+                            'Opp. reached our final third',
+
+                        'entered_penalty_area':
+                            'Opp. entered our box',
+
+                        'produced_shot':
+                            'Shot conceded',
+
+                        'produced_goal':
+                            'Goal conceded',
+                    },
+
+                    profile_labels={
+                        'duration':
+                            'Opp. avg active duration',
+
+                        'passes':
+                            'Opp. avg completed passes',
+                    },
+
+                    hint_text=(
+                        "Lower opponent-progression percentages "
+                        "indicate better containment."
+                    ),
+                )
+            )
+
+
+            # Still show the comparison even if the selected
+            # team has no defensive transitions.
+            if (
+                df_transitions is None
+                or df_transitions.empty
+            ):
+                return dash_html.Div([
+
+                    def_transition_comparison_panel,
+
+                    dbc.Alert(
+                        (
+                            "No defensive transitions "
+                            "found for "
+                            f"{team_losing_ball}."
+                        ),
+                        color="warning",
+                    ),
+
+                ], className="match-tab-body")
 
             # Step 2 – Raggruppa in sequenze singole
             all_sequences = [
@@ -4851,59 +5629,400 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
             # Step 6 – Layout
             return dash_html.Div([
-                dash_html.H4(f"Analysis for {team_losing_ball}", className="text-white mt-4"),
-                dcc.Store(id='def-transition-sequence-store', data={
-                    'sequences': stored_sequence_data,
-                    'team_color': team_color,
-                    'is_away': is_away
-                }),
-                dcc.Store(id='def-transition-carousel-controller', data={
-                    'active_index': 0,
-                    'total_items': num_items
-                }),
-                dbc.Button(
-                    [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Analysis Summary"],
-                    id="def-transition-summary-toggle-button",
-                    className="mb-3 w-100",
-                    color="info",
-                    outline=True
+
+                # -------------------------------------------------
+                # STORES
+                # -------------------------------------------------
+
+                dcc.Store(
+                    id='def-transition-sequence-store',
+                    data={
+                        'sequences': stored_sequence_data,
+                        'team_color': team_color,
+                        'is_away': is_away,
+                    },
                 ),
-                dbc.Collapse(
+
+                dcc.Store(
+                    id='def-transition-carousel-controller',
+                    data={
+                        'active_index': 0,
+                        'total_items': num_items,
+                    },
+                ),
+
+                # -------------------------------------------------
+                # HOME vs AWAY COMPARISON
+                # -------------------------------------------------
+
+                def_transition_comparison_panel,
+
+                # -------------------------------------------------
+                # ACTIVE TEAM
+                # -------------------------------------------------
+
+                dash_html.Div([
                     dash_html.Div([
-                        dash_html.Div(id="def-transition-filter-status", className="mb-2"),
-                        dbc.Button("❌ Reset Filter", id="def-transition-reset-filter-btn", color="danger", size="sm", className="mb-3"),
-                        dash_html.Div(id="def-transition-summary-content")
+
+                        dash_html.Span(
+                            "TEAM DEFENDING TRANSITION",
+                            className="match-panel-eyebrow",
+                        ),
+
+                        dash_html.H3(
+                            team_losing_ball,
+                            className="match-panel-title",
+                        ),
+
+                        dash_html.P(
+                            (
+                                f"{num_items} defensive transitions "
+                                "available after the current filters."
+                            ),
+                            className="match-panel-description",
+                        ),
+
                     ]),
-                    id="def-transition-summary-collapse",
-                    is_open=True,
+                ], className="match-tab-intro"),
+
+                # -------------------------------------------------
+                # FILTERABLE DEFENSIVE PROFILE
+                # -------------------------------------------------
+
+                dash_html.Section([
+
+                    dash_html.Div([
+
+                        dash_html.Div([
+                            dash_html.Span(
+                                "FILTERABLE PROFILE",
+                                className="match-panel-eyebrow",
+                            ),
+
+                            dash_html.H3(
+                                "Defensive transition profile",
+                                className="match-panel-title",
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "Filter the sequences by how the opponent's "
+                                    "transition ended, where possession was lost "
+                                    "or the type of turnover."
+                                ),
+                                className="match-panel-description",
+                            ),
+                        ]),
+
+                        dash_html.Div([
+
+                            dbc.Button(
+                                [
+                                    dash_html.I(
+                                        className="fa-solid fa-sliders me-2"
+                                    ),
+                                    "Show / hide profile",
+                                ],
+                                id="def-transition-summary-toggle-button",
+                                className="match-secondary-button",
+                                size="sm",
+                            ),
+
+                            dbc.Button(
+                                [
+                                    dash_html.I(
+                                        className="fa-solid fa-rotate-left me-2"
+                                    ),
+                                    "Reset filters",
+                                ],
+                                id="def-transition-reset-filter-btn",
+                                className="match-secondary-button",
+                                size="sm",
+                            ),
+
+                        ], className="def-transition-profile-actions"),
+
+                    ], className="match-panel-header"),
+
+                    dbc.Collapse(
+
+                        dash_html.Div([
+
+                            # Kept for callback compatibility.
+                            dash_html.Div(
+                                id="def-transition-filter-status",
+                            ),
+
+                            dash_html.Div(
+                                id="def-transition-summary-content",
+                                className="def-transition-summary-content",
+                            ),
+
+                        ]),
+
+                        id="def-transition-summary-collapse",
+                        is_open=True,
+                    ),
+
+                ], className="match-panel def-transition-summary-panel"),
+
+
+                # -------------------------------------------------
+                # DEFENSIVE TRANSITION EXPLORER
+                # -------------------------------------------------
+
+                dash_html.Div([
+
+                    # ---------------------------------------------
+                    # POSSESSION LOSS MAP
+                    # ---------------------------------------------
+
+                    dash_html.Section([
+
+                        dash_html.Div([
+
+                            dash_html.Div([
+                                dash_html.Span(
+                                    "POSSESSION LOSS LOCATIONS",
+                                    className="match-panel-eyebrow",
+                                ),
+
+                                dash_html.H3(
+                                    "Where possession was lost",
+                                    className="match-panel-title",
+                                ),
+
+                                dash_html.P(
+                                    (
+                                        "Locate the turnovers that triggered "
+                                        "the opponent's transition."
+                                    ),
+                                    className="match-panel-description",
+                                ),
+                            ]),
+
+                        ], className="match-panel-header"),
+
+                        dash_html.Div([
+
+                            dcc.Loading(
+                                type="circle",
+                                children=dcc.Graph(
+                                    id="loss-heatmap-graph",
+                                    config={
+                                        "displayModeBar": False,
+                                        "responsive": True,
+                                    },
+                                    className="def-transition-map-graph",
+                                ),
+                            ),
+
+                        ], className="def-transition-map-body"),
+
+                    ], className=(
+                        "match-panel "
+                        "def-transition-map-panel"
+                    )),
+
+
+                    # ---------------------------------------------
+                    # SEQUENCE EXPLORER
+                    # ---------------------------------------------
+
+                    dash_html.Section([
+
+                        dash_html.Div([
+
+                            dash_html.Div([
+                                dash_html.Span(
+                                    "SEQUENCE EXPLORER",
+                                    className="match-panel-eyebrow",
+                                ),
+
+                                dash_html.H3(
+                                    "Defensive transition sequence",
+                                    className="match-panel-title",
+                                ),
+
+                                dash_html.P(
+                                    (
+                                        "Inspect what the opponent did during "
+                                        "the 12-second window after possession "
+                                        "was lost."
+                                    ),
+                                    className="match-panel-description",
+                                ),
+                            ]),
+
+                        ], className="match-panel-header"),
+
+                        dash_html.Div([
+
+                            dcc.Loading(
+                                type="circle",
+                                children=dash_html.Div(
+                                    id="def-transition-carousel-content"
+                                ),
+                            ),
+
+                        ], className="def-transition-sequence-body"),
+
+                        dash_html.Div([
+
+                            dbc.Button(
+                                [
+                                    dash_html.I(
+                                        className="fa-solid fa-chevron-left me-2"
+                                    ),
+                                    "Previous",
+                                ],
+                                id="def-transition-prev-button",
+                                className="match-carousel-button",
+                                size="sm",
+                            ),
+
+                            dash_html.Div(
+                                id="def-transition-indicator-text",
+                                className="match-carousel-indicator",
+                            ),
+
+                            dbc.Button(
+                                [
+                                    "Next",
+                                    dash_html.I(
+                                        className="fa-solid fa-chevron-right ms-2"
+                                    ),
+                                ],
+                                id="def-transition-next-button",
+                                className="match-carousel-button",
+                                size="sm",
+                            ),
+
+                        ], className="match-carousel-controls"),
+
+                    ], className=(
+                        "match-panel "
+                        "def-transition-sequence-panel"
+                    )),
+
+                ], className="def-transition-explorer-grid"),
+
+
+                # -------------------------------------------------
+                # ANALYST NOTES
+                # -------------------------------------------------
+
+                dash_html.Section([
+
+                    dash_html.Div([
+
+                        dash_html.I(
+                            className=(
+                                "fa-regular fa-note-sticky "
+                                "match-comment-icon"
+                            ),
+                        ),
+
+                        dash_html.Div([
+                            dash_html.H3(
+                                "Analyst notes",
+                                className="match-comment-title",
+                            ),
+
+                            dash_html.P(
+                                (
+                                    f"Summarise {team_losing_ball}'s response "
+                                    "immediately after losing possession."
+                                ),
+                                className="match-comment-description",
+                            ),
+                        ]),
+
+                    ], className="match-comment-heading"),
+
+                    dcc.Textarea(
+                        id="comment-def-transition",
+                        placeholder=(
+                            f"Write your defensive transition analysis "
+                            f"for {team_losing_ball}..."
+                        ),
+                        className="match-comment-input",
+                    ),
+
+                    dash_html.Div([
+
+                        dbc.Button(
+                            [
+                                dash_html.I(
+                                    className="fa-regular fa-floppy-disk me-2"
+                                ),
+                                "Save note",
+                            ],
+                            id="save-comment-def-transition",
+                            className="match-action-button",
+                            size="sm",
+                        ),
+
+                        dash_html.Div(
+                            id="save-status-def-transition",
+                            className="small",
+                        ),
+
+                    ], className="match-comment-actions"),
+
+                ], className="match-panel match-comment-panel"),
+
+                # -------------------------------------------------
+                # ANALYST NOTES — LEGACY FOR NOW
+                # -------------------------------------------------
+
+                dash_html.Hr(
+                    className="my-4"
                 ),
 
-                # Heatmap section
-                dash_html.Div([
-                    dash_html.H5("🔍 Possession Loss Heatmap", className="mt-4"),
-                    dcc.Loading(dcc.Graph(id="loss-heatmap-graph", config={"displayModeBar": False}))
-                ]),
-                dash_html.Div([
-                    dash_html.H5("Defensive Sequence", className="mt-4"),
-                    dash_html.Div(id='def-transition-carousel-content')
-                ], className="mt-4"),
-                dbc.Row([
-                    dbc.Col(dbc.Button("‹ Prev", id="def-transition-prev-button", color="secondary", outline=True), width="auto"),
-                    dbc.Col(dash_html.Div(id="def-transition-indicator-text", className="text-center text-muted align-self-center"), width=True),
-                    dbc.Col(dbc.Button("Next ›", id="def-transition-next-button", color="secondary", outline=True), width="auto"),
-                ], justify="between", align="center", className="mt-2"),
+                dash_html.H6(
+                    (
+                        f"Comments for {team_losing_ball} "
+                        "Defensive Transitions:"
+                    ),
+                    className="mt-3 text-white",
+                ),
 
-                dash_html.Hr(className="my-4"),
-                dash_html.H6(f"Comments for {team_losing_ball} Defensive Transitions:", className="mt-3 text-white"),
-                dcc.Textarea(id="comment-def-transition", placeholder=f"Enter your analysis for {team_losing_ball}...", style={'width': '100%', 'height': 120, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'}, className="mb-2"),
-                dbc.Button("Save Comment", id="save-comment-def-transition", color="info", size="sm", className="me-2"),
-                dash_html.Div(id="save-status-def-transition", className="small d-inline-block")
-            ])
+                dcc.Textarea(
+                    id="comment-def-transition",
+                    placeholder=(
+                        f"Enter your analysis for "
+                        f"{team_losing_ball}..."
+                    ),
+                    style={
+                        'width': '100%',
+                        'height': 120,
+                        'backgroundColor': '#495057',
+                        'color': 'white',
+                        'borderColor': '#6c757d',
+                    },
+                    className="mb-2",
+                ),
+
+                dbc.Button(
+                    "Save Comment",
+                    id="save-comment-def-transition",
+                    color="info",
+                    size="sm",
+                    className="me-2",
+                ),
+
+                dash_html.Div(
+                    id="save-status-def-transition",
+                    className="small d-inline-block",
+                ),
+
+            ], className="match-tab-body")
 
     except Exception as e:
         tb = traceback.format_exc()
         return dbc.Alert(f"Error in Def. Transition tab: {e}\n{tb}", color="danger", style={"whiteSpace": "pre-wrap"})
-    
+
 
 @app.callback(
     Output("def-transition-carousel-content", "children"),
@@ -4963,7 +6082,14 @@ def update_def_transition_plot(controller_data, active_filter, stored_data):
             metric_to_analyze='defensive_transitions'
         )
 
-        graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "550px"})
+        graph = dcc.Graph(
+            figure=fig,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+            },
+            className="def-transition-sequence-graph",
+        )
         indicator_text = f"Sequence {active_index + 1} of {total_sequences}"
 
         return graph, indicator_text
@@ -5051,45 +6177,43 @@ def update_def_transition_summary_cards(active_filter, stored_data):
     # else:
     #     transition_profile_component = dbc.Alert("No transition profile data available.", color="secondary")
 
-    profile_df = stats.get("transition_profile_table", pd.DataFrame())
-    if not profile_df.empty:
-        profile_df = profile_df.sort_values(by="Num_Sequences", ascending=False)
-        profile_table_component = dash_table.DataTable(
-            data=profile_df.to_dict('records'),
-            columns=[{"name": i, "id": i} for i in profile_df.columns],
-            style_table={"overflowX": "auto"},
-            style_cell={'backgroundColor': '#343A40', 'color': 'white', 'textAlign': 'center', 'border': '1px solid #454D55'},
-            style_header={'backgroundColor': '#454D55', 'color': 'white', 'fontWeight': 'bold'},
-            style_as_list_view=True,
-        )
-    else:
-        profile_table_component = dbc.Alert("No transition profile data available.", color="secondary")
-    
-
     filter_labels = {
         "outcomes": "Outcome",
-        "flanks": "Flank",
-        "types": "Type of Loss"
+        "flanks": "Loss side",
+        "types": "Type of loss",
     }
+
     if active_filter:
         badges = [
-            dbc.Badge(f"{filter_labels.get(k, k)}: {v}", color="info", className="me-2", pill=True)
+            dbc.Badge(
+                f"{filter_labels.get(k, k)}: {v}",
+                color="info",
+                className="me-2",
+                pill=True,
+            )
             for k, v in active_filter.items()
         ]
+
         active_filters_badge = dash_html.Div([
-            dash_html.Small("🎯 Active Filters:", className="text-muted me-2"),
-            *badges
-        ], className="mb-2")
+            dash_html.Small(
+                "Active filters:",
+                className="me-2",
+            ),
+            *badges,
+        ], className="def-transition-active-filters")
+
     else:
         active_filters_badge = None
 
     return dash_html.Div([
         active_filters_badge,
-        transition_metrics.create_def_transition_summary_cards(stats, active_filter),
-        dash_html.Hr(),
-        dash_html.H5("Transition Profile Summary", className="text-white mt-4 mb-3 text-center"),
-        profile_table_component 
-    ])
+
+        transition_metrics.create_def_transition_summary_cards(
+            stats,
+            active_filter,
+        ),
+
+    ], className="def-transition-filter-cards")
 
 # Toggle per la sezione riassuntiva
 @app.callback(
@@ -5145,7 +6269,15 @@ def update_loss_heatmap(active_filter, stored_data):
         return go.Figure()
 
     sequences_json = stored_data.get("sequences", [])
-    is_away = stored_data.get("is_away", False)
+    opponent_is_away = stored_data.get(
+        "is_away",
+        False,
+    )
+
+    losing_team_is_away = (
+        not opponent_is_away
+    )
+
     all_sequences = [pd.read_json(seq, orient="split") for seq in sequences_json]
 
     filtered_sequences = []
@@ -5157,14 +6289,21 @@ def update_loss_heatmap(active_filter, stored_data):
             for key, value in active_filter.items():
                 if key == "outcomes" and str(seq.iloc[-1].get("sequence_outcome_type")) != str(value):
                     match = False
-                elif key == "flanks" and transition_metrics.calculate_flank(seq) != value:
+                elif (key == "flanks" and transition_metrics.calculate_flank(seq["y"]) != value):
                     match = False
                 elif key == "types" and str(seq.iloc[0].get("type_of_initial_loss")) != str(value):
                     match = False
         if match:
             filtered_sequences.append(seq)
 
-    return defensive_transitions_plotly.plot_loss_heatmap_on_pitch(filtered_sequences, is_away=is_away)
+    return (
+        defensive_transitions_plotly
+        .plot_loss_heatmap_on_pitch(
+            filtered_sequences,
+            losing_team_is_away=
+                losing_team_is_away,
+        )
+    )
 
 
 # ---------------------------------------
@@ -5184,31 +6323,158 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
     try:
         df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
         match_info = json.loads(stored_data_json['match_info'])
-        
+        HTEAM_NAME = match_info.get(
+            'hteamName'
+        )
+
+        ATEAM_NAME = match_info.get(
+            'ateamName'
+        )
+
         if active_tab == 'off_transitions_home':
-            team_recovering_ball = match_info.get('hteamName')
-            team_losing_ball = match_info.get('ateamName')
+            team_recovering_ball = HTEAM_NAME
+            team_losing_ball = ATEAM_NAME
             team_color = HCOL
             is_away = False
         else:
-            team_recovering_ball = match_info.get('ateamName')
-            team_losing_ball = match_info.get('hteamName')
+            team_recovering_ball = ATEAM_NAME
+            team_losing_ball = HTEAM_NAME
             team_color = ACOL
             is_away = True
 
-        # Usiamo la stessa funzione, ma invertiamo chi perde palla!
-        df_transitions = transition_metrics.find_buildup_after_possession_loss(
-            df_processed,
-            team_that_lost_possession=team_losing_ball, 
-            metric_to_analyze='offensive_transitions'
+        # ---------------------------------------------------------
+        # ACTIVE TEAM TRANSITIONS
+        # ---------------------------------------------------------
+
+        df_transitions = (
+            transition_metrics
+            .find_buildup_after_possession_loss(
+                df_processed,
+                team_that_lost_possession=team_losing_ball,
+                metric_to_analyze='offensive_transitions',
+            )
         )
 
-        if df_transitions is None or df_transitions.empty:
-            return dbc.Alert(f"No offensive transitions found for {team_recovering_ball}.", color="warning", className="mt-3")
+
+        # ---------------------------------------------------------
+        # HOME vs AWAY COMPARISON
+        # ---------------------------------------------------------
+        #
+        # Important:
+        # team_that_lost_possession is the OPPOSITE team.
+        #
+        # Napoli offensive transitions, for example, start after
+        # Udinese loses possession.
+
+        if active_tab == 'off_transitions_home':
+            df_home_transitions = (
+                df_transitions
+                if df_transitions is not None
+                else pd.DataFrame()
+            )
+
+            df_away_transitions = (
+                transition_metrics
+                .find_buildup_after_possession_loss(
+                    df_processed,
+                    team_that_lost_possession=HTEAM_NAME,
+                    metric_to_analyze='offensive_transitions',
+                )
+            )
+
+        else:
+            df_away_transitions = (
+                df_transitions
+                if df_transitions is not None
+                else pd.DataFrame()
+            )
+
+            df_home_transitions = (
+                transition_metrics
+                .find_buildup_after_possession_loss(
+                    df_processed,
+                    team_that_lost_possession=ATEAM_NAME,
+                    metric_to_analyze='offensive_transitions',
+                )
+            )
+
+
+        if df_home_transitions is None:
+            df_home_transitions = pd.DataFrame()
+
+        if df_away_transitions is None:
+            df_away_transitions = pd.DataFrame()
+
+
+        home_transition_summary = (
+            sequence_outcome_metrics
+            .summarize_sequences(
+                df_home_transitions,
+                sequence_kind='offensive_transition',
+            )
+        )
+
+        away_transition_summary = (
+            sequence_outcome_metrics
+            .summarize_sequences(
+                df_away_transitions,
+                sequence_kind='offensive_transition',
+            )
+        )
+
+
+        off_transition_comparison = (
+            sequence_outcome_metrics
+            .build_sequence_comparison(
+                home_transition_summary,
+                away_transition_summary,
+                home_team=HTEAM_NAME,
+                away_team=ATEAM_NAME,
+            )
+        )
+
+
+        off_transition_comparison_panel = (
+            render_sequence_comparison_panel(
+                off_transition_comparison,
+                HCOL,
+                ACOL,
+                title="Offensive transition progression",
+                description=(
+                    "Compare how far each team progressed "
+                    "during the 12-second window after "
+                    "regaining possession."
+                ),
+                funnel_keys=[
+                    'total_sequences',
+                    'reached_opposition_half',
+                    'reached_final_third',
+                    'entered_penalty_area',
+                    'produced_shot',
+                    'produced_goal',
+                ],
+            )
+        )
+
+        if (
+            df_transitions is None
+            or df_transitions.empty
+        ):
+            return dash_html.Div([
+                off_transition_comparison_panel,
+
+                dbc.Alert(
+                    (
+                        "No offensive transitions found for "
+                        f"{team_recovering_ball}."
+                    ),
+                    color="warning",
+                ),
+            ], className="match-tab-body")
 
         # Raggruppamento e ordinamento (logica identica)
         all_sequences = [df_transitions[df_transitions['loss_sequence_id'] == seq_id] for seq_id in df_transitions['loss_sequence_id'].unique()]
-        
+
         # Step 4 – Applica filtro multiplo
         filter_key_map = {
             "outcomes": "sequence_outcome_type",
@@ -5235,7 +6501,7 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
             filtered_sequences = all_sequences
 
         # filtered_sequences = all_sequences # Per ora, mostriamo tutte
-        
+
         def get_quality_score(seq_df):
             if seq_df.empty: return 99
             outcome = seq_df['sequence_outcome_type'].iloc[-1]
@@ -5243,47 +6509,270 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
             if outcome == 'Shots': return 1
             if outcome == 'Big Chances': return 2
             return 4
-        
+
         sorted_sequences = sorted(filtered_sequences, key=get_quality_score)
         stored_sequence_data = [seq.to_json(orient='split') for seq in sorted_sequences]
         num_items = len(sorted_sequences)
 
         # Creazione layout
         return dash_html.Div([
-            dash_html.H4(f"Analysis for {team_recovering_ball}", className="text-white mt-4"),
-            dcc.Store(id='off-transition-sequence-store', 
-                      data={'sequences': stored_sequence_data, 
-                            'team_color': team_color, 
-                            'is_away': is_away}),
-            dcc.Store(id='off-transition-carousel-controller', 
-                      data={'active_index': 0, 'total_items': num_items}),
+            dcc.Store(
+                id='off-transition-sequence-store',
+                data={
+                    'sequences':
+                        stored_sequence_data,
+                    'team_color':
+                        team_color,
+                    'is_away':
+                        is_away,
+                },
+            ),
 
-            # Summary Section
-            dbc.Button(
-                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Analysis Summary"],
-                id="off-transition-summary-toggle-button", className="mb-3 w-100", color="info", outline=True),
-            dbc.Collapse(id="off-transition-summary-collapse", is_open=True, children=[
-                dbc.Button("❌ Reset Filter", id="off-transition-reset-filter-btn", color="danger", size="sm", className="mb-3"),
-                dash_html.Div(id="off-transition-summary-content")
-            ]),
+            dcc.Store(
+                id='off-transition-carousel-controller',
+                data={
+                    'active_index': 0,
+                    'total_items': num_items,
+                },
+            ),
 
-            # Heatmap Section
+            off_transition_comparison_panel,
+
+            # -----------------------------------------------------
+            # ACTIVE TEAM
+            # -----------------------------------------------------
+
             dash_html.Div([
-                dash_html.H5("🔍 Ball Recovery Heatmap", className="mt-4"),
-                dcc.Loading(dcc.Graph(id="recovery-heatmap-graph", config={"displayModeBar": False}))
-            ]),
-            
-            # Carousel Section
+                dash_html.Div([
+                    dash_html.Span(
+                        "TEAM IN TRANSITION",
+                        className="match-panel-eyebrow",
+                    ),
+
+                    dash_html.H3(
+                        team_recovering_ball,
+                        className="match-panel-title",
+                    ),
+
+                    dash_html.P(
+                        (
+                            f"{num_items} offensive transitions "
+                            "available after the current filters."
+                        ),
+                        className="match-panel-description",
+                    ),
+                ]),
+
+                dbc.Button(
+                    [
+                        dash_html.I(
+                            className="fas fa-chart-bar me-2"
+                        ),
+                        "Show / hide profile",
+                    ],
+                    id="off-transition-summary-toggle-button",
+                    className="match-secondary-button",
+                    size="sm",
+                ),
+
+            ], className="match-tab-intro"),
+
+
+            # -----------------------------------------------------
+            # FILTERABLE TRANSITION PROFILE
+            # -----------------------------------------------------
+
+            dash_html.Section([
+
+                dash_html.Div([
+                    dash_html.Div([
+                        dash_html.Span(
+                            "FILTERABLE PROFILE",
+                            className="match-panel-eyebrow",
+                        ),
+
+                        dash_html.H3(
+                            "Transition profile",
+                            className="match-panel-title",
+                        ),
+
+                        dash_html.P(
+                            (
+                                "Select an outcome, recovery pattern "
+                                "or initial action to filter the "
+                                "transition explorer below."
+                            ),
+                            className="match-panel-description",
+                        ),
+                    ]),
+
+                    dbc.Button(
+                        [
+                            dash_html.I(
+                                className=(
+                                    "fa-solid "
+                                    "fa-filter-circle-xmark me-2"
+                                )
+                            ),
+                            "Reset filters",
+                        ],
+                        id="off-transition-reset-filter-btn",
+                        className="match-secondary-button",
+                        size="sm",
+                    ),
+
+                ], className="match-panel-header"),
+
+                dbc.Collapse(
+                    dash_html.Div(
+                        id="off-transition-summary-content",
+                        className="off-transition-summary-content",
+                    ),
+                    id="off-transition-summary-collapse",
+                    is_open=True,
+                ),
+
+            ], className=(
+                "match-panel "
+                "off-transition-summary-panel"
+            )),
+
+
+            # -----------------------------------------------------
+            # EXPLORER WORKSPACE
+            # -----------------------------------------------------
+
             dash_html.Div([
-                dash_html.H5("Offensive Sequence", className="mt-4"),
-                dcc.Loading(type="circle", children=dash_html.Div(id='off-transition-carousel-content'))
-            ], className="mt-4"),
-            dbc.Row([
-                dbc.Col(dbc.Button("‹ Prev", id="off-transition-prev-button", color="secondary", outline=True), width="auto"),
-                dbc.Col(dash_html.Div(id="off-transition-indicator-text", className="text-center text-muted align-self-center"), width=True),
-                dbc.Col(dbc.Button("Next ›", id="off-transition-next-button", color="secondary", outline=True), width="auto"),
-            ], justify="between", align="center", className="mt-2"),
-        ])
+
+                # -------------------------------------------------
+                # RECOVERY MAP
+                # -------------------------------------------------
+
+                dash_html.Section([
+
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span(
+                                "RECOVERY LOCATIONS",
+                                className="match-panel-eyebrow",
+                            ),
+
+                            dash_html.H3(
+                                "Where transitions start",
+                                className="match-panel-title",
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "Recovery locations for the "
+                                    "transitions matching the "
+                                    "current filters."
+                                ),
+                                className="match-panel-description",
+                            ),
+                        ]),
+                    ], className="match-panel-header"),
+
+                    dash_html.Div([
+                        dcc.Loading(
+                            type="circle",
+                            children=dcc.Graph(
+                                id="recovery-heatmap-graph",
+                                config={
+                                    "displayModeBar": False,
+                                    "responsive": True,
+                                },
+                                className=(
+                                    "off-transition-map-graph"
+                                ),
+                            ),
+                        ),
+                    ], className="off-transition-map-body"),
+
+                ], className=(
+                    "match-panel "
+                    "off-transition-map-panel"
+                )),
+
+
+                # -------------------------------------------------
+                # SEQUENCE EXPLORER
+                # -------------------------------------------------
+
+                dash_html.Section([
+
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span(
+                                "SEQUENCE EXPLORER",
+                                className="match-panel-eyebrow",
+                            ),
+
+                            dash_html.H3(
+                                "Transition sequence",
+                                className="match-panel-title",
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "Inspect each selected transition "
+                                    "in chronological detail."
+                                ),
+                                className="match-panel-description",
+                            ),
+                        ]),
+                    ], className="match-panel-header"),
+
+                    dash_html.Div([
+                        dcc.Loading(
+                            type="circle",
+                            children=dash_html.Div(
+                                id="off-transition-carousel-content"
+                            ),
+                        ),
+                    ], className="off-transition-sequence-body"),
+
+                    dash_html.Div([
+
+                        dbc.Button(
+                            [
+                                dash_html.I(
+                                    className="fa-solid fa-chevron-left me-2"
+                                ),
+                                "Previous",
+                            ],
+                            id="off-transition-prev-button",
+                            className="match-carousel-button",
+                            size="sm",
+                        ),
+
+                        dash_html.Div(
+                            id="off-transition-indicator-text",
+                            className="match-carousel-indicator",
+                        ),
+
+                        dbc.Button(
+                            [
+                                "Next",
+                                dash_html.I(
+                                    className="fa-solid fa-chevron-right ms-2"
+                                ),
+                            ],
+                            id="off-transition-next-button",
+                            className="match-carousel-button",
+                            size="sm",
+                        ),
+
+                    ], className="match-carousel-controls"),
+
+                ], className=(
+                    "match-panel "
+                    "off-transition-sequence-panel"
+                )),
+
+            ], className="off-transition-explorer-grid"),
+
+        ], className="match-tab-body")
 
     except Exception as e:
         return dbc.Alert(f"Error in Off. Transition tab: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
@@ -5299,22 +6788,22 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
 def update_off_transition_plot(controller_data, stored_data, stored_match_data): # Aggiunto stored_match_data
     if not controller_data or not stored_data or not stored_match_data:
         return no_update, no_update
-    
+
     try:
         # --- 1. Estrai i dati necessari ---
         active_index = controller_data['active_index']
         seq_df = pd.read_json(io.StringIO(stored_data['sequences'][active_index]), orient='split')
-        
+
         if seq_df.empty:
             return dbc.Alert("Sequenza vuota, impossibile generare il plot."), "N/A"
 
         # Dati generali sulla sequenza
         team_color = stored_data['team_color']
         is_away = stored_data['is_away']
-        
+
         # Dati specifici per la funzione di plot
         match_info = json.loads(stored_match_data['match_info'])
-        
+
         # Determiniamo i nomi delle squadre
         if is_away:
             team_building_up = match_info.get('ateamName')
@@ -5322,12 +6811,12 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         else:
             team_building_up = match_info.get('hteamName')
             team_that_lost_possession = match_info.get('ateamName')
-            
+
         # Estraiamo i dati dalla prima riga della sequenza, dove sono salvati
         first_event = seq_df.iloc[0]
         loss_sequence_id = first_event.get('loss_sequence_id', active_index + 1)
         loss_zone = first_event.get('loss_zone', 'Unknown Zone')
-        
+
         # --- 2. Chiama la funzione con TUTTI i parametri richiesti ---
         fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
             sequence_data=seq_df,                                  # <--- Passato come argomento con nome per chiarezza
@@ -5339,10 +6828,10 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
             is_buildup_team_away=is_away,
             metric_to_analyze='offensive_transitions'
         )
-        
+
         graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "550px"})
         indicator = f"Sequence {active_index + 1} of {controller_data['total_items']}"
-        
+
         return graph, indicator
 
     except Exception as e:
@@ -5371,7 +6860,7 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
 
     all_sequences = [pd.read_json(io.StringIO(seq), orient="split") for seq in stored_data['sequences']]
     is_away = stored_data.get("is_away", False)
-    
+
     filtered_sequences = []
     for seq in all_sequences:
         if seq.empty:
@@ -5391,32 +6880,160 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
     stats = transition_metrics.calculate_off_transition_stats(filtered_sequences)
     cards = transition_metrics.create_off_transition_summary_cards(stats, active_filter)
     heatmap_fig = offensive_transitions_plotly.plot_recovery_heatmap_on_pitch(filtered_sequences, is_away=is_away)
+    heatmap_fig.update_layout(
+        title=None,
+        margin=dict(
+            l=10,
+            r=10,
+            t=15,
+            b=10,
+        ),
+    )
 
-    profile_df = stats.get("transition_profile_table", pd.DataFrame())
-    
+    # ---------------------------------------------------------
+    # COMMON TRANSITION PATTERNS
+    # ---------------------------------------------------------
+    #
+    # Keep this block descriptive only.
+    #
+    # Avg duration and avg completed passes are intentionally
+    # NOT taken from the legacy transition profile table:
+    # canonical sequence-level definitions are already shown
+    # in the comparison panel above.
+
+    profile_df = stats.get(
+        "transition_profile_table",
+        pd.DataFrame(),
+    ).copy()
+
+
     if not profile_df.empty:
-        # Ordiniamo per numero di sequenze per vedere i pattern più comuni
-        profile_df = profile_df.sort_values(by="Num_Sequences", ascending=False)
-        
-        profile_table_component = dash_table.DataTable(
-            data=profile_df.to_dict('records'),
-            columns=[{"name": i, "id": i} for i in profile_df.columns],
-            style_table={"overflowX": "auto"},
-            style_cell={'backgroundColor': '#343A40', 'color': 'white', 'textAlign': 'center', 'border': '1px solid #454D55'},
-            style_header={'backgroundColor': '#454D55', 'color': 'white', 'fontWeight': 'bold'},
-            style_as_list_view=True,
-        )
-    else:
-        profile_table_component = dbc.Alert("No transition profile data available.", color="secondary")
 
-    # --- Combiniamo le card e la tabella in un unico output ---
+        profile_df = profile_df.sort_values(
+            by="Num_Sequences",
+            ascending=False,
+        )
+
+        total_profile_sequences = int(
+            profile_df["Num_Sequences"].sum()
+        )
+
+        profile_df["Share"] = (
+            profile_df["Num_Sequences"]
+            / max(total_profile_sequences, 1)
+            * 100
+        )
+
+        profile_df["Share"] = (
+            profile_df["Share"]
+            .round(0)
+            .astype(int)
+            .astype(str)
+            + "%"
+        )
+
+        profile_df = profile_df.rename(
+            columns={
+                "Recovery Zone":
+                    "Recovery zone",
+
+                "Attack Side":
+                    "Attack side",
+
+                "Num_Sequences":
+                    "Sequences",
+            }
+        )
+
+        profile_df = profile_df[
+            [
+                "Recovery zone",
+                "Attack side",
+                "Sequences",
+                "Share",
+            ]
+        ]
+
+
+        profile_table_component = (
+            dbc.Table.from_dataframe(
+                profile_df,
+                striped=False,
+                bordered=False,
+                hover=True,
+                responsive=True,
+                index=False,
+                className=(
+                    "off-transition-pattern-table "
+                    "mb-0"
+                ),
+            )
+        )
+
+    else:
+
+        profile_table_component = (
+            dbc.Alert(
+                (
+                    "No transition pattern "
+                    "data available."
+                ),
+                color="secondary",
+            )
+        )
+
+
+    # ---------------------------------------------------------
+    # SUMMARY LAYOUT
+    # ---------------------------------------------------------
+
     summary_layout = dash_html.Div([
-        cards, 
-        dash_html.Hr(),
-        dash_html.H5("Transition Profile Summary", className="text-white mt-4 mb-3 text-center"),
-        profile_table_component
-    ])
-    
+
+        dash_html.Div(
+            cards,
+            className=(
+                "off-transition-filter-cards"
+            ),
+        ),
+
+        dash_html.Div([
+
+            dash_html.Div([
+                dash_html.Span(
+                    "COMMON PATTERNS",
+                    className="match-panel-eyebrow",
+                ),
+
+                dash_html.H4(
+                    "Recovery zone × attack side",
+                    className=(
+                        "off-transition-pattern-title"
+                    ),
+                ),
+
+                dash_html.P(
+                    (
+                        "The most frequent combinations "
+                        "of recovery zone and direction "
+                        "of the subsequent attack."
+                    ),
+                    className="match-panel-description",
+                ),
+
+            ], className=(
+                "off-transition-pattern-header"
+            )),
+
+            profile_table_component,
+
+        ], className=(
+            "off-transition-pattern-block"
+        )),
+
+    ], className=(
+        "off-transition-summary-layout"
+    ))
+
     return summary_layout, heatmap_fig
 
 # Callback per gestire il filtro
@@ -5465,7 +7082,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         # --- 1. Caricamento e analisi iniziale dei dati (ogni volta che la tab cambia) ---
         df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
         match_info = json.loads(stored_data_json['match_info'])
-        
+
         is_home = active_tab == 'set_piece_home'
         team_name = match_info.get('hteamName') if is_home else match_info.get('ateamName')
         defending_team = match_info.get('ateamName') if is_home else match_info.get('hteamName')
@@ -5482,9 +7099,9 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         if df_sequences_raw is None or df_sequences_raw.empty:
             return dbc.Alert(f"No offensive set pieces found for {team_name}.", color="warning", className="mt-3")
 
-        all_sequences = [df_sequences_raw[df_sequences_raw['trigger_sequence_id'] == seq_id] 
+        all_sequences = [df_sequences_raw[df_sequences_raw['trigger_sequence_id'] == seq_id]
                          for seq_id in df_sequences_raw['trigger_sequence_id'].unique()]
-        
+
         df_analyzed, full_stats = set_piece_metrics.analyze_and_summarize_set_pieces(all_sequences)
         player_jersey_map = df_processed.drop_duplicates(subset=['playerName'])[['playerName', 'Mapped Jersey Number']].set_index('playerName').to_dict()['Mapped Jersey Number']
 
@@ -5493,13 +7110,13 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         df_filtered = df_analyzed.copy()
 
         filter_map = {
-            'action': 'Action Type', 
-            'side': 'Side', 
-            'delivery': 'Delivery', 
-            'swing': 'Swing', 
+            'action': 'Action Type',
+            'side': 'Side',
+            'delivery': 'Delivery',
+            'swing': 'Swing',
             'outcome': 'Outcome',
-            'foot': 'Foot', 
-            'destination': 'Destination', 
+            'foot': 'Foot',
+            'destination': 'Destination',
             'taker': 'playerName'
         }
         for filter_key, filter_value in active_filter.items():
@@ -5526,7 +7143,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         # --- 4. Prepara il Carosello ---
         filtered_seq_ids = df_filtered['sequence_id'].unique()
         sequences_for_carousel = [s for s in all_sequences if not s.empty and s.iloc[0]['trigger_sequence_id'] in filtered_seq_ids]
-        
+
         # --- START: AGGIUNTA LOGICA DI ORDINAMENTO ---
         def get_set_piece_quality_score(seq_df):
             if seq_df.empty or 'sequence_outcome_type' not in seq_df.columns:
@@ -5555,7 +7172,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
                     dbc.Col(dbc.Button("Next ›", id="set-piece-next-button", color="secondary"), width="auto"),
                 ], justify="between", align="center", className="mt-2"),
             ])
-        
+
         # --- 5. Layout Finale (con indentazione corretta) ---
         return dash_html.Div([
             dash_html.H4(f"Analysis for {team_name}", className="text-white mt-4"),
@@ -5566,7 +7183,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
                 color="info",
                 outline=True
             ),
-            
+
             dbc.Collapse(
                 dash_html.Div([
                     dbc.Row([
@@ -5589,7 +7206,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
 
     except Exception as e:
         return dbc.Alert(f"Error in Set Piece tab: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
-    
+
 @app.callback(
     Output("set-piece-collapse", "is_open"),
     Input("set-piece-toggle-button", "n_clicks"),
@@ -5630,12 +7247,12 @@ def toggle_set_piece(n, is_open):
 #     current_filter = current_filter or {}
 #     filter_type = triggered_info['filter_type']
 #     value = triggered_info['value']
-    
+
 #     if current_filter.get(filter_type) == value:
 #         current_filter.pop(filter_type)
 #     else:
 #         current_filter[filter_type] = value
-        
+
 #     return current_filter if current_filter else None
 
 @app.callback(
@@ -5655,7 +7272,7 @@ def update_specific_filters(sp_clicks, cross_clicks, reset_clicks, sp_filter, cr
         raise dash.exceptions.PreventUpdate
 
     triggered_id_str = ctx.triggered[0]["prop_id"].split(".")[0]
-    
+
     try:
         triggered_info = ast.literal_eval(triggered_id_str)
     except (ValueError, SyntaxError):
@@ -5708,11 +7325,11 @@ def update_set_piece_carousel_controller(prev_clicks, next_clicks, controller_da
     ctx = dash.callback_context
     if not ctx.triggered or not controller_data:
         return no_update
-        
+
     button_id = ctx.triggered[0]['prop_id'].split('.')[0]
     active_index = controller_data['active_index']
     total_items = controller_data['total_items']
-    
+
     if button_id == 'set-piece-next-button':
         new_index = (active_index + 1) % total_items
     elif button_id == 'set-piece-prev-button':
@@ -5737,7 +7354,7 @@ def update_set_piece_carousel_plot(controller_data, sequence_data, match_data):
 
     active_index = controller_data['active_index']
     total_items = controller_data['total_items']
-    
+
     seq_df = pd.read_json(io.StringIO(sequence_data['sequences'][active_index]), orient='split')
     team_color = sequence_data['team_color']
     is_away = sequence_data['is_away']
@@ -5756,7 +7373,7 @@ def update_set_piece_carousel_plot(controller_data, sequence_data, match_data):
         is_buildup_team_away=is_away,
         metric_to_analyze='set_piece'
     )
-    
+
     indicator = f"Sequence {active_index + 1} of {total_items}"
     return dcc.Graph(figure=fig), indicator
 
@@ -5800,12 +7417,12 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
     try:
         df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
         match_info = json.loads(stored_data_json['match_info'])
-        
+
         is_away = (active_team_tab == "crosses-away")
         team_name = match_info.get('ateamName') if is_away else match_info.get('hteamName')
-        
+
         crosses_full = cross_metrics.analyze_crosses(df_processed, team_name)
-        
+
         active_filter = active_filter or {}
         crosses_filtered = crosses_full.copy()
         filter_map = {'origin': 'Origin Zone', 'destination': 'Destination Zone', 'swing': 'Swing', 'outcome': 'Outcome', 'foot': 'Foot', 'taker': 'playerName', 'play_type': 'Play Type'}
@@ -5813,12 +7430,12 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
             col = filter_map.get(key)
             if col and col in crosses_filtered.columns:
                 crosses_filtered = crosses_filtered[crosses_filtered[col] == value]
-        
+
         cards = cross_metrics.create_cross_summary_cards(crosses_filtered, active_filter)
-        
+
         home_flow_table = cross_metrics.generate_cross_flow_table(crosses_filtered)
         sankey_plot = cross_plots.plot_cross_sankey(crosses_filtered)
-        
+
         analysis_summary_content = dash_html.Div([
             dbc.Button("❌ Reset Filters & Selection", id={'type': 'reset-btn', 'section': 'crosses'}, color="danger", size="sm", className="mb-3"),
             cards
@@ -5834,7 +7451,7 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
                 color="info",
                 outline=True
             ),
-            
+
             # Ora il Collapse ha un solo figlio: il Div che contiene tutto il resto
             dbc.Collapse(
                 analysis_summary_content,
@@ -5860,7 +7477,7 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
         ])
     except Exception as e:
         return dbc.Alert(f"Error rendering crosses: {traceback.format_exc()}", color="danger")
-    
+
 @app.callback(
     Output("cross-summary-collapse", "is_open"),
     Input("cross-summary-toggle-button", "n_clicks"),
@@ -5904,10 +7521,10 @@ def update_cross_selection_on_map_click(origin_click, dest_click, selected_cross
     click_data = ctx.triggered[0]['value']
     if click_data and click_data['points']:
         clicked_id = click_data['points'][0].get('customdata')
-        
+
         # Se clicco lo stesso punto, lo deseleziono. Altrimenti, lo seleziono.
         if selected_cross_id == clicked_id:
-            return None 
+            return None
         else:
             return clicked_id
     return no_update
@@ -5923,13 +7540,13 @@ def update_cross_selection_on_map_click(origin_click, dest_click, selected_cross
 def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_team_tab):
     if not cross_data_json:
         return go.Figure(layout={'title': 'No Data'}), go.Figure(layout={'title': 'No Data'})
-        
+
     df_filtered = pd.read_json(io.StringIO(cross_data_json), orient='split')
     is_away = (active_team_tab == "crosses-away")
-    
+
     origin_map = cross_plots.plot_cross_heatmap(df_filtered, 'origin', is_away, selected_cross_id=selected_cross_id)
     dest_map = cross_plots.plot_cross_heatmap(df_filtered, 'destination', is_away, selected_cross_id=selected_cross_id)
-    
+
     return origin_map, dest_map
 
 # # Callback 5: Gestisce i filtri delle card
@@ -5948,7 +7565,7 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 
 #     ctx = dash.callback_context
 #     triggered_id_str = ctx.triggered[0]["prop_id"].split(".")[0]
-    
+
 #     if triggered_id_str == "cross-reset-filter-btn":
 #         return None # Resetta il filtro
 
@@ -5977,7 +7594,7 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 # ):
 #     if n_clicks is None or not stored_match_data:
 #         return no_update, no_update # No update for both outputs
-    
+
 #     print(f"--- prepare_report_and_trigger_clientside TRIGGERED (n_clicks: {n_clicks}) ---")
 
 #     report_html_elements = []
@@ -5988,8 +7605,8 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 #         hteam = match_info_dict.get('hteamDisplayName', 'Home')
 #         ateam = match_info_dict.get('ateamDisplayName', 'Away')
 #         comp = match_info_dict.get('competitionName', '')
-#         round_n = match_info_dict.get('roundNameFromFilename', '') 
-#         date_val = match_info_dict.get('date_formatted', '') 
+#         round_n = match_info_dict.get('roundNameFromFilename', '')
+#         date_val = match_info_dict.get('date_formatted', '')
 #         hs = match_info_dict.get('home_score', '')
 #         aws = match_info_dict.get('away_score', '')
 #         score = f"{hs} - {aws}" if hs is not None and aws is not None else "vs"
@@ -6007,7 +7624,7 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 #     #     report_html_elements.append(f"<p><em>Error generating formation plot: {str(formation_img_component.children)}</em></p>")
 #     # else:
 #     #     report_html_elements.append("<p>Formation plot could not be generated.</p>")
-    
+
 #     # form_comment_key = get_comment_key(pathname, "formation")
 #     # if formation_comments_data and form_comment_key and formation_comments_data.get(form_comment_key):
 #     #     report_html_elements.append("<h4>Comments:</h4>")
@@ -6062,7 +7679,7 @@ def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_t
 #     # ...
 
 #     print(f"prepare_report_and_trigger_clientside: HTML length: {len(final_html_string)}")
-    
+
 #     # Return HTML to its store, and a simple trigger (timestamp) to the dummy div
 #     trigger_value = datetime.now().timestamp()
 #     print(f"prepare_report_and_trigger_clientside: Setting trigger value: {trigger_value}")
@@ -6101,27 +7718,27 @@ def create_graph_card(graph_id, title, height='550px'):
 
 def layout_league_analysis():
     """Crea il layout per la pagina di analisi della lega."""
-    
+
     # Per ora, hardcodiamo il percorso del file. In futuro potresti renderlo dinamico.
     league_data_path = os.path.join("data", "estadisticas", "England_Premier_League", "2024-2025", "equipos", "equipos_seasonstats.csv")
-    
+
     try:
         df_league = pd.read_csv(league_data_path)
     except FileNotFoundError:
         return dbc.Alert(f"Data file not found at: {league_data_path}", color="danger")
-    
+
     quadrant_options = [
         {'label': 'Offensive Efficiency (Shots vs. Conversion)', 'value': 'goals_vs_shots'},
         {'label': 'Playing Style (Possession vs. Verticality)', 'value': 'style'},
         {'label': 'Defensive Solidity (Pressure vs. Shots Conceded)', 'value': 'defense'}
     ]
-    
+
     return dbc.Container([
         dbc.Row([
             dbc.Col(dash_html.H1("League Analysis - Premier League 2024/2025"), width="auto"),
             dbc.Col(dbc.Button("Back to Home", href="/", color="secondary"), width="auto", className="ms-auto")
         ], align="center", className="mt-3 mb-4"),
-        
+
         # Struttura a TAB principale
         dbc.Tabs(
             id="league-analysis-tabs",
@@ -6157,7 +7774,7 @@ def layout_league_analysis():
 def update_league_barchart(selected_metric):
     league_data_path = os.path.join("data", "estadisticas", "England_Premier_League", "2024-2025", "equipos", "equipos_seasonstats.csv")
     df_league = pd.read_csv(league_data_path)
-    
+
     return league_plots.create_league_barchart(df_league, selected_metric)
 
 @app.callback(
@@ -6167,7 +7784,7 @@ def update_league_barchart(selected_metric):
 def update_team_radar(selected_team):
     league_data_path = os.path.join("data", "estadisticas", "England_Premier_League", "2024-2025", "equipos", "equipos_seasonstats.csv")
     df_league = pd.read_csv(league_data_path)
-    
+
     return league_plots.create_team_radar(df_league, selected_team)
 
 @app.callback(
@@ -6177,31 +7794,31 @@ def update_team_radar(selected_team):
 def update_quadrant_plot(selected_view):
     if not selected_view:
         return go.Figure()
-        
+
     league_data_path = os.path.join("data", "estadisticas", "England_Premier_League", "2024-2025", "equipos", "equipos_seasonstats.csv")
     df_league = pd.read_csv(league_data_path)
     df_league_adv = league_metrics.add_advanced_metrics(df_league)
-    
+
     plot_template = 'plotly_white'
-    
+
     if selected_view == 'goals_vs_shots':
         labels = ['Elite Attack', 'Wasteful Attack', 'Ineffective Attack', 'Clinical Attack']
         return league_plots.create_quadrant_plot(df_league_adv, 'Total Shots', 'Goal Conversion', quadrant_labels=labels, template=plot_template)
-    
+
     elif selected_view == 'style':
         labels = ['Fast & Short', 'Fast & Direct', 'Slow & Direct', 'Slow & Methodical']
         return league_plots.create_quadrant_plot(df_league_adv, 'Passing Tempo', 'Short vs Long Ratio', quadrant_labels=labels, template=plot_template)
-        
+
     elif selected_view == 'defense':
         labels = ['Proactive & Solid', 'Busy & Leaky', 'Passive & Vulnerable', 'Organized & Efficient']
-        
+
         # Controlla esplicitamente che le colonne necessarie esistano
         required_cols = ['Defensive Actions', 'Shots Conceded per DA']
         if not all(col in df_league_adv.columns for col in required_cols):
             return go.Figure().update_layout(title_text="Required defensive metrics are missing.", template=plot_template)
-            
+
         return league_plots.create_quadrant_plot(df_league_adv, 'Defensive Actions', 'Shots Conceded per DA', invert_y=True, quadrant_labels=labels, template=plot_template)
-    
+
     return go.Figure()
 
 @app.callback(
@@ -6211,13 +7828,13 @@ def update_quadrant_plot(selected_view):
 def update_team_radar_multi(selected_teams):
     if not selected_teams:
         return go.Figure().update_layout(title_text="Select up to 2 teams to compare")
-    
+
     teams_to_plot = selected_teams[:2]
-    
+
     league_data_path = os.path.join("data", "estadisticas", "England_Premier_League", "2024-2025", "equipos", "equipos_seasonstats.csv")
     df_league = pd.read_csv(league_data_path)
     df_league_adv = league_metrics.add_advanced_metrics(df_league)
-    
+
     # Passiamo il template 'plotly_white'
     return league_plots.create_team_radar(df_league_adv, teams_to_plot, template='plotly_white')
 
