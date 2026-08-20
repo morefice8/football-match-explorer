@@ -3,103 +3,501 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from plotly.subplots import make_subplots
-from src.visualization import pitch_plots # Non serve importare se stesso
+from src.visualization import pitch_plots
+from src.visualization.plotly_branding import (
+    add_plot_header,
+    apply_dark_pitch_layout,
+)
 
-def plot_pass_network_plotly(passes_between, avg_locs, team_name, team_color, sub_list, is_away=False):
+# def plot_pass_network_plotly(passes_between, avg_locs, team_name, team_color, sub_list, is_away=False):
+#     """
+#     Versione 5: Corregge la visualizzazione delle linee e migliora lo stile dei subentrati.
+#     """
+#     fig = go.Figure()
+#     pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
+
+#     if avg_locs.empty:
+#         fig.add_annotation(text=f"No pass network data for {team_name}", showarrow=False, font=dict(size=16, color="orange"))
+#     else:
+#         # Copia i DataFrame per evitare SettingWithCopyWarning
+#         avg_locs = avg_locs.copy()
+#         passes_between = passes_between.copy()
+
+#         # Inverti le coordinate per il team away
+#         if is_away:
+#             avg_locs[['pass_avg_x', 'pass_avg_y']] = 100 - avg_locs[['pass_avg_x', 'pass_avg_y']]
+#             if not passes_between.empty:
+#                 passes_between[['pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end']] = 100 - passes_between[['pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end']]
+
+#         # --- 1. Disegna le linee delle connessioni (se esistono) ---
+#         if not passes_between.empty:
+#             max_lw = 10
+#             max_count = passes_between['pass_count'].max() if not passes_between.empty else 1
+#             passes_between['linewidth'] = passes_between['pass_count'] / max_count * max_lw
+
+#             mid_x, mid_y, hover_texts = [], [], []
+#             for _, row in passes_between.iterrows():
+#                 fig.add_trace(go.Scatter(
+#                     x=[row['pass_avg_x'], row['pass_avg_x_end']],
+#                     y=[row['pass_avg_y'], row['pass_avg_y_end']],
+#                     mode='lines',
+#                     line=dict(width=row['linewidth'], color=team_color, shape='spline'),
+#                     opacity=0.6,
+#                     hoverinfo='none',
+#                     showlegend=False
+#                 ))
+#                 mid_x.append((row['pass_avg_x'] + row['pass_avg_x_end']) / 2)
+#                 mid_y.append((row['pass_avg_y'] + row['pass_avg_y_end']) / 2)
+#                 hover_texts.append(f"{row['player1']} <> {row['player2']}<br><b>{int(row['pass_count'])}</b> passes")
+
+#             fig.add_trace(go.Scatter(
+#                 x=mid_x, y=mid_y, mode='markers',
+#                 marker=dict(color=team_color, size=5, opacity=0),
+#                 hoverinfo='text', hovertext=hover_texts, showlegend=False
+#             ))
+
+#         # --- 2. Disegna i nodi (giocatori) ---
+#         max_size = 60
+#         max_pass_count = avg_locs['pass_count'].max() if not avg_locs.empty else 1
+#         avg_locs['marker_size'] = avg_locs['pass_count'] / max_pass_count * max_size + 20
+
+#         starters_df = avg_locs[~avg_locs['playerName'].isin(sub_list)]
+#         subs_df = avg_locs[avg_locs['playerName'].isin(sub_list)]
+
+#         # Aggiungi i titolari (cerchi con bordo bianco)
+#         if not starters_df.empty:
+#             fig.add_trace(go.Scatter(
+#                 x=starters_df['pass_avg_x'], y=starters_df['pass_avg_y'],
+#                 mode='markers+text',
+#                 text=[f"<b>{int(j)}</b>" if pd.notna(j) else '' for j in starters_df['jersey_number']],
+#                 marker=dict(symbol='circle', color=team_color, size=starters_df['marker_size'], line=dict(width=2, color='white')),
+#                 hovertext=starters_df['playerName'] + '<br>Passes made: ' + starters_df['pass_count'].astype(int).astype(str),
+#                 hoverinfo='text', showlegend=False
+#             ))
+
+#         # Aggiungi i subentrati (diamanti con bordo giallo)
+#         if not subs_df.empty:
+#             fig.add_trace(go.Scatter(
+#                 x=subs_df['pass_avg_x'], y=subs_df['pass_avg_y'],
+#                 mode='markers+text',
+#                 text=[f"<b>{int(j)}</b>" if pd.notna(j) else '' for j in subs_df['jersey_number']],
+#                 marker=dict(
+#                     symbol='diamond',  # Simbolo diverso
+#                     color=team_color,
+#                     opacity=0.9, # Leggermente più opaco
+#                     size=subs_df['marker_size'],
+#                     line=dict(width=3, color='#FFFF00') # Bordo giallo e più spesso
+#                 ),
+#                 hovertext=subs_df['playerName'] + ' (sub)<br>Passes made: ' + subs_df['pass_count'].astype(int).astype(str),
+#                 hoverinfo='text', showlegend=False
+#             ))
+
+#     # --- Layout Finale ---
+#     fig.update_layout(
+#         title=f"Pass Network - {team_name}",
+#         showlegend=False,
+#         shapes=pitch_shapes,
+#         xaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
+#         yaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
+#         plot_bgcolor='#2E3439',
+#         paper_bgcolor='#2E3439',
+#         font_color='white',
+#         height=700
+#     )
+#     return fig
+
+def plot_pass_network_plotly(
+    passes_between,
+    avg_locs,
+    team_name,
+    team_color,
+    sub_list,
+    is_away=False,
+):
     """
-    Versione 5: Corregge la visualizzazione delle linee e migliora lo stile dei subentrati.
+    Plot a team's passing network.
+
+    Node size represents passing volume.
+    Connection strength represents combined passes between
+    the two players, irrespective of direction.
     """
+
     fig = go.Figure()
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
-    
-    if avg_locs.empty:
-        fig.add_annotation(text=f"No pass network data for {team_name}", showarrow=False, font=dict(size=16, color="orange"))
-    else:
-        # Copia i DataFrame per evitare SettingWithCopyWarning
-        avg_locs = avg_locs.copy()
-        passes_between = passes_between.copy()
 
-        # Inverti le coordinate per il team away
-        if is_away:
-            avg_locs[['pass_avg_x', 'pass_avg_y']] = 100 - avg_locs[['pass_avg_x', 'pass_avg_y']]
-            if not passes_between.empty:
-                passes_between[['pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end']] = 100 - passes_between[['pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end']]
-        
-        # --- 1. Disegna le linee delle connessioni (se esistono) ---
-        if not passes_between.empty:
-            max_lw = 10
-            max_count = passes_between['pass_count'].max() if not passes_between.empty else 1
-            passes_between['linewidth'] = passes_between['pass_count'] / max_count * max_lw
-
-            mid_x, mid_y, hover_texts = [], [], []
-            for _, row in passes_between.iterrows():
-                fig.add_trace(go.Scatter(
-                    x=[row['pass_avg_x'], row['pass_avg_x_end']],
-                    y=[row['pass_avg_y'], row['pass_avg_y_end']],
-                    mode='lines',
-                    line=dict(width=row['linewidth'], color=team_color, shape='spline'),
-                    opacity=0.6,
-                    hoverinfo='none',
-                    showlegend=False
-                ))
-                mid_x.append((row['pass_avg_x'] + row['pass_avg_x_end']) / 2)
-                mid_y.append((row['pass_avg_y'] + row['pass_avg_y_end']) / 2)
-                hover_texts.append(f"{row['player1']} <> {row['player2']}<br><b>{int(row['pass_count'])}</b> passes")
-
-            fig.add_trace(go.Scatter(
-                x=mid_x, y=mid_y, mode='markers',
-                marker=dict(color=team_color, size=5, opacity=0),
-                hoverinfo='text', hovertext=hover_texts, showlegend=False
-            ))
-
-        # --- 2. Disegna i nodi (giocatori) ---
-        max_size = 60
-        max_pass_count = avg_locs['pass_count'].max() if not avg_locs.empty else 1
-        avg_locs['marker_size'] = avg_locs['pass_count'] / max_pass_count * max_size + 20
-        
-        starters_df = avg_locs[~avg_locs['playerName'].isin(sub_list)]
-        subs_df = avg_locs[avg_locs['playerName'].isin(sub_list)]
-
-        # Aggiungi i titolari (cerchi con bordo bianco)
-        if not starters_df.empty:
-            fig.add_trace(go.Scatter(
-                x=starters_df['pass_avg_x'], y=starters_df['pass_avg_y'],
-                mode='markers+text',
-                text=[f"<b>{int(j)}</b>" if pd.notna(j) else '' for j in starters_df['jersey_number']],
-                marker=dict(symbol='circle', color=team_color, size=starters_df['marker_size'], line=dict(width=2, color='white')),
-                hovertext=starters_df['playerName'] + '<br>Passes made: ' + starters_df['pass_count'].astype(int).astype(str),
-                hoverinfo='text', showlegend=False
-            ))
-
-        # Aggiungi i subentrati (diamanti con bordo giallo)
-        if not subs_df.empty:
-            fig.add_trace(go.Scatter(
-                x=subs_df['pass_avg_x'], y=subs_df['pass_avg_y'],
-                mode='markers+text',
-                text=[f"<b>{int(j)}</b>" if pd.notna(j) else '' for j in subs_df['jersey_number']],
-                marker=dict(
-                    symbol='diamond',  # Simbolo diverso
-                    color=team_color,
-                    opacity=0.9, # Leggermente più opaco
-                    size=subs_df['marker_size'],
-                    line=dict(width=3, color='#FFFF00') # Bordo giallo e più spesso
-                ),
-                hovertext=subs_df['playerName'] + ' (sub)<br>Passes made: ' + subs_df['pass_count'].astype(int).astype(str),
-                hoverinfo='text', showlegend=False
-            ))
-
-    # --- Layout Finale ---
-    fig.update_layout(
-        title=f"Pass Network - {team_name}",
-        showlegend=False,
-        shapes=pitch_shapes,
-        xaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-        plot_bgcolor='#2E3439',
-        paper_bgcolor='#2E3439',
-        font_color='white',
-        height=700
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.20)",
+        "rgba(255,255,255,0.72)",
     )
+
+    if avg_locs is None or avg_locs.empty:
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text=f"No pass network data for {team_name}",
+            showarrow=False,
+            font=dict(
+                size=15,
+                color='rgba(255,255,255,0.72)',
+            ),
+        )
+
+    else:
+        avg_locs = avg_locs.copy()
+
+        passes_between = (
+            passes_between.copy()
+            if passes_between is not None
+            else pd.DataFrame()
+        )
+
+        # -----------------------------------------------------
+        # VISUAL ORIENTATION
+        # -----------------------------------------------------
+        # Opta coordinates are already normalised so that
+        # every team attacks towards x=100.
+        # Do not mirror the away team.
+        del is_away
+
+        # -----------------------------------------------------
+        # CONNECTIONS
+        # -----------------------------------------------------
+        if not passes_between.empty:
+
+            passes_between['pass_count'] = pd.to_numeric(
+                passes_between['pass_count'],
+                errors='coerce',
+            ).fillna(0)
+
+            passes_between = (
+                passes_between
+                .sort_values(
+                    'pass_count',
+                    ascending=True,
+                )
+            )
+
+            max_count = max(
+                float(
+                    passes_between[
+                        'pass_count'
+                    ].max()
+                ),
+                1.0,
+            )
+
+            hover_x = []
+            hover_y = []
+            hover_text = []
+
+            for _, row in passes_between.iterrows():
+
+                count = float(
+                    row['pass_count']
+                )
+
+                strength = (
+                    count / max_count
+                ) ** 1.45
+
+                line_width = (
+                    0.75
+                    + 4.25 * strength
+                )
+
+                line_opacity = (
+                    0.10
+                    + 0.68 * strength
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[
+                            row['pass_avg_x'],
+                            row['pass_avg_x_end'],
+                        ],
+                        y=[
+                            row['pass_avg_y'],
+                            row['pass_avg_y_end'],
+                        ],
+                        mode='lines',
+
+                        line=dict(
+                            width=line_width,
+                            color=team_color,
+                        ),
+
+                        opacity=line_opacity,
+
+                        hoverinfo='skip',
+                        showlegend=False,
+                    )
+                )
+
+                hover_x.append(
+                    (
+                        row['pass_avg_x']
+                        + row['pass_avg_x_end']
+                    ) / 2
+                )
+
+                hover_y.append(
+                    (
+                        row['pass_avg_y']
+                        + row['pass_avg_y_end']
+                    ) / 2
+                )
+
+                hover_text.append(
+                    (
+                        f"<b>{row['player1']}"
+                        f" ↔ {row['player2']}</b>"
+                        f"<br>{int(count)} combined passes"
+                    )
+                )
+
+            # Invisible hover targets for connections.
+            fig.add_trace(
+                go.Scatter(
+                    x=hover_x,
+                    y=hover_y,
+
+                    mode='markers',
+
+                    marker=dict(
+                        size=14,
+                        opacity=0,
+                    ),
+
+                    text=hover_text,
+
+                    hovertemplate=(
+                        "%{text}"
+                        "<extra></extra>"
+                    ),
+
+                    showlegend=False,
+                )
+            )
+
+        # -----------------------------------------------------
+        # PLAYER NODES
+        # -----------------------------------------------------
+        avg_locs['pass_count'] = pd.to_numeric(
+            avg_locs['pass_count'],
+            errors='coerce',
+        ).fillna(0)
+
+        max_pass_count = max(
+            float(
+                avg_locs['pass_count'].max()
+            ),
+            1.0,
+        )
+
+        avg_locs['marker_size'] = (
+            22
+            + 30
+            * np.sqrt(
+                avg_locs['pass_count']
+                / max_pass_count
+            )
+        )
+
+        starters_df = avg_locs[
+            ~avg_locs[
+                'playerName'
+            ].isin(sub_list)
+        ]
+
+        subs_df = avg_locs[
+            avg_locs[
+                'playerName'
+            ].isin(sub_list)
+        ]
+
+        def jersey_labels(df_players):
+            labels = []
+
+            for value in df_players[
+                'jersey_number'
+            ]:
+                try:
+                    labels.append(
+                        f"<b>{int(float(value))}</b>"
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    labels.append("")
+
+            return labels
+
+        # Starters.
+        if not starters_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=starters_df['pass_avg_x'],
+                    y=starters_df['pass_avg_y'],
+
+                    mode='markers+text',
+
+                    text=jersey_labels(
+                        starters_df
+                    ),
+
+                    textposition='middle center',
+
+                    textfont=dict(
+                        color='white',
+                        size=11,
+                    ),
+
+                    marker=dict(
+                        symbol='circle',
+                        color=team_color,
+                        size=starters_df[
+                            'marker_size'
+                        ],
+                        opacity=0.94,
+
+                        line=dict(
+                            width=1.5,
+                            color=(
+                                'rgba(255,255,255,0.82)'
+                            ),
+                        ),
+                    ),
+
+                    customdata=np.column_stack([
+                        starters_df[
+                            'playerName'
+                        ],
+                        starters_df[
+                            'pass_count'
+                        ],
+                    ]),
+
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b>"
+                        "<br>Passes made: "
+                        "%{customdata[1]:.0f}"
+                        "<br>Starter"
+                        "<extra></extra>"
+                    ),
+
+                    showlegend=False,
+                )
+            )
+
+        # Substitutes.
+        if not subs_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=subs_df['pass_avg_x'],
+                    y=subs_df['pass_avg_y'],
+
+                    mode='markers+text',
+
+                    text=jersey_labels(
+                        subs_df
+                    ),
+
+                    textposition='middle center',
+
+                    textfont=dict(
+                        color='white',
+                        size=10,
+                    ),
+
+                    marker=dict(
+                        symbol='diamond',
+                        color=team_color,
+                        size=subs_df[
+                            'marker_size'
+                        ] * 0.88,
+                        opacity=0.90,
+
+                        line=dict(
+                            width=1.8,
+                            color='#d9c98c',
+                        ),
+                    ),
+
+                    customdata=np.column_stack([
+                        subs_df[
+                            'playerName'
+                        ],
+                        subs_df[
+                            'pass_count'
+                        ],
+                    ]),
+
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b>"
+                        "<br>Passes made: "
+                        "%{customdata[1]:.0f}"
+                        "<br>Substitute"
+                        "<extra></extra>"
+                    ),
+
+                    showlegend=False,
+                )
+            )
+
+    # ---------------------------------------------------------
+    # ATTACKING DIRECTION
+    # ---------------------------------------------------------
+    fig.add_annotation(
+        x=98,
+        y=104,
+        text='<b>ATTACKING →</b>',
+        showarrow=False,
+        xanchor='right',
+
+        font=dict(
+            color='#94dbea',
+            size=11,
+        ),
+    )
+
+    # ---------------------------------------------------------
+    # LAYOUT
+    # ---------------------------------------------------------
+    fig.update_layout(
+        shapes=pitch_shapes,
+
+        xaxis=dict(
+            range=[-2, 102],
+            visible=False,
+            fixedrange=True,
+        ),
+
+        yaxis=dict(
+            range=[-5, 107],
+            visible=False,
+            fixedrange=True,
+        ),
+    )
+
+    apply_dark_pitch_layout(
+        fig,
+        height=610,
+        top_margin=120,
+        showlegend=False,
+    )
+
+    add_plot_header(
+        fig,
+        title=f"{team_name} · Pass network",
+        subtitle=(
+            "Node size = pass volume · "
+            "line strength = combined connection volume · "
+            "diamonds = substitutes"
+        ),
+        dark=True,
+    )
+
     return fig
 
 
@@ -195,23 +593,42 @@ def plot_progressive_passes_plotly(df_prog_passes, team_name, team_color, is_awa
         xanchor='right', font=dict(color='#94dbea', size=11),
     )
     fig.update_layout(
-        title=dict(
-            text=f"<b>{team_name}</b> · Progressive passing map",
-            font=dict(size=17, color='white'), x=0.04, xanchor='left', y=0.97,
-        ),
         showlegend=True,
         legend=dict(
-            orientation='h', y=1.035, yanchor='top', x=0.96, xanchor='right',
-            font=dict(color='white', size=11), bgcolor='rgba(0,0,0,0)',
+            orientation='h',
+            x=0.5,
+            xanchor='center',
+            y=1.045,
+            yanchor='bottom',
+            font=dict(
+                color='white',
+                size=11,
+            ),
+            bgcolor='rgba(0,0,0,0)',
+            traceorder='normal',
         ),
         shapes=pitch_shapes,
         xaxis=dict(range=[-2, 102], visible=False, fixedrange=True),
         yaxis=dict(range=[-5, 107], visible=False, fixedrange=True),
-        plot_bgcolor='#29343d',
-        paper_bgcolor='#29343d',
+    )
+
+    apply_dark_pitch_layout(
+        fig,
         height=610,
-        margin=dict(l=18, r=18, t=74, b=18),
-        hoverlabel=dict(bgcolor='#102f45', font_color='white'),
+        top_margin=135,
+        showlegend=True,
+    )
+
+    add_plot_header(
+        fig,
+        title=f"{team_name} · Progressive passing",
+        subtitle=(
+            f"{len(df_plot)} attempts · "
+            f"{int(df_plot['is_progressive'].sum())} completed"
+            if not df_plot.empty
+            else "No qualifying attempts"
+        ),
+        dark=True,
     )
     return fig
 
@@ -245,7 +662,7 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
         # Right HS
         dict(type="rect", x0=66.7, y0=16.7, x1=100, y1=33.3, fillcolor=team_color, opacity=0.2, layer="below", line_width=0)
     ]
-    
+
     # --- Disegna le frecce per ogni zona ---
     for zone_name, (zone_df, color) in zones.items():
         if not zone_df.empty:
@@ -277,7 +694,7 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
                 x=zone_df['end_x'], y=zone_df['end_y'], mode='markers',
                 marker=dict(size=5, color=color), showlegend=False, hoverinfo='none'
             ))
-    
+
     # --- Aggiungi Annotazioni con i conteggi totali ---
     annotations = [
         dict(x=75, y=50, text=f"<b>{stats.get('zone14', 0)}</b>", showarrow=False, font=dict(color='white', size=16)),
@@ -311,20 +728,20 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
         #     # Un valore comune per i campi Opta è 0.68 (100 / 68 * larghezza)
         #     # Aggiustalo se necessario per il tuo layout.
         #     scaleanchor="x",
-        #     scaleratio=0.68 
+        #     scaleratio=0.68
         # ),
         xaxis=dict(range=[-2, 102], visible=False),
         yaxis=dict(range=[-2, 102], visible=False),
         plot_bgcolor='#2E3439',
         paper_bgcolor='#2E3439',
         # Rimuovi l'altezza fissa, lascia che si adatti al contenitore
-        height=700, 
+        height=700,
         margin=dict(l=20, r=20, t=80, b=20) # Margine per titolo/legenda
     )
 
     if is_away:
         fig.update_layout(xaxis_autorange="reversed", yaxis_autorange="reversed")
-    
+
     return fig
 
 def plot_final_third_entries_plotly(
@@ -378,7 +795,7 @@ def plot_final_third_entries_plotly(
             x1=82.0,
             y1=200 / 3,
             fillcolor=zone14_color,
-            opacity=0.16,
+            opacity=0.12,
             layer="below",
             line_width=0,
         ),
@@ -391,7 +808,7 @@ def plot_final_third_entries_plotly(
             x1=100,
             y1=500 / 6,
             fillcolor=team_color,
-            opacity=0.12,
+            opacity=0.09,
             layer="below",
             line_width=0,
         ),
@@ -404,7 +821,7 @@ def plot_final_third_entries_plotly(
             x1=100,
             y1=100 / 3,
             fillcolor=team_color,
-            opacity=0.12,
+            opacity=0.09,
             layer="below",
             line_width=0,
         ),
@@ -575,21 +992,30 @@ def plot_final_third_entries_plotly(
             y=50,
             text=f"<b>Z14<br>{stats.get('zone14', 0)}</b>",
             showarrow=False,
-            font=dict(color='white', size=13),
+            font=dict(
+                color='rgba(255,255,255,0.88)',
+                size=12,
+            ),
         ),
         dict(
             x=90,
             y=75,
             text=f"<b>LHS<br>{stats.get('hs_left', 0)}</b>",
             showarrow=False,
-            font=dict(color='white', size=12),
+            font=dict(
+                color='rgba(255,255,255,0.84)',
+                size=11,
+            ),
         ),
         dict(
             x=90,
             y=25,
             text=f"<b>RHS<br>{stats.get('hs_right', 0)}</b>",
             showarrow=False,
-            font=dict(color='white', size=12),
+            font=dict(
+                color='rgba(255,255,255,0.84)',
+                size=11,
+            ),
         ),
     ]
 
@@ -607,59 +1033,55 @@ def plot_final_third_entries_plotly(
             )
         )
 
+    for annotation in annotations:
+        fig.add_annotation(**annotation)
+
     fig.update_layout(
-        title=dict(
-            text=(
-                f"<b>{team_name} - Final Third Entries</b>"
-                f"<br><sup>"
-                f"{stats.get('total_final_third', 0)} total · "
-                f"{stats.get('pass_entries', 0)} pass · "
-                f"{stats.get('carry_entries', 0)} carry"
-                f"</sup>"
-            ),
-            font=dict(
-                size=16,
-                color='white',
-            ),
-            x=0.5,
-            y=0.98,
-            xanchor='center',
-            yanchor='top',
-        ),
-        showlegend=True,
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.01,
-            xanchor='center',
-            x=0.5,
-            font=dict(color='white'),
-        ),
         shapes=pitch_shapes + zone_shapes,
-        annotations=annotations,
+
         xaxis=dict(
             range=[-2, 102],
             visible=False,
             fixedrange=True,
         ),
+
         yaxis=dict(
             range=[-2, 102],
             visible=False,
             fixedrange=True,
         ),
-        plot_bgcolor='#2E3439',
-        paper_bgcolor='#2E3439',
+
+        legend=dict(
+            orientation='h',
+            x=0.5,
+            xanchor='center',
+            y=1.045,
+            yanchor='bottom',
+            font=dict(
+                color='white',
+                size=11,
+            ),
+            bgcolor='rgba(0,0,0,0)',
+            traceorder='normal',
+        ),
+    )
+
+    apply_dark_pitch_layout(
+        fig,
         height=660,
-        margin=dict(
-            l=20,
-            r=20,
-            t=95,
-            b=20,
+        top_margin=135,
+        showlegend=True,
+    )
+
+    add_plot_header(
+        fig,
+        title=f"{team_name} · Final Third Entries",
+        subtitle=(
+            f"{stats.get('total_final_third', 0)} total · "
+            f"{stats.get('pass_entries', 0)} pass · "
+            f"{stats.get('carry_entries', 0)} carry"
         ),
-        hoverlabel=dict(
-            bgcolor='#102f45',
-            font_color='white',
-        ),
+        dark=True,
     )
 
     if is_away:
@@ -707,7 +1129,7 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
         x_bins = np.linspace(0, 100, 7)
         y_bins = np.linspace(0, 100, 6)
         counts, y_edges, x_edges = np.histogram2d(df_plot['y'], df_plot['x'], bins=[y_bins, x_bins])
-        
+
         fig.add_trace(go.Heatmap(
             z=counts,
             x=(x_edges[:-1] + x_edges[1:]) / 2,
@@ -715,7 +1137,7 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
             colorscale=colorscale,
             colorbar=dict(title='Pass Count', x=1.02)
         ), row=1, col=2)
-        
+
         # Aggiungi i numeri sopra la heatmap
         for i, row in enumerate(counts):
             for j, val in enumerate(row):
@@ -731,7 +1153,7 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
 
     # --- DISEGNO DEL CAMPO SU ENTRAMBI I SUBPLOT ---
     pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.4)", "white")
-    
+
     for shape in pitch_shapes:
         # Aggiungi la forma a entrambi i subplot specificando il riferimento agli assi
         fig.add_shape(shape, row=1, col=1)
@@ -749,120 +1171,603 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
     # Applica le impostazioni degli assi a entrambi i subplot
     fig.update_xaxes(range=[-2, 102], visible=False)
     fig.update_yaxes(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68)
-    
+
     return fig
 
-def plot_pass_density_plotly(passes_df, team_name, is_away=False):
+# def plot_pass_density_plotly(passes_df, team_name, is_away=False):
+#     """
+#     Crea una mappa di densità (KDE) interattiva su un campo da calcio.
+#     """
+#     fig = go.Figure()
+#     pitch_shapes = pitch_plots.get_plotly_pitch_shapes()
+
+#     df_plot = passes_df.copy()
+#     if is_away:
+#         df_plot['x'] = 100 - df_plot['x']
+#         df_plot['y'] = 100 - df_plot['y']
+
+#     colorscale = 'Reds' if not is_away else 'Blues'
+
+#     if not df_plot.empty:
+#         fig.add_trace(go.Histogram2dContour(
+#             x=df_plot['x'], y=df_plot['y'],
+#             colorscale=colorscale, showscale=False, line_width=0, name='Density'
+#         ))
+#         fig.add_trace(go.Scatter(
+#             x=df_plot['x'], y=df_plot['y'], mode='markers',
+#             marker=dict(color='white', size=3, opacity=0.3),
+#             hoverinfo='none', showlegend=False
+#         ))
+
+#     fig.update_layout(
+#         title=dict(text=f"{team_name} - Pass Density (KDE)", font_color='white', x=0.5),
+#         shapes=pitch_shapes,
+#         xaxis=dict(range=[-2, 102], visible=False),
+#         yaxis=dict(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68),
+#         # plot_bgcolor='#2E3439',
+#         plot_bgcolor='rgba(0,0,0,0)',
+#         paper_bgcolor='#2E3439',
+#         height=450, margin=dict(l=10, r=10, t=40, b=10), showlegend=False
+#     )
+#     return fig
+
+def plot_pass_density_plotly(
+    passes_df,
+    team_name,
+    is_away=False,
+):
     """
-    Crea una mappa di densità (KDE) interattiva su un campo da calcio.
+    Show the spatial concentration of pass origins.
+
+    All teams are displayed attacking towards x=100.
+    is_away controls only the visual palette.
     """
+
     fig = go.Figure()
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes()
-    
-    df_plot = passes_df.copy()
+
+    pitch_shapes = (
+        pitch_plots.get_plotly_pitch_shapes(
+            "rgba(255,255,255,0.20)",
+            "rgba(255,255,255,0.72)",
+        )
+    )
+
+    df_plot = (
+        passes_df.copy()
+        if passes_df is not None
+        else pd.DataFrame()
+    )
+
+    # Coordinates are already normalised so every team
+    # attacks from left to right. Do not mirror Away.
+
     if is_away:
-        df_plot['x'] = 100 - df_plot['x']
-        df_plot['y'] = 100 - df_plot['y']
-    
-    colorscale = 'Reds' if not is_away else 'Blues'
+        colorscale = [
+            [0.00, 'rgba(11,143,178,0.00)'],
+            [0.15, 'rgba(11,143,178,0.14)'],
+            [0.45, 'rgba(55,184,210,0.52)'],
+            [0.75, 'rgba(19,157,191,0.78)'],
+            [1.00, 'rgba(4,119,151,0.96)'],
+        ]
+    else:
+        colorscale = [
+            [0.00, 'rgba(232,93,72,0.00)'],
+            [0.15, 'rgba(232,93,72,0.14)'],
+            [0.45, 'rgba(243,132,110,0.52)'],
+            [0.75, 'rgba(235,95,73,0.78)'],
+            [1.00, 'rgba(196,62,45,0.96)'],
+        ]
 
     if not df_plot.empty:
-        fig.add_trace(go.Histogram2dContour(
-            x=df_plot['x'], y=df_plot['y'],
-            colorscale=colorscale, showscale=False, line_width=0, name='Density'
-        ))
-        fig.add_trace(go.Scatter(
-            x=df_plot['x'], y=df_plot['y'], mode='markers',
-            marker=dict(color='white', size=3, opacity=0.3),
-            hoverinfo='none', showlegend=False
-        ))
+
+        x = pd.to_numeric(
+            df_plot['x'],
+            errors='coerce',
+        )
+
+        y = pd.to_numeric(
+            df_plot['y'],
+            errors='coerce',
+        )
+
+        valid = (
+            x.between(0, 100)
+            & y.between(0, 100)
+        )
+
+        df_plot = df_plot.loc[valid].copy()
+
+        if not df_plot.empty:
+
+            # ---------------------------------------------
+            # DENSITY
+            # ---------------------------------------------
+            fig.add_trace(
+                go.Histogram2dContour(
+                    x=df_plot['x'],
+                    y=df_plot['y'],
+
+                    colorscale=colorscale,
+                    showscale=False,
+
+                    contours=dict(
+                        coloring='fill',
+                        showlines=False,
+                    ),
+
+                    ncontours=14,
+                    opacity=0.92,
+
+                    hoverinfo='skip',
+                    showlegend=False,
+                )
+            )
+
+            # ---------------------------------------------
+            # RAW PASS ORIGINS
+            # ---------------------------------------------
+            hover_text = []
+
+            for _, row in df_plot.iterrows():
+
+                player = row.get(
+                    'playerName',
+                    'Unknown',
+                )
+
+                minute = row.get(
+                    'timeMin',
+                    '?',
+                )
+
+                hover_text.append(
+                    (
+                        f"<b>{player}</b>"
+                        f"<br>Minute: {minute}'"
+                        f"<br>Origin: "
+                        f"{float(row['x']):.1f}, "
+                        f"{float(row['y']):.1f}"
+                    )
+                )
+
+            fig.add_trace(
+                go.Scattergl(
+                    x=df_plot['x'],
+                    y=df_plot['y'],
+
+                    mode='markers',
+
+                    marker=dict(
+                        size=4,
+                        color='#e8f0f4',
+                        opacity=0.32,
+                        line=dict(
+                            width=0,
+                        ),
+                    ),
+
+                    text=hover_text,
+
+                    hovertemplate=(
+                        "%{text}"
+                        "<extra></extra>"
+                    ),
+
+                    showlegend=False,
+                )
+            )
+
+    if df_plot.empty:
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text="No pass-location data",
+            showarrow=False,
+            font=dict(
+                color=(
+                    'rgba(255,255,255,0.68)'
+                ),
+                size=14,
+            ),
+        )
+
+    # ---------------------------------------------
+    # ATTACKING DIRECTION
+    # ---------------------------------------------
+    fig.add_annotation(
+        x=98,
+        y=104,
+        text='<b>ATTACKING →</b>',
+        showarrow=False,
+        xanchor='right',
+        font=dict(
+            color='#94dbea',
+            size=10,
+        ),
+    )
 
     fig.update_layout(
-        title=dict(text=f"{team_name} - Pass Density (KDE)", font_color='white', x=0.5),
         shapes=pitch_shapes,
-        xaxis=dict(range=[-2, 102], visible=False),
-        yaxis=dict(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68),
-        # plot_bgcolor='#2E3439', 
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='#2E3439',
-        height=450, margin=dict(l=10, r=10, t=40, b=10), showlegend=False
+
+        xaxis=dict(
+            range=[-2, 102],
+            visible=False,
+            fixedrange=True,
+        ),
+
+        yaxis=dict(
+            range=[-5, 107],
+            visible=False,
+            fixedrange=True,
+        ),
     )
+
+    apply_dark_pitch_layout(
+        fig,
+        height=510,
+        top_margin=120,
+        showlegend=False,
+    )
+
+    add_plot_header(
+        fig,
+        title=f"{team_name} · Pass origin density",
+        subtitle=(
+            f"{len(df_plot)} pass attempts · "
+            "brighter areas = higher concentration"
+        ),
+        dark=True,
+    )
+
     return fig
 
-def plot_pass_heatmap_plotly(passes_df, team_name, is_away=False):
+# def plot_pass_heatmap_plotly(passes_df, team_name, is_away=False):
+#     """
+#     Versione 3: Aggiunge bordi ai bin, punti di passaggio e mostra percentuali.
+#     """
+#     fig = go.Figure()
+#     pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(0, 0, 0, 0.5)")
+
+#     df_plot = passes_df.copy()
+#     if is_away:
+#         df_plot['x'] = 100 - df_plot['x']
+#         df_plot['y'] = 100 - df_plot['y']
+
+#     colorscale = 'Reds' if not is_away else 'Blues'
+
+#     if not df_plot.empty:
+#         total_passes = len(df_plot)
+#         x_bins, y_bins = np.linspace(0, 100, 7), np.linspace(0, 100, 6)
+#         counts, y_edges, x_edges = np.histogram2d(df_plot['y'], df_plot['x'], bins=[y_bins, x_bins])
+
+#         # Le percentuali vengono calcolate sui conteggi
+#         percentages = (counts / total_passes) * 100 if total_passes > 0 else counts
+
+#         # 1. Disegna la Heatmap con i bordi
+#         fig.add_trace(go.Heatmap(
+#             z=counts,
+#             x=(x_edges[:-1] + x_edges[1:]) / 2,
+#             y=(y_edges[:-1] + y_edges[1:]) / 2,
+#             colorscale=colorscale,
+#             colorbar=dict(
+#                 title='Passes',
+#                 tickfont=dict(
+#                     color='white' # Colore per i numeri (ticks) della colorbar
+#                 ),
+#                 title_font=dict(
+#                     color='white' # Colore per il titolo ("Passes") della colorbar
+#                 )
+#             ),
+#             xgap=1, ygap=1
+#         ))
+
+#         # 2. Aggiungi i Punti di Passaggio sopra la heatmap
+#         fig.add_trace(go.Scatter(
+#             x=df_plot['x'], y=df_plot['y'],
+#             mode='markers',
+#             marker=dict(color='black', size=3, opacity=0.4),
+#             hoverinfo='none', showlegend=False
+#         ))
+
+#         # 3. Aggiungi le etichette con le PERCENTUALI
+#         annotations = []
+#         for i, row in enumerate(percentages):
+#             for j, perc in enumerate(row):
+#                 if perc > 0:
+#                     annotations.append(go.layout.Annotation(
+#                         x=(x_edges[j] + x_edges[j+1]) / 2,
+#                         y=(y_edges[i] + y_edges[i+1]) / 2,
+#                         text=f"<b>{perc:.0f}%</b>", # Mostra la percentuale
+#                         showarrow=False,
+#                         font=dict(color='white' if counts[i, j] > counts.max() / 1.8 else 'black', size=11)
+#                     ))
+#         fig.update_layout(annotations=annotations)
+
+#     # Il layout rimane quasi identico, ma ora le shapes sono sopra tutto
+#     fig.update_layout(
+#         title=dict(text="Pass Heatmap", font_color='white', x=0.5),
+#         shapes=pitch_shapes,
+#         xaxis=dict(range=[-2, 102], visible=False),
+#         yaxis=dict(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68),
+#         plot_bgcolor='#2E3439', paper_bgcolor='#2E3439',
+#         height=450, margin=dict(l=10, r=40, t=40, b=10), showlegend=False
+#     )
+
+#     # Forza le forme del campo ad essere sopra la heatmap
+#     for shape in fig.layout.shapes:
+#         shape.layer = 'above'
+
+#     return fig
+
+def plot_pass_heatmap_plotly(
+    passes_df,
+    team_name,
+    is_away=False,
+):
     """
-    Versione 3: Aggiunge bordi ai bin, punti di passaggio e mostra percentuali.
+    Show the distribution of pass origins in pitch bins.
+
+    Percentages use all valid pass origins as denominator.
+    Permanent labels are shown only for meaningful cells.
     """
+
     fig = go.Figure()
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(0, 0, 0, 0.5)")
 
-    df_plot = passes_df.copy()
+    pitch_shapes = (
+        pitch_plots.get_plotly_pitch_shapes(
+            "rgba(255,255,255,0.22)",
+            "rgba(255,255,255,0.74)",
+        )
+    )
+
+    df_plot = (
+        passes_df.copy()
+        if passes_df is not None
+        else pd.DataFrame()
+    )
+
+    # Again: Away changes palette only, not orientation.
+
     if is_away:
-        df_plot['x'] = 100 - df_plot['x']
-        df_plot['y'] = 100 - df_plot['y']
-
-    colorscale = 'Reds' if not is_away else 'Blues'
+        colorscale = [
+            [0.00, 'rgba(11,143,178,0.00)'],
+            [0.15, 'rgba(11,143,178,0.16)'],
+            [0.50, '#63c5d8'],
+            [1.00, '#087f9f'],
+        ]
+    else:
+        colorscale = [
+            [0.00, 'rgba(232,93,72,0.00)'],
+            [0.15, 'rgba(232,93,72,0.16)'],
+            [0.50, '#f09581'],
+            [1.00, '#d84f39'],
+        ]
 
     if not df_plot.empty:
-        total_passes = len(df_plot)
-        x_bins, y_bins = np.linspace(0, 100, 7), np.linspace(0, 100, 6)
-        counts, y_edges, x_edges = np.histogram2d(df_plot['y'], df_plot['x'], bins=[y_bins, x_bins])
-        
-        # Le percentuali vengono calcolate sui conteggi
-        percentages = (counts / total_passes) * 100 if total_passes > 0 else counts
-        
-        # 1. Disegna la Heatmap con i bordi
-        fig.add_trace(go.Heatmap(
-            z=counts,
-            x=(x_edges[:-1] + x_edges[1:]) / 2,
-            y=(y_edges[:-1] + y_edges[1:]) / 2,
-            colorscale=colorscale,
-            colorbar=dict(
-                title='Passes',
-                tickfont=dict(
-                    color='white' # Colore per i numeri (ticks) della colorbar
+
+        x = pd.to_numeric(
+            df_plot['x'],
+            errors='coerce',
+        )
+
+        y = pd.to_numeric(
+            df_plot['y'],
+            errors='coerce',
+        )
+
+        valid = (
+            x.between(0, 100)
+            & y.between(0, 100)
+        )
+
+        df_plot = df_plot.loc[valid].copy()
+
+    total_passes = len(df_plot)
+
+    if total_passes > 0:
+
+        # Keep the existing useful 6 × 5 grid.
+        x_bins = np.linspace(
+            0,
+            100,
+            7,
+        )
+
+        y_bins = np.linspace(
+            0,
+            100,
+            6,
+        )
+
+        counts, y_edges, x_edges = (
+            np.histogram2d(
+                df_plot['y'],
+                df_plot['x'],
+                bins=[
+                    y_bins,
+                    x_bins,
+                ],
+            )
+        )
+
+        percentages = (
+            counts
+            / total_passes
+            * 100
+        )
+
+        x_centres = (
+            x_edges[:-1]
+            + x_edges[1:]
+        ) / 2
+
+        y_centres = (
+            y_edges[:-1]
+            + y_edges[1:]
+        ) / 2
+
+        max_percentage = max(
+            float(
+                percentages.max()
+            ),
+            1.0,
+        )
+
+        # ---------------------------------------------
+        # HEATMAP
+        # ---------------------------------------------
+        fig.add_trace(
+            go.Heatmap(
+                z=percentages,
+                x=x_centres,
+                y=y_centres,
+
+                customdata=counts,
+
+                colorscale=colorscale,
+
+                zmin=0,
+                zmax=max_percentage,
+
+                showscale=False,
+
+                xgap=2,
+                ygap=2,
+
+                hovertemplate=(
+                    "<b>%{customdata:.0f} passes</b>"
+                    "<br>%{z:.1f}% of pass origins"
+                    "<extra></extra>"
                 ),
-                title_font=dict(
-                    color='white' # Colore per il titolo ("Passes") della colorbar
+            )
+        )
+
+        # ---------------------------------------------
+        # LABEL ONLY MEANINGFUL CELLS
+        #
+        # At least:
+        # - 3 events
+        # - roughly 2% of team pass volume
+        # ---------------------------------------------
+        label_threshold = max(
+            3,
+            int(
+                np.ceil(
+                    total_passes * 0.02
                 )
             ),
-            xgap=1, ygap=1 
-        ))
-        
-        # 2. Aggiungi i Punti di Passaggio sopra la heatmap
-        fig.add_trace(go.Scatter(
-            x=df_plot['x'], y=df_plot['y'],
-            mode='markers',
-            marker=dict(color='black', size=3, opacity=0.4),
-            hoverinfo='none', showlegend=False
-        ))
+        )
 
-        # 3. Aggiungi le etichette con le PERCENTUALI
-        annotations = []
-        for i, row in enumerate(percentages):
-            for j, perc in enumerate(row):
-                if perc > 0:
-                    annotations.append(go.layout.Annotation(
-                        x=(x_edges[j] + x_edges[j+1]) / 2,
-                        y=(y_edges[i] + y_edges[i+1]) / 2,
-                        text=f"<b>{perc:.0f}%</b>", # Mostra la percentuale
-                        showarrow=False,
-                        font=dict(color='white' if counts[i, j] > counts.max() / 1.8 else 'black', size=11)
-                    ))
-        fig.update_layout(annotations=annotations)
-    
-    # Il layout rimane quasi identico, ma ora le shapes sono sopra tutto
-    fig.update_layout(
-        title=dict(text="Pass Heatmap", font_color='white', x=0.5),
-        shapes=pitch_shapes,
-        xaxis=dict(range=[-2, 102], visible=False),
-        yaxis=dict(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68),
-        plot_bgcolor='#2E3439', paper_bgcolor='#2E3439',
-        height=450, margin=dict(l=10, r=40, t=40, b=10), showlegend=False
+        for i in range(
+            counts.shape[0]
+        ):
+            for j in range(
+                counts.shape[1]
+            ):
+
+                count = int(
+                    counts[i, j]
+                )
+
+                if count < label_threshold:
+                    continue
+
+                percentage = float(
+                    percentages[i, j]
+                )
+
+                intensity = (
+                    percentage
+                    / max_percentage
+                )
+
+                text_color = (
+                    '#ffffff'
+                    if intensity >= 0.48
+                    else '#dce8ee'
+                )
+
+                fig.add_annotation(
+                    x=x_centres[j],
+                    y=y_centres[i],
+
+                    text=(
+                        f"<b>{percentage:.0f}%</b>"
+                        f"<br>"
+                        f"<span style='font-size:9px'>"
+                        f"{count}"
+                        f"</span>"
+                    ),
+
+                    showarrow=False,
+
+                    font=dict(
+                        color=text_color,
+                        size=11,
+                    ),
+                )
+
+    else:
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text="No pass-location data",
+            showarrow=False,
+            font=dict(
+                color=(
+                    'rgba(255,255,255,0.68)'
+                ),
+                size=14,
+            ),
+        )
+
+    fig.add_annotation(
+        x=98,
+        y=104,
+        text='<b>ATTACKING →</b>',
+        showarrow=False,
+        xanchor='right',
+        font=dict(
+            color='#94dbea',
+            size=10,
+        ),
     )
-    
-    # Forza le forme del campo ad essere sopra la heatmap
+
+    fig.update_layout(
+        shapes=pitch_shapes,
+
+        xaxis=dict(
+            range=[-2, 102],
+            visible=False,
+            fixedrange=True,
+        ),
+
+        yaxis=dict(
+            range=[-5, 107],
+            visible=False,
+            fixedrange=True,
+        ),
+    )
+
+    # Pitch markings must remain readable above the cells.
     for shape in fig.layout.shapes:
         shape.layer = 'above'
+
+    apply_dark_pitch_layout(
+        fig,
+        height=510,
+        top_margin=120,
+        showlegend=False,
+    )
+
+    add_plot_header(
+        fig,
+        title=f"{team_name} · Pass origin profile",
+        subtitle=(
+            f"{total_passes} pass attempts · "
+            "share of origins by pitch zone"
+        ),
+        dark=True,
+    )
 
     return fig

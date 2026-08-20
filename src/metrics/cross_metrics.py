@@ -1,7 +1,7 @@
 # src/metrics/cross_metrics.py
 import pandas as pd
 import dash_bootstrap_components as dbc
-from dash import html, dash_table
+from dash import html
 
 def analyze_crosses(df_processed, team_name):
     """
@@ -9,7 +9,7 @@ def analyze_crosses(df_processed, team_name):
     """
     # Filtra tutti gli eventi di tipo "Pass" con il qualifier "cross"
     crosses_df = df_processed[
-        (df_processed['team_name'] == team_name) & 
+        (df_processed['team_name'] == team_name) &
         (df_processed['type_name'] == 'Pass') &
         (df_processed['cross'] == 1)
     ].copy()
@@ -18,7 +18,7 @@ def analyze_crosses(df_processed, team_name):
         return pd.DataFrame()
 
     analyzed_data = []
-    
+
     # Determina la zona di origine e destinazione per ogni cross
     def get_pitch_zone(x, y):
         if y > 67:
@@ -27,14 +27,14 @@ def analyze_crosses(df_processed, team_name):
             side = "Right"
         else:
             side = "Center"
-        
+
         if x > 80:
             area = "Deep"
         elif x > 60:
             area = "Advanced"
         else:
             area = "Midfield"
-            
+
         return f"{side} {area}"
 
     for _, cross in crosses_df.iterrows():
@@ -48,14 +48,16 @@ def analyze_crosses(df_processed, team_name):
         if cross.get('In-swinger') == 1: swing = 'In-swinger'
         elif cross.get('Out-swinger') == 1: swing = 'Out-swinger'
         elif cross.get('Straight') == 1: swing = 'Straight'
-        
+
         origin_zone = get_pitch_zone(cross['x'], cross['y'])
         destination_zone = get_pitch_zone(cross['end_x'], cross['end_y'])
-        
+
         # Semplificazione dell'outcome
-        outcome = "Retained"
-        if cross['outcome'] == 'Unsuccessful':
-            outcome = "Lost"
+        outcome = (
+            "Completed"
+            if cross['outcome'] == 'Successful'
+            else "Incomplete"
+        )
         # Potremmo aggiungere una logica per 'Shot' o 'Goal' se analizziamo la sequenza successiva,
         # per ora ci limitiamo al successo del cross stesso.
 
@@ -73,7 +75,7 @@ def analyze_crosses(df_processed, team_name):
             'end_x': cross['end_x'],
             'end_y': cross['end_y']
         })
-        
+
     return pd.DataFrame(analyzed_data)
 
 def create_cross_summary_cards(df_analyzed, active_filter=None):
@@ -89,14 +91,27 @@ def create_cross_summary_cards(df_analyzed, active_filter=None):
         # Usiamo l'active_filter definito nello scope esterno
         for value, count in sorted_items:
             active = active_filter is not None and str(active_filter.get(filter_type)) == str(value)
-            
+
             items.append(dbc.ListGroupItem(
                 [html.Div(value), dbc.Badge(f"{count}", color="light", className="ms-auto")],
                 id={'type': 'cross-filter', 'filter_type': filter_type, 'value': value},
                 action=True, n_clicks=0, active=active,
                 className="d-flex justify-content-between align-items-center"
             ))
-        return dbc.Col(dbc.Card([dbc.CardHeader(title), dbc.ListGroup(items, flush=True)]), md=4)
+        return dbc.Card(
+            [
+                dbc.CardHeader(
+                    title,
+                    className="cross-filter-card-header",
+                ),
+
+                dbc.ListGroup(
+                    items,
+                    flush=True,
+                ),
+            ],
+            className="cross-filter-card",
+        )
 
     stats = {
         'origin': df_analyzed['Origin Zone'].value_counts().to_dict(),
@@ -107,9 +122,9 @@ def create_cross_summary_cards(df_analyzed, active_filter=None):
         'takers': df_analyzed['playerName'].value_counts().to_dict(),
         'play_type': df_analyzed['Play Type'].value_counts().to_dict()
     }
-    
+
     active_filter = active_filter or {}
-    
+
     # --- CHIAMATE CORRETTE (con 3 argomenti) ---
     cards = [
         create_card("Origin Zone", stats.get('origin'), 'origin'),
@@ -119,7 +134,7 @@ def create_cross_summary_cards(df_analyzed, active_filter=None):
         create_card("Taker Foot", stats.get('feet'), 'foot'),
         create_card("Outcome", stats.get('outcome'), 'outcome'),
     ]
-    
+
     # Creiamo la card dei crossatori a parte per gestire il filter_type 'taker'
     takers_stats = stats.get('takers')
     if takers_stats:
@@ -133,93 +148,197 @@ def create_cross_summary_cards(df_analyzed, active_filter=None):
                 action=True, n_clicks=0, active=active,
                 className="d-flex justify-content-between align-items-center"
             ))
-        cards.append(dbc.Col(dbc.Card([dbc.CardHeader("Top Crossers"), dbc.ListGroup(takers_items, flush=True)]), md=4))
+        cards.append(
+            dbc.Card(
+                [
+                    dbc.CardHeader(
+                        "Top Crossers",
+                        className="cross-filter-card-header",
+                    ),
 
-    valid_cards = [card for card in cards if card is not None]
-    
-    # Layout a 3 colonne
-    rows = [dbc.Row(valid_cards[i:i+3], className="mb-3") for i in range(0, len(valid_cards), 3)]
-    
-    return html.Div(rows)
+                    dbc.ListGroup(
+                        takers_items,
+                        flush=True,
+                    ),
+                ],
+                className="cross-filter-card",
+            )
+        )
 
-def generate_cross_flow_table(df_analyzed):
-    """
-    Crea una tabella a matrice di flusso (heatmap tabellare) che mostra
-    le origini e le destinazioni dei cross.
-    VERSIONE CORRETTA E SEMPLIFICATA
-    """
-    if df_analyzed.empty:
-        return dbc.Alert("No cross flow data to display.", color="info")
+    valid_cards = [
+        card
+        for card in cards
+        if card is not None
+    ]
 
-    flow_matrix = pd.crosstab(
-        df_analyzed['Origin Zone'],
-        df_analyzed['Destination Zone']
+    return html.Div(
+        valid_cards,
+        className="cross-filter-grid",
     )
 
-    if flow_matrix.empty:
-        return dbc.Alert("No cross flow data to display.", color="info")
+def build_cross_flow_profile(
+    df_analyzed,
+    limit=8,
+):
+    """
+    Summarise the most common cross pathways.
 
-    flow_matrix['Total Out'] = flow_matrix.sum(axis=1)
-    flow_matrix.loc['Total In'] = flow_matrix.sum(axis=0)
-    flow_matrix = flow_matrix.reset_index()
+    A pathway is:
+        Origin Zone -> Destination Zone
 
-    columns = [{"name": i, "id": i} for i in flow_matrix.columns]
-    data = flow_matrix.to_dict('records')
+    Completion refers to the Opta outcome of the
+    cross/pass event itself.
 
-    # --- Stile "Fancy" Semplificato (Heatmap di Colori) ---
-    style_data_conditional = []
-    
-    # Itera sulle colonne numeriche per applicare la scala di colori
-    numeric_cols = flow_matrix.columns.drop(['Origin Zone'])
-    
-    for col in numeric_cols:
-        # Trova il massimo valore nella colonna per normalizzare
-        max_val = flow_matrix[col].max()
-        if max_val > 0:
-            # Applica una scala di colori (es. da trasparente a blu)
-            style_data_conditional.extend([
-                {
-                    'if': {
-                        'filter_query': f'{{{col}}} = {val}',
-                        'column_id': col
-                    },
-                    # Calcola l'opacità in base al valore della cella
-                    'backgroundColor': f'rgba(91, 192, 222, {val / max_val})', # Colore Info di Bootstrap
-                    'color': 'white'
-                } for val in flow_matrix[col].unique() if val > 0
-            ])
+    Percentages use all currently filtered crosses
+    as denominator.
+    """
 
-    return dash_table.DataTable(
-        columns=columns,
-        data=data,
-        style_as_list_view=True,
-        style_header={
-            'backgroundColor': 'rgb(30, 30, 30)',
-            'color': 'white',
-            'fontWeight': 'bold',
-            'border': '1px solid rgb(80, 80, 80)',
-        },
-        style_cell={
-            'backgroundColor': 'rgb(50, 50, 50)',
-            'color': 'white',
-            'textAlign': 'center',
-            'minWidth': '90px', 'width': '90px', 'maxWidth': '90px',
-            'border': '1px solid rgb(80, 80, 80)'
-        },
-        style_data_conditional=[
-            {
-                'if': {'row_index': 'odd'},
-                'backgroundColor': 'rgb(60, 60, 60)'
-            },
-            {
-                'if': {'column_id': 'Total Out'},
-                'backgroundColor': 'rgb(40, 40, 40)',
-                'fontWeight': 'bold'
-            },
-            {
-                'if': {'row_index': len(flow_matrix) - 2}, # La riga dei totali
-                'backgroundColor': 'rgb(40, 40, 40)',
-                'fontWeight': 'bold'
-            }
-        ] + style_data_conditional # Aggiungi la nostra heatmap
+    default_summary = {
+        'total_crosses': 0,
+        'top_route': 'N/A',
+        'top_route_count': 0,
+        'top_route_pct': 0.0,
+        'top_three_pct': 0.0,
+    }
+
+    columns = [
+        'Origin Zone',
+        'Destination Zone',
+        'Crosses',
+        'Share %',
+        'Completed',
+        'Completion %',
+    ]
+
+    if (
+        df_analyzed is None
+        or df_analyzed.empty
+    ):
+        return (
+            default_summary,
+            pd.DataFrame(columns=columns),
+        )
+
+    df = df_analyzed.copy()
+
+    total_crosses = len(df)
+
+    # ---------------------------------------------------------
+    # ROUTE VOLUME
+    # ---------------------------------------------------------
+
+    routes = (
+        df.groupby(
+            [
+                'Origin Zone',
+                'Destination Zone',
+            ],
+            dropna=False,
+        )
+        .size()
+        .reset_index(name='Crosses')
+    )
+
+    # ---------------------------------------------------------
+    # COMPLETED CROSSES BY ROUTE
+    # ---------------------------------------------------------
+
+    completed = (
+        df[
+            df['Outcome'] == 'Completed'
+        ]
+        .groupby(
+            [
+                'Origin Zone',
+                'Destination Zone',
+            ],
+            dropna=False,
+        )
+        .size()
+        .reset_index(name='Completed')
+    )
+
+    routes = routes.merge(
+        completed,
+        on=[
+            'Origin Zone',
+            'Destination Zone',
+        ],
+        how='left',
+    )
+
+    routes['Completed'] = (
+        routes['Completed']
+        .fillna(0)
+        .astype(int)
+    )
+
+    routes['Share %'] = (
+        routes['Crosses']
+        / total_crosses
+        * 100
+    )
+
+    routes['Completion %'] = (
+        routes['Completed']
+        / routes['Crosses']
+        * 100
+    )
+
+    routes = (
+        routes
+        .sort_values(
+            [
+                'Crosses',
+                'Completed',
+            ],
+            ascending=[
+                False,
+                False,
+            ],
+        )
+        .reset_index(drop=True)
+    )
+
+    if routes.empty:
+        return (
+            default_summary,
+            pd.DataFrame(columns=columns),
+        )
+
+    top_route = routes.iloc[0]
+
+    top_three_count = int(
+        routes
+        .head(3)['Crosses']
+        .sum()
+    )
+
+    summary = {
+        'total_crosses':
+            int(total_crosses),
+
+        'top_route': (
+            f"{top_route['Origin Zone']} → "
+            f"{top_route['Destination Zone']}"
+        ),
+
+        'top_route_count':
+            int(top_route['Crosses']),
+
+        'top_route_pct':
+            float(top_route['Share %']),
+
+        'top_three_pct': (
+            top_three_count
+            / total_crosses
+            * 100
+        ),
+    }
+
+    return (
+        summary,
+        routes
+        .head(limit)[columns]
+        .copy(),
     )

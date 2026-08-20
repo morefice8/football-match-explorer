@@ -3,212 +3,521 @@ import plotly.graph_objects as go
 from .buildup_plotly import draw_plotly_pitch # Riusiamo il disegnatore
 import pandas as pd
 import numpy as np
-from ..config import BG_COLOR, LINE_COLOR
 from plotly.colors import sample_colorscale
+from .plotly_branding import (
+    apply_dark_pitch_layout,
+)
 
-# def plot_cross_heatmap(df_analyzed, location_type='origin', team_color='blue', grid_size=6):
-#     """
-#     Crea una heatmap per le origini ('origin') o destinazioni ('destination') dei cross.
-#     """
-#     if location_type == 'origin':
-#         x_coords, y_coords = df_analyzed['x'], df_analyzed['y']
-#         title = "Cross Origins Heatmap"
-#     else:
-#         x_coords, y_coords = df_analyzed['end_x'], df_analyzed['end_y']
-#         title = "Cross Destinations Heatmap"
-
-#     fig = go.Figure(go.Densitymapbox(
-#         lon=x_coords, lat=y_coords,
-#         radius=15,
-#         colorscale=[[0, 'rgba(0,0,0,0)'], [1, team_color]],
-#         showscale=False
-#     ))
-#     # Binning e calcolo heatmap (logica identica a quella difensiva)
-#     bin_edges = np.linspace(0, 100, grid_size + 1)
-#     heatmap, _, _ = np.histogram2d(x_coords, y_coords, bins=[bin_edges, bin_edges])
-#     total = heatmap.sum()
-#     heatmap_pct = heatmap / total * 100 if total > 0 else heatmap
-#     max_val = heatmap_pct.max() if heatmap_pct.max() > 0 else 1
-
-#     # Helper per rettangolo
-#     def rectangle(x0, x1, y0, y1):
-#         return {
-#             "x": [x0, x1, x1, x0, x0],
-#             "y": [y0, y0, y1, y1, y0]
-#         }
-
-#     fig = go.Figure()
-#     draw_plotly_pitch(fig)
-#     return fig
-
-def plot_cross_heatmap(df_analyzed, location_type='origin', is_away=False, grid_size=6, selected_cross_id=None):
+def plot_cross_heatmap(
+    df_analyzed,
+    location_type='origin',
+    is_away=False,
+    grid_size=6,
+    selected_cross_id=None,
+):
     """
-    Crea una heatmap per le origini ('origin') o destinazioni ('destination') dei cross.
+    Plot cross origin or destination locations.
+
+    All teams are displayed attacking towards x=100.
+    Home uses the coral palette and Away the cyan palette.
+
+    The heatmap always represents the full filtered sample.
+    When one cross is selected, it is highlighted on top
+    without removing the distribution context.
     """
-    if df_analyzed.empty:
-        return go.Figure().update_layout(title_text=f"No Cross {location_type.title()} Data", template="plotly_dark")
-    
-    if selected_cross_id:
-        # Se un cross è selezionato, lavoriamo solo con quella riga
-        df_plot = df_analyzed[df_analyzed['cross_id'] == selected_cross_id]
-        if df_plot.empty: # Fallback nel caso l'ID non sia più nei dati filtrati
-            df_plot = df_analyzed
-            selected_cross_id = None # Annulla la selezione
-    else:
-        # Altrimenti, usiamo tutti i dati
-        df_plot = df_analyzed
-
-
-    if location_type == 'origin':
-        x_coords, y_coords = df_plot['x'], df_plot['y']
-        title = "Cross Origins Heatmap"
-    else:
-        x_coords, y_coords = df_plot['end_x'], df_plot['end_y']
-        title = "Cross Destinations Heatmap"
 
     fig = go.Figure()
+
     draw_plotly_pitch(fig)
 
-    if x_coords.empty or y_coords.empty:
-        fig.add_annotation(text="No data to plot", showarrow=False, font=dict(color='white'))
+    # Make the pitch compatible with the dark branded canvas.
+    fig.update_shapes(
+        line_color='rgba(255,255,255,0.48)',
+        line_width=1.1,
+    )
+
+    if (
+        df_analyzed is None
+        or df_analyzed.empty
+    ):
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text="No cross data to plot",
+            showarrow=False,
+            font=dict(
+                color='rgba(255,255,255,0.68)',
+                size=14,
+            ),
+        )
+
+        fig.update_layout(
+            xaxis=dict(
+                range=[0, 100],
+                visible=False,
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                range=[0, 100],
+                visible=False,
+                fixedrange=True,
+            ),
+        )
+
+        apply_dark_pitch_layout(
+            fig,
+            height=520,
+            top_margin=35,
+            showlegend=False,
+        )
+
         return fig
 
-    # Binning e calcolo heatmap (logica identica a quella difensiva)
-    if not selected_cross_id:
-        bin_edges = np.linspace(0, 100, grid_size + 1)
-        all_x = df_analyzed['x'] if location_type == 'origin' else df_analyzed['end_x']
-        all_y = df_analyzed['y'] if location_type == 'origin' else df_analyzed['end_y']
-        heatmap, _, _ = np.histogram2d(all_x, all_y, bins=[bin_edges, bin_edges])
-        total = heatmap.sum()
-        heatmap_pct = heatmap / total * 100 if total > 0 else heatmap
-        max_val = heatmap_pct.max() if heatmap_pct.max() > 0 else 1
+    # ---------------------------------------------------------
+    # COORDINATES
+    # ---------------------------------------------------------
 
-        # Helper per rettangolo
-        def rectangle(x0, x1, y0, y1):
-            return {
-                "x": [x0, x1, x1, x0, x0],
-                "y": [y0, y0, y1, y1, y0]
-            }
-        
-        total_crosses = heatmap.sum()
-        if total_crosses == 0:
-            fig.add_annotation(text="No crosses in this area", showarrow=False, font=dict(color='white'))
-            return fig
-            
+    if location_type == 'origin':
+        x_column = 'x'
+        y_column = 'y'
+    else:
+        x_column = 'end_x'
+        y_column = 'end_y'
 
-        for i, x0 in enumerate(bin_edges[:-1]):
-            x1 = bin_edges[i+1]
-            for j, y0 in enumerate(bin_edges[:-1]):
-                y1 = bin_edges[j+1]
-                perc = heatmap_pct[i, j]
-                intensity = perc / max_val  # Normalizzazione
-                colorscale = 'Blues' if is_away else 'Reds'
-                color = sample_colorscale(colorscale, [intensity])[0] if perc > 0 else "rgba(0,0,0,0)"
-                poly = rectangle(x0, x1, y0, y1)
-                    
-                # Riempimento colorato
-                fig.add_trace(go.Scatter(
-                    x=poly["x"], y=poly["y"],
-                    fill="toself",
-                    mode="lines",
-                    fillcolor=color,
-                    line=dict(color='rgba(0,0,0,0.2)'),
-                    hoverinfo="skip",
-                    showlegend=False
-                ))
-                    
-                # Etichetta della % al centro del bin
-                if perc > 1:
-                    cx = (x0 + x1) / 2
-                    cy = (y0 + y1) / 2
-                    fig.add_trace(go.Scatter(
-                        x=[cx], y=[cy],
-                        mode="text",
-                        text=[f"{perc:.1f}%"],
-                        textfont=dict(size=15, color='white', weight='bold'),
-                        showlegend=False,
-                        hoverinfo="skip"
-                    ))
+    df_plot = df_analyzed.copy()
 
-    #hover_texts = df_analyzed['Destination Zone']
-    hover_texts = [
-        f"<b>{row['playerName']}</b><br>{row['Foot']} Foot | {row['Swing']}" 
-        for index, row in df_analyzed.iterrows()
-    ]
+    df_plot[x_column] = pd.to_numeric(
+        df_plot[x_column],
+        errors='coerce',
+    )
 
+    df_plot[y_column] = pd.to_numeric(
+        df_plot[y_column],
+        errors='coerce',
+    )
 
-    # Eventi singoli con hover personalizzato
-    fig.add_trace(go.Scatter(
-        x=x_coords, y=y_coords,
-        mode='markers',
-        marker=dict(
-            color='yellow' if selected_cross_id else 'black',
-            size=8,
-            opacity=0.8,
-            line=dict(color='black', width=2)
+    df_plot = df_plot[
+        df_plot[x_column].between(
+            0,
+            100,
+            inclusive='both',
+        )
+        & df_plot[y_column].between(
+            0,
+            100,
+            inclusive='both',
+        )
+    ].copy()
+
+    if df_plot.empty:
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text="No valid cross locations",
+            showarrow=False,
+            font=dict(
+                color='rgba(255,255,255,0.68)',
+                size=14,
+            ),
+        )
+
+        fig.update_layout(
+            xaxis=dict(
+                range=[0, 100],
+                visible=False,
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                range=[0, 100],
+                visible=False,
+                fixedrange=True,
+            ),
+        )
+
+        apply_dark_pitch_layout(
+            fig,
+            height=520,
+            top_margin=35,
+            showlegend=False,
+        )
+
+        return fig
+
+    # Coordinates are already team-normalised.
+    # Do not mirror the Away team.
+
+    # ---------------------------------------------------------
+    # TEAM PALETTE
+    # ---------------------------------------------------------
+
+    if is_away:
+        colorscale = [
+            [0.00, '#eaf8fb'],
+            [0.45, '#80d0df'],
+            [0.72, '#36b4cf'],
+            [1.00, '#087f9f'],
+        ]
+
+        team_color = '#13a7c7'
+
+    else:
+        colorscale = [
+            [0.00, '#fff0ec'],
+            [0.45, '#f3aa99'],
+            [0.72, '#ee765f'],
+            [1.00, '#d84f39'],
+        ]
+
+        team_color = '#ef6652'
+
+    # ---------------------------------------------------------
+    # BINNED DISTRIBUTION
+    # ---------------------------------------------------------
+
+    bin_edges = np.linspace(
+        0,
+        100,
+        grid_size + 1,
+    )
+
+    heatmap, _, _ = np.histogram2d(
+        df_plot[x_column],
+        df_plot[y_column],
+        bins=[
+            bin_edges,
+            bin_edges,
+        ],
+    )
+
+    total = int(
+        heatmap.sum()
+    )
+
+    heatmap_pct = (
+        heatmap / total * 100
+        if total > 0
+        else heatmap
+    )
+
+    max_pct = max(
+        float(
+            heatmap_pct.max()
         ),
-        hoverinfo='text',
-        text=hover_texts,
-        # hovertemplate="Outcome: %{text}<br>X: %{x:.1f}, Y: %{y:.1f}<extra></extra>",
-        customdata=df_plot['cross_id'], # Passa l'ID per l'hover
-        name='cross_points',
-        showlegend=False
-    ))
+        1.0,
+    )
 
-    # if selected_cross_id and not df_analyzed.empty:
-    #     highlight_row = df_analyzed[df_analyzed['cross_id'] == selected_cross_id]
-    #     if not highlight_row.empty:
-    #         if location_type == 'origin':
-    #             hx, hy = highlight_row.iloc[0]['x'], highlight_row.iloc[0]['y']
-    #         else:
-    #             hx, hy = highlight_row.iloc[0]['end_x'], highlight_row.iloc[0]['end_y']
-            
-    #         fig.add_trace(go.Scatter(
-    #             x=[hx], y=[hy],
-    #             mode='markers',
-    #             marker=dict(color='yellow', size=14, line=dict(color='black', width=2)),
-    #             hoverinfo='skip',
-    #             name='highlighted_point'
-    #         ))
+    def rectangle(
+        x0,
+        x1,
+        y0,
+        y1,
+    ):
+        return {
+            'x': [
+                x0,
+                x1,
+                x1,
+                x0,
+                x0,
+            ],
+            'y': [
+                y0,
+                y0,
+                y1,
+                y1,
+                y0,
+            ],
+        }
+
+    for i, x0 in enumerate(
+        bin_edges[:-1]
+    ):
+        x1 = bin_edges[i + 1]
+
+        for j, y0 in enumerate(
+            bin_edges[:-1]
+        ):
+            y1 = bin_edges[j + 1]
+
+            count = int(
+                heatmap[i, j]
+            )
+
+            if count == 0:
+                continue
+
+            percentage = float(
+                heatmap_pct[i, j]
+            )
+
+            intensity = min(
+                percentage / max_pct,
+                1.0,
+            )
+
+            color = sample_colorscale(
+                colorscale,
+                [intensity],
+            )[0]
+
+            polygon = rectangle(
+                x0,
+                x1,
+                y0,
+                y1,
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=polygon['x'],
+                    y=polygon['y'],
+
+                    fill='toself',
+
+                    mode='lines',
+
+                    fillcolor=color,
+
+                    line=dict(
+                        color=(
+                            'rgba(255,255,255,0.12)'
+                        ),
+                        width=1,
+                    ),
+
+                    text=(
+                        f"{count} crosses"
+                        f"<br>{percentage:.1f}% "
+                        "of filtered crosses"
+                    ),
+
+                    hovertemplate=(
+                        "%{text}"
+                        "<extra></extra>"
+                    ),
+
+                    showlegend=False,
+                )
+            )
+
+            # One cross remains visible as an individual
+            # point only. Label cells from 2 crosses upward.
+            if count >= 2:
+
+                cx = (
+                    x0 + x1
+                ) / 2
+
+                cy = (
+                    y0 + y1
+                ) / 2
+
+                text_color = (
+                    '#ffffff'
+                    if intensity >= 0.45
+                    else '#17354d'
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[cx],
+                        y=[cy],
+
+                        mode='text',
+
+                        text=[
+                            f"{percentage:.0f}%"
+                        ],
+
+                        textfont=dict(
+                            size=12,
+                            color=text_color,
+                            weight='bold',
+                        ),
+
+                        hoverinfo='skip',
+                        showlegend=False,
+                    )
+                )
+
+    # ---------------------------------------------------------
+    # INDIVIDUAL CROSSES
+    # ---------------------------------------------------------
+
+    hover_texts = []
+
+    for _, row in df_plot.iterrows():
+
+        player = row.get(
+            'playerName',
+            'Unknown',
+        )
+
+        foot = row.get(
+            'Foot',
+            'Unknown',
+        )
+
+        swing = row.get(
+            'Swing',
+            'N/A',
+        )
+
+        play_type = row.get(
+            'Play Type',
+            'Unknown',
+        )
+
+        outcome = row.get(
+            'Outcome',
+            'Unknown',
+        )
+
+        origin = row.get(
+            'Origin Zone',
+            'Unknown',
+        )
+
+        destination = row.get(
+            'Destination Zone',
+            'Unknown',
+        )
+
+        hover_texts.append(
+            (
+                f"<b>{player}</b>"
+                f"<br>{foot} foot · {swing}"
+                f"<br>{play_type}"
+                f"<br>{origin} → {destination}"
+                f"<br>Outcome: {outcome}"
+            )
+        )
+
+    fig.add_trace(
+        go.Scatter(
+            x=df_plot[x_column],
+            y=df_plot[y_column],
+
+            mode='markers',
+
+            marker=dict(
+                color='rgba(235,243,247,0.72)',
+                size=6,
+                opacity=0.80,
+
+                line=dict(
+                    color=team_color,
+                    width=1.0,
+                ),
+            ),
+
+            text=hover_texts,
+
+            hovertemplate=(
+                "%{text}"
+                "<extra></extra>"
+            ),
+
+            customdata=df_plot['cross_id'],
+
+            name='cross_points',
+
+            showlegend=False,
+        )
+    )
+
+    # ---------------------------------------------------------
+    # SELECTED CROSS
+    # ---------------------------------------------------------
+
+    if selected_cross_id is not None:
+
+        selected = df_plot[
+            df_plot['cross_id']
+            == selected_cross_id
+        ]
+
+        if not selected.empty:
+
+            selected_row = (
+                selected.iloc[0]
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=[
+                        selected_row[
+                            x_column
+                        ]
+                    ],
+                    y=[
+                        selected_row[
+                            y_column
+                        ]
+                    ],
+
+                    mode='markers',
+
+                    marker=dict(
+                        size=14,
+                        color='#f5c451',
+
+                        line=dict(
+                            color='#17354d',
+                            width=2.2,
+                        ),
+                    ),
+
+                    hoverinfo='skip',
+
+                    showlegend=False,
+                )
+            )
+
+    # ---------------------------------------------------------
+    # ATTACKING DIRECTION
+    # ---------------------------------------------------------
+
+    fig.add_annotation(
+        x=98,
+        y=103,
+        text='<b>ATTACKING →</b>',
+        showarrow=False,
+        xanchor='right',
+
+        font=dict(
+            color='#94dbea',
+            size=10,
+        ),
+    )
+
+    # ---------------------------------------------------------
+    # LAYOUT
+    # ---------------------------------------------------------
 
     fig.update_layout(
-        title_text=f"<b>{title}</b>",
-        title_font_color='black',
-        title_x=0.5,
-        plot_bgcolor=BG_COLOR,
-        paper_bgcolor=BG_COLOR,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[0, 100]), 
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[0, 100], scaleanchor="x", scaleratio=0.68),
-        margin=dict(l=10, r=10, t=40, b=10),
-        height=600, # Altezza leggermente ridotta
+        title=None,
+
+        xaxis=dict(
+            range=[0, 100],
+            visible=False,
+            fixedrange=True,
+        ),
+
+        yaxis=dict(
+            range=[0, 100],
+            visible=False,
+            fixedrange=True,
+        ),
+
         showlegend=False,
     )
-    return fig
 
-def plot_cross_sankey(df_analyzed):
-    """
-    Crea un grafico Sankey per mostrare il flusso da Origin Zone a Destination Zone.
-    """
-    if df_analyzed.empty:
-        return go.Figure().update_layout(title="No data for Sankey plot")
+    apply_dark_pitch_layout(
+        fig,
+        height=520,
+        top_margin=32,
+        showlegend=False,
+    )
 
-    df_sankey = df_analyzed.groupby(['Origin Zone', 'Destination Zone']).size().reset_index(name='count')
-    
-    all_nodes = pd.concat([df_sankey['Origin Zone'], df_sankey['Destination Zone']]).unique()
-    node_map = {node: i for i, node in enumerate(all_nodes)}
-    
-    fig = go.Figure(data=[go.Sankey(
-        node=dict(
-            pad=15,
-            thickness=20,
-            line=dict(color="black", width=0.5),
-            label=all_nodes,
-        ),
-        link=dict(
-            source=[node_map[origin] for origin in df_sankey['Origin Zone']],
-            target=[node_map[dest] for dest in df_sankey['Destination Zone']],
-            value=df_sankey['count']
-        )
-    )])
-    fig.update_layout(title_text="Cross Flow: Origin to Destination", font_size=12)
     return fig

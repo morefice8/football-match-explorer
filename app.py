@@ -185,6 +185,7 @@ def render_sequence_comparison_panel(
     funnel_label_overrides=None,
     profile_labels=None,
     hint_text=None,
+    funnel_tooltip_overrides=None,
 ):
     """
     Render a Home vs Away sequence comparison.
@@ -199,6 +200,53 @@ def render_sequence_comparison_panel(
     funnel_label_overrides = (
         funnel_label_overrides
         or {}
+    )
+
+    funnel_tooltip_overrides = (
+        funnel_tooltip_overrides
+        or {}
+    )
+
+    default_funnel_tooltips = {
+        'total_sequences': (
+            "All detected sequences included in the comparison. "
+            "Every percentage in this panel uses this total "
+            "as its denominator."
+        ),
+
+        'reached_middle_third': (
+            "The sequence reached x ≥ 33.33 through a controlled "
+            "ball location."
+        ),
+
+        'reached_opposition_half': (
+            "The sequence reached x ≥ 50 through a controlled "
+            "ball location."
+        ),
+
+        'reached_final_third': (
+            "The sequence reached x ≥ 66.67 through a controlled "
+            "ball location."
+        ),
+
+        'entered_penalty_area': (
+            "The sequence reached the penalty area at x ≥ 83 "
+            "and y between 21.1 and 78.9. Successful action "
+            "destinations count; unsuccessful destinations do not."
+        ),
+
+        'produced_shot': (
+            "The sequence contained a Goal, Miss, "
+            "Attempt Saved or Post event."
+        ),
+
+        'produced_goal': (
+            "The sequence produced a goal."
+        ),
+    }
+
+    default_funnel_tooltips.update(
+        funnel_tooltip_overrides
     )
 
     profile_labels = (
@@ -235,11 +283,98 @@ def render_sequence_comparison_panel(
         if row.get('key') in funnel_keys
     ]
 
+    total_row = next(
+        (
+            row
+            for row in comparison.get(
+                'funnel',
+                []
+            )
+            if row.get('key')
+            == 'total_sequences'
+        ),
+        {},
+    )
+
+    home_sample_size = int(
+        total_row.get(
+            'home_count',
+            0,
+        )
+        or 0
+    )
+
+    away_sample_size = int(
+        total_row.get(
+            'away_count',
+            0,
+        )
+        or 0
+    )
+
     def format_percentage(value):
         try:
             return f"{float(value):.0f}%"
         except (TypeError, ValueError):
             return "0%"
+
+    def metric_label(
+        row,
+    ):
+        key = row.get('key')
+
+        label = funnel_label_overrides.get(
+            key,
+            row.get(
+                'label',
+                key or '',
+            ),
+        )
+
+        tooltip_text = (
+            default_funnel_tooltips.get(
+                key
+            )
+        )
+
+        if not tooltip_text:
+            return dash_html.Span(
+                label,
+                className="sequence-comparison-label-text",
+            )
+
+        tooltip_id = (
+            "sequence-info-"
+            f"{uuid.uuid4().hex}"
+        )
+
+        return dash_html.Div([
+
+            dash_html.Span(
+                label,
+                className="sequence-comparison-label-text",
+            ),
+
+            dash_html.I(
+                id=tooltip_id,
+                className=(
+                    "fa-regular "
+                    "fa-circle-question "
+                    "sequence-definition-icon"
+                ),
+            ),
+
+            dbc.Tooltip(
+                tooltip_text,
+                target=tooltip_id,
+                placement="top",
+                delay={
+                    "show": 250,
+                    "hide": 80,
+                },
+            ),
+
+        ], className="sequence-comparison-label-content")
 
     def funnel_row(row):
         home_percentage = float(
@@ -299,13 +434,7 @@ def render_sequence_comparison_panel(
             ], className="sequence-comparison-side"),
 
             dash_html.Div(
-                funnel_label_overrides.get(
-                    row.get('key'),
-                    row.get(
-                        'label',
-                        row.get('key', ''),
-                    ),
-                ),
+                metric_label(row),
                 className="sequence-comparison-label",
             ),
 
@@ -569,27 +698,50 @@ def render_sequence_comparison_panel(
 
         dash_html.Div([
             dash_html.Div([
-                dash_html.Strong(
-                    home_team,
-                    className="sequence-team-name",
-                    style={
-                        "color": home_color,
-                    },
-                ),
+
+                dash_html.Div([
+                    dash_html.Strong(
+                        home_team,
+                        className="sequence-team-name",
+                        style={
+                            "color": home_color,
+                        },
+                    ),
+
+                    dash_html.Small(
+                        f"n = {home_sample_size}",
+                        className="sequence-team-sample",
+                    ),
+
+                ], className="sequence-team-identity"),
+
                 dash_html.Span(
                     "Milestone",
                     className="sequence-team-middle",
                 ),
-                dash_html.Strong(
-                    away_team,
-                    className=(
-                        "sequence-team-name "
-                        "sequence-team-name--away"
+
+                dash_html.Div([
+                    dash_html.Strong(
+                        away_team,
+                        className=(
+                            "sequence-team-name "
+                            "sequence-team-name--away"
+                        ),
+                        style={
+                            "color": away_color,
+                        },
                     ),
-                    style={
-                        "color": away_color,
-                    },
-                ),
+
+                    dash_html.Small(
+                        f"n = {away_sample_size}",
+                        className="sequence-team-sample",
+                    ),
+
+                ], className=(
+                    "sequence-team-identity "
+                    "sequence-team-identity--away"
+                )),
+
             ], className="sequence-team-header"),
 
             *[
@@ -1309,7 +1461,6 @@ def render_match_tab_content(search_query, stored_data_json):
                     dbc.Tab(label="Pass Locations", tab_id="pass_locations", children=[
                         dash_html.Div([ # Main container for this tab's content
                             dcc.Loading(type="circle", children=dash_html.Div(id="div-pass-density-content")),
-                            dcc.Loading(type="circle", children=dash_html.Div(id="div-pass-heatmap-content")),
                             dash_html.Hr(className="my-4"),
                             dash_html.H6("Comments for Pass Locations:", className="mt-3 text-white"),
                             dcc.Textarea(
@@ -1823,52 +1974,329 @@ def show_pass_network_graph_plotly(stored_data_json):
         fig_home = pass_plotly.plot_pass_network_plotly(home_passes_between, home_avg_locs, HTEAM_NAME, HCOL, home_subs, is_away=False)
 
         # **MODIFICA TABELLA: Aggiungi numeri di maglia**
-        home_jersey_map = home_avg_locs.set_index('playerName')['jersey_number'].to_dict()
-        home_table_df = home_passes_between[['player1', 'player2', 'pass_count']].copy()
-        home_table_df['player1'] = home_table_df['player1'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
-        home_table_df['player2'] = home_table_df['player2'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
-        home_table = dbc.Table.from_dataframe(home_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
+
+        # home_table_df = home_passes_between[['player1', 'player2', 'pass_count']].copy()
+        # home_table_df['player1'] = home_table_df['player1'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
+        # home_table_df['player2'] = home_table_df['player2'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
+        # home_table = dbc.Table.from_dataframe(home_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
 
         # --- Dati per Away Team ---
         away_passes_between, away_avg_locs = pass_metrics.calculate_pass_network_data(successful_passes, ATEAM_NAME)
         fig_away = pass_plotly.plot_pass_network_plotly(away_passes_between, away_avg_locs, ATEAM_NAME, ACOL, away_subs, is_away=True)
 
         # **MODIFICA TABELLA: Aggiungi numeri di maglia**
+        # away_table_df = away_passes_between[['player1', 'player2', 'pass_count']].copy()
+        # away_table_df['player1'] = away_table_df['player1'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
+        # away_table_df['player2'] = away_table_df['player2'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
+        # away_table = dbc.Table.from_dataframe(away_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
+
+        def build_top_connections(
+            passes_between,
+            jersey_map,
+            team_color,
+            limit=6,
+        ):
+            if (
+                passes_between is None
+                or passes_between.empty
+            ):
+                return dash_html.Div(
+                    "No reliable connections available.",
+                    className="pass-network-empty",
+                )
+
+            top_connections = (
+                passes_between
+                .sort_values(
+                    'pass_count',
+                    ascending=False,
+                )
+                .head(limit)
+                .copy()
+            )
+
+            max_count = max(
+                int(
+                    top_connections[
+                        'pass_count'
+                    ].max()
+                ),
+                1,
+            )
+
+            def player_label(
+                player_name,
+            ):
+                jersey_raw = jersey_map.get(
+                    player_name
+                )
+
+                try:
+                    jersey = str(
+                        int(float(jersey_raw))
+                    )
+                except (
+                    ValueError,
+                    TypeError,
+                ):
+                    jersey = '?'
+
+                return (
+                    f"#{jersey} · {player_name}"
+                )
+
+            rows = []
+
+            for rank, (_, row) in enumerate(
+                top_connections.iterrows(),
+                start=1,
+            ):
+                count = int(
+                    row['pass_count']
+                )
+
+                width = (
+                    count / max_count * 100
+                )
+
+                rows.append(
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            str(rank),
+                            className=(
+                                "pass-connection-rank"
+                            ),
+                        ),
+
+                        dash_html.Div([
+
+                            dash_html.Div(
+                                [
+                                    dash_html.Span(
+                                        player_label(
+                                            row['player1']
+                                        )
+                                    ),
+
+                                    dash_html.I(
+                                        className=(
+                                            "fa-solid "
+                                            "fa-arrow-right-arrow-left"
+                                        )
+                                    ),
+
+                                    dash_html.Span(
+                                        player_label(
+                                            row['player2']
+                                        )
+                                    ),
+                                ],
+                                className=(
+                                    "pass-connection-pair"
+                                ),
+                            ),
+
+                            dash_html.Div(
+                                dash_html.Span(
+                                    style={
+                                        "width":
+                                            f"{width:.1f}%",
+                                        "backgroundColor":
+                                            team_color,
+                                    }
+                                ),
+                                className=(
+                                    "pass-connection-track"
+                                ),
+                            ),
+
+                        ], className=(
+                            "pass-connection-main"
+                        )),
+
+                        dash_html.Strong(
+                            str(count),
+                            className=(
+                                "pass-connection-count"
+                            ),
+                        ),
+
+                    ], className=(
+                        "pass-connection-row"
+                    ))
+                )
+
+            return dash_html.Div(
+                rows,
+                className="pass-connection-list",
+            )
+
+        home_jersey_map = home_avg_locs.set_index('playerName')['jersey_number'].to_dict()
+        home_connections = build_top_connections(
+            home_passes_between,
+            home_jersey_map,
+            HCOL,
+        )
+
         away_jersey_map = away_avg_locs.set_index('playerName')['jersey_number'].to_dict()
-        away_table_df = away_passes_between[['player1', 'player2', 'pass_count']].copy()
-        away_table_df['player1'] = away_table_df['player1'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
-        away_table_df['player2'] = away_table_df['player2'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
-        away_table = dbc.Table.from_dataframe(away_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
+        away_connections = build_top_connections(
+            away_passes_between,
+            away_jersey_map,
+            ACOL,
+        )
+
 
         # Layout a due colonne per mostrare i grafici affiancati
         return dash_html.Div([
+
+            # ---------------------------------------------------------
+            # RECEIVER QUALITY
+            # ---------------------------------------------------------
             dash_html.Div([
-                dash_html.I(className="fa-solid fa-circle-check"),
-                dash_html.Span(
-                    f"Reliable receiver attribution: {HTEAM_NAME} "
-                    f"{home_receiver_coverage['resolved']}/{home_receiver_coverage['eligible']} "
-                    f"({home_receiver_coverage['coverage_pct']:.1f}%) · {ATEAM_NAME} "
-                    f"{away_receiver_coverage['resolved']}/{away_receiver_coverage['eligible']} "
-                    f"({away_receiver_coverage['coverage_pct']:.1f}%). "
-                    "Unresolved passes are excluded from network links."
+                dash_html.I(
+                    className="fa-solid fa-circle-check"
                 ),
+
+                dash_html.Span(
+                    (
+                        f"Reliable receiver attribution: "
+                        f"{HTEAM_NAME} "
+                        f"{home_receiver_coverage['resolved']}/"
+                        f"{home_receiver_coverage['eligible']} "
+                        f"({home_receiver_coverage['coverage_pct']:.1f}%)"
+                        f" · "
+                        f"{ATEAM_NAME} "
+                        f"{away_receiver_coverage['resolved']}/"
+                        f"{away_receiver_coverage['eligible']} "
+                        f"({away_receiver_coverage['coverage_pct']:.1f}%). "
+                        "Unresolved passes are excluded from "
+                        "network links."
+                    )
+                ),
+
             ], className="match-analysis-note mb-3"),
-            dbc.Row([
-                dbc.Col(dcc.Graph(figure=fig_home), md=6),
-                dbc.Col(dcc.Graph(figure=fig_away), md=6),
-            ]),
-            dash_html.Hr(),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Button("Toggle Top Home Connections", id="btn-collapse-home", className="mb-3"),
-                    dbc.Collapse(home_table, id="collapse-home")
-                ], md=6),
-                dbc.Col([
-                    dbc.Button("Toggle Top Away Connections", id="btn-collapse-away", className="mb-3"),
-                    dbc.Collapse(away_table, id="collapse-away")
-                ], md=6)
-            ])
-        ])
+
+
+            # ---------------------------------------------------------
+            # NETWORK PANELS
+            # ---------------------------------------------------------
+            dash_html.Div([
+
+                # HOME
+                dash_html.Section([
+
+                    dcc.Graph(
+                        figure=fig_home,
+                        config={
+                            'displayModeBar': False,
+                            'responsive': True,
+                        },
+                        className=(
+                            "pass-network-graph"
+                        ),
+                    ),
+
+                    dash_html.Div([
+
+                        dash_html.Div([
+                            dash_html.Span(
+                                "TOP CONNECTIONS",
+                                className=(
+                                    "match-panel-eyebrow"
+                                ),
+                            ),
+
+                            dash_html.H4(
+                                HTEAM_NAME,
+                                className=(
+                                    "pass-network-connections-title"
+                                ),
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "Highest-volume player pairs. "
+                                    "Passes in both directions are "
+                                    "combined."
+                                ),
+                                className=(
+                                    "match-panel-description"
+                                ),
+                            ),
+
+                        ]),
+
+                        home_connections,
+
+                    ], className=(
+                        "pass-network-connections"
+                    )),
+
+                ], className=(
+                    "match-panel "
+                    "pass-network-team-panel"
+                )),
+
+
+                # AWAY
+                dash_html.Section([
+
+                    dcc.Graph(
+                        figure=fig_away,
+                        config={
+                            'displayModeBar': False,
+                            'responsive': True,
+                        },
+                        className=(
+                            "pass-network-graph"
+                        ),
+                    ),
+
+                    dash_html.Div([
+
+                        dash_html.Div([
+                            dash_html.Span(
+                                "TOP CONNECTIONS",
+                                className=(
+                                    "match-panel-eyebrow"
+                                ),
+                            ),
+
+                            dash_html.H4(
+                                ATEAM_NAME,
+                                className=(
+                                    "pass-network-connections-title"
+                                ),
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "Highest-volume player pairs. "
+                                    "Passes in both directions are "
+                                    "combined."
+                                ),
+                                className=(
+                                    "match-panel-description"
+                                ),
+                            ),
+
+                        ]),
+
+                        away_connections,
+
+                    ], className=(
+                        "pass-network-connections"
+                    )),
+
+                ], className=(
+                    "match-panel "
+                    "pass-network-team-panel"
+                )),
+
+            ], className="pass-network-grid"),
+
+        ], className="match-tab-body")
 
     except Exception as e:
         tb_str = traceback.format_exc()
@@ -1883,27 +2311,6 @@ def show_pass_network_graph_content_callback(stored_data_json):
     print("--- show_pass_network_graph_content_callback (Plotly) TRIGGERED ---")
     return show_pass_network_graph_plotly(stored_data_json)
 
-@app.callback(
-    Output("collapse-home", "is_open"),
-    [Input("btn-collapse-home", "n_clicks")],
-    [State("collapse-home", "is_open")],
-    prevent_initial_call=True,
-)
-def toggle_home_connections_table(n, is_open):
-    if n:
-        return not is_open
-    return is_open
-
-@app.callback(
-    Output("collapse-away", "is_open"),
-    [Input("btn-collapse-away", "n_clicks")],
-    [State("collapse-away", "is_open")],
-    prevent_initial_call=True,
-)
-def toggle_away_connections_table(n, is_open):
-    if n:
-        return not is_open
-    return is_open
 
 # --- CALLBACK TO SAVE COMMENT FOR PASS NETWORK ---
 def get_comment_key(pathname, plot_identifier):
@@ -2115,37 +2522,126 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
                 className='progressive-map-graph',
             )
 
-            def metric_card(label, value, detail):
+            def metric_card(
+                label,
+                value,
+                detail,
+                tooltip=None,
+            ):
+                if tooltip:
+                    tooltip_id = (
+                        "progressive-kpi-info-"
+                        f"{uuid.uuid4().hex}"
+                    )
+
+                    label_component = dash_html.Div([
+
+                        dash_html.Span(
+                            label,
+                            className='progressive-kpi-label',
+                        ),
+
+                        dash_html.I(
+                            id=tooltip_id,
+                            className=(
+                                "fa-regular "
+                                "fa-circle-question "
+                                "metric-definition-icon"
+                            ),
+                        ),
+
+                        dbc.Tooltip(
+                            tooltip,
+                            target=tooltip_id,
+                            placement="top",
+                            delay={
+                                "show": 250,
+                                "hide": 80,
+                            },
+                        ),
+
+                    ], className="metric-label-with-info")
+
+                else:
+                    label_component = dash_html.Span(
+                        label,
+                        className='progressive-kpi-label',
+                    )
+
                 return dash_html.Div([
-                    dash_html.Span(label, className='progressive-kpi-label'),
-                    dash_html.Strong(value, className='progressive-kpi-value'),
-                    dash_html.Small(detail, className='progressive-kpi-detail'),
+
+                    label_component,
+
+                    dash_html.Strong(
+                        value,
+                        className='progressive-kpi-value',
+                    ),
+
+                    dash_html.Small(
+                        detail,
+                        className='progressive-kpi-detail',
+                    ),
+
                 ], className='progressive-kpi-card')
 
             main_channel_count = summary['channel_counts'].get(
                 summary['main_channel'], 0
             )
+
             kpis = dash_html.Div([
+
                 metric_card(
                     'Completed / attempted',
-                    f"{summary['successful']} / {summary['attempted']}",
+                    (
+                        f"{summary['successful']} "
+                        f"/ {summary['attempted']}"
+                    ),
                     'Open-play progressive passes',
+                    (
+                        "Attempted is the total number of open-play "
+                        "passes that satisfy the progressive-pass "
+                        "criterion. Completed counts only those with "
+                        "a successful outcome."
+                    ),
                 ),
+
                 metric_card(
                     'Completion',
                     f"{summary['completion_pct']:.1f}%",
-                    'Precision on progressive attempts',
+                    'Completed ÷ attempted',
+                    (
+                        "Progressive-pass completion rate. "
+                        "The denominator is all qualifying "
+                        "progressive-pass attempts."
+                    ),
                 ),
+
                 metric_card(
                     'Progression gained',
                     f"{summary['total_progression_m']:.0f} m",
-                    'Successful passes only',
+                    'Completed progressive passes only',
+                    (
+                        "Only completed progressive passes contribute "
+                        "to this total. Failed attempts contribute "
+                        "zero metres."
+                    ),
                 ),
+
                 metric_card(
                     'Main origin channel',
                     summary['main_channel'],
-                    f"{main_channel_count} of {summary['attempted']} attempts",
+                    (
+                        f"{main_channel_count} of "
+                        f"{summary['attempted']} attempts"
+                    ),
+                    (
+                        "The pitch is divided into Left, Central and "
+                        "Right origin channels using the starting "
+                        "location of each progressive-pass attempt. "
+                        "The denominator is all progressive attempts."
+                    ),
                 ),
+
             ], className='progressive-kpi-grid')
 
             channel_total = max(summary['attempted'], 1)
@@ -2221,12 +2717,21 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
                             'HOME TEAM' if not is_away else 'AWAY TEAM',
                             className='match-panel-eyebrow',
                         ),
-                        dash_html.H4(team_name),
+                        dash_html.H4(team_name,className="match-team-name"),
                     ]),
-                    dash_html.Span(
-                        'All teams attack left to right',
-                        className='match-panel-hint',
-                    ),
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            f"n = {summary['attempted']} attempts",
+                            className="progressive-sample-size",
+                        ),
+
+                        dash_html.Span(
+                            "All teams attack left to right",
+                            className='match-panel-hint',
+                        ),
+
+                    ], className="progressive-panel-meta"),
                 ], className='match-panel-header'),
                 dbc.Row([
                     dbc.Col(graph_component, lg=8),
@@ -2486,20 +2991,66 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             # -------------------------------------------------
             # KPI
             # -------------------------------------------------
-            def metric_card(label, value, detail):
-                return dash_html.Div([
-                    dash_html.Span(
+            def metric_card(
+                label,
+                value,
+                detail,
+                tooltip=None,
+            ):
+                if tooltip:
+                    tooltip_id = (
+                        "final-third-kpi-info-"
+                        f"{uuid.uuid4().hex}"
+                    )
+
+                    label_component = dash_html.Div([
+
+                        dash_html.Span(
+                            label,
+                            className='progressive-kpi-label',
+                        ),
+
+                        dash_html.I(
+                            id=tooltip_id,
+                            className=(
+                                "fa-regular "
+                                "fa-circle-question "
+                                "metric-definition-icon"
+                            ),
+                        ),
+
+                        dbc.Tooltip(
+                            tooltip,
+                            target=tooltip_id,
+                            placement="top",
+                            delay={
+                                "show": 250,
+                                "hide": 80,
+                            },
+                        ),
+
+                    ], className="metric-label-with-info")
+
+                else:
+                    label_component = dash_html.Span(
                         label,
                         className='progressive-kpi-label',
-                    ),
+                    )
+
+                return dash_html.Div([
+
+                    label_component,
+
                     dash_html.Strong(
                         value,
                         className='progressive-kpi-value',
                     ),
+
                     dash_html.Small(
                         detail,
                         className='progressive-kpi-detail',
                     ),
+
                 ], className='progressive-kpi-card')
 
             total_entries = stats.get('total_final_third', 0)
@@ -2535,26 +3086,58 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             )
 
             kpis = dash_html.Div([
+
                 metric_card(
                     'Total entries',
                     str(total_entries),
                     'Passes + reliable carries',
+                    (
+                        "An entry is counted when the ball starts "
+                        "outside the attacking final third "
+                        "(x < 66.67) and ends inside it "
+                        "(x ≥ 66.67)."
+                    ),
                 ),
+
                 metric_card(
                     'Pass / carry',
                     f"{pass_count} / {carry_count}",
                     'Method of entry',
+                    (
+                        "Pass entries include completed passes only. "
+                        "Carry entries include only inferred carries "
+                        "marked as reliable."
+                    ),
                 ),
+
                 metric_card(
                     'Main entry channel',
                     main_channel,
-                    f"{main_channel_count} of {total_entries} entries",
+                    (
+                        f"{main_channel_count} of "
+                        f"{total_entries} entries"
+                    ),
+                    (
+                        "Left, Central and Right are based on the "
+                        "entry destination y-coordinate. "
+                        "The denominator is all final-third entries."
+                    ),
                 ),
+
                 metric_card(
                     'Inside channels',
                     str(inside_entries),
-                    f"{inside_pct:.1f}% to Zone 14 or half-spaces",
+                    (
+                        f"{inside_pct:.1f}% of "
+                        f"{total_entries} entries"
+                    ),
+                    (
+                        "Counts entries ending in Zone 14, "
+                        "the Left Half-Space or the Right Half-Space. "
+                        "The denominator is all final-third entries."
+                    ),
                 ),
+
             ], className='progressive-kpi-grid')
 
             # -------------------------------------------------
@@ -2775,13 +3358,22 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                             'HOME TEAM' if not is_away else 'AWAY TEAM',
                             className='match-panel-eyebrow',
                         ),
-                        dash_html.H4(team_name),
+                        dash_html.H4(team_name,className="match-team-name"),
                     ]),
 
-                    dash_html.Span(
-                        'All teams attack left to right',
-                        className='match-panel-hint',
-                    ),
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            f"n = {total_entries} entries",
+                            className="progressive-sample-size",
+                        ),
+
+                        dash_html.Span(
+                            "All teams attack left to right",
+                            className='match-panel-hint',
+                        ),
+
+                    ], className="progressive-panel-meta"),
 
                 ], className='match-panel-header'),
 
@@ -2821,11 +3413,15 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                 className='fas fa-info-circle'
             ),
             dash_html.Span(
-                'A final-third entry is recorded when the ball crosses '
-                'the attacking-third boundary from outside to inside. '
-                'Completed passes and reliably inferred carries are '
-                'included. Zone 14 and the half-spaces describe the '
-                'destination of the entry, not the definition of the metric.'
+                (
+                    'A final-third entry is recorded when the ball '
+                    'moves from x < 66.67 to x ≥ 66.67. '
+                    'Completed passes and reliably inferred carries '
+                    'are included. Entry channels are classified from '
+                    'the destination y-coordinate. Zone 14 and the '
+                    'half-spaces describe the destination of the entry, '
+                    'not the definition of the metric.'
+                )
             ),
         ], className=(
             'match-analysis-note '
@@ -3050,24 +3646,144 @@ def show_pass_location_plots_callback(stored_data_json, active_nested_tab):
         fig_away_density = pass_plotly.plot_pass_density_plotly(away_passes, ATEAM_NAME, is_away=True)
         fig_away_heatmap = pass_plotly.plot_pass_heatmap_plotly(away_passes, ATEAM_NAME, is_away=True)
 
-        # Costruisci il layout finale con i subplot gestiti da Dash Bootstrap
-        return dash_html.Div([
-            # Sezione Home Team
-            dash_html.H4(f"{HTEAM_NAME} - Pass Locations", className="text-center text-white mt-3"),
-            dbc.Row([
-                dbc.Col(dcc.Graph(figure=fig_home_density), md=6),
-                dbc.Col(dcc.Graph(figure=fig_home_heatmap), md=6),
-            ], className="g-2"), # g-2 riduce lo spazio tra le colonne
+        def team_pass_location_panel(
+            team_name,
+            passes,
+            density_fig,
+            heatmap_fig,
+            is_away,
+        ):
+            return dash_html.Section([
 
-            dash_html.Hr(className="my-4"),
+                # -----------------------------------------
+                # TEAM HEADER
+                # -----------------------------------------
+                dash_html.Div([
 
-            # Sezione Away Team
-            dash_html.H4(f"{ATEAM_NAME} - Pass Locations", className="text-center text-white mt-3"),
-            dbc.Row([
-                dbc.Col(dcc.Graph(figure=fig_away_density), md=6),
-                dbc.Col(dcc.Graph(figure=fig_away_heatmap), md=6),
-            ], className="g-2")
-        ])
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            (
+                                "AWAY TEAM"
+                                if is_away
+                                else "HOME TEAM"
+                            ),
+                            className=(
+                                "match-panel-eyebrow"
+                            ),
+                        ),
+
+                        dash_html.H4(
+                            team_name,
+                            className="match-team-name",
+                        ),
+
+                    ]),
+
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            (
+                                f"n = {len(passes)} "
+                                "pass attempts"
+                            ),
+                            className=(
+                                "progressive-sample-size"
+                            ),
+                        ),
+
+                        dash_html.Span(
+                            (
+                                "All teams attack "
+                                "left to right"
+                            ),
+                            className=(
+                                "match-panel-hint"
+                            ),
+                        ),
+
+                    ], className=(
+                        "progressive-panel-meta"
+                    )),
+
+                ], className="match-panel-header"),
+
+
+                # -----------------------------------------
+                # TWO-PLOT WORKSPACE
+                # -----------------------------------------
+                dash_html.Div([
+
+                    dash_html.Div(
+                        dcc.Graph(
+                            figure=density_fig,
+                            config={
+                                'displayModeBar':
+                                    False,
+                                'responsive':
+                                    True,
+                            },
+                            className=(
+                                "pass-location-graph"
+                            ),
+                        ),
+                        className=(
+                            "pass-location-plot-shell"
+                        ),
+                    ),
+
+                    dash_html.Div(
+                        dcc.Graph(
+                            figure=heatmap_fig,
+                            config={
+                                'displayModeBar':
+                                    False,
+                                'responsive':
+                                    True,
+                            },
+                            className=(
+                                "pass-location-graph"
+                            ),
+                        ),
+                        className=(
+                            "pass-location-plot-shell"
+                        ),
+                    ),
+
+                ], className=(
+                    "pass-location-plot-grid"
+                )),
+
+            ], className=(
+                "match-panel "
+                "pass-location-team-panel"
+            ))
+
+
+        home_panel = team_pass_location_panel(
+            HTEAM_NAME,
+            home_passes,
+            fig_home_density,
+            fig_home_heatmap,
+            is_away=False,
+        )
+
+        away_panel = team_pass_location_panel(
+            ATEAM_NAME,
+            away_passes,
+            fig_away_density,
+            fig_away_heatmap,
+            is_away=True,
+        )
+
+        return dash_html.Div(
+            [
+                home_panel,
+                away_panel,
+            ],
+            className="pass-location-analysis",
+        )
+
     except Exception as e:
         tb_str = traceback.format_exc()
         return dbc.Alert(f"Error generating pass location plots: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
@@ -5233,7 +5949,11 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                     dash_html.Span(label, className="ppda-period-label"),
                     dash_html.Strong(format_ppda(snapshot['ppda']), className="ppda-period-value"),
                     dash_html.Small(
-                        f"{snapshot['opponent_passes']} passes ÷ {snapshot['defensive_actions']} actions",
+                        (
+                            f"{snapshot['opponent_passes']} opp. passes "
+                            f"÷ {snapshot['defensive_actions']} "
+                            "pressing actions"
+                        ),
                         className="ppda-period-detail",
                     ),
                 ], className="ppda-period-metric")
@@ -5286,12 +6006,32 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
             return dash_html.Div([
                 dash_html.Div([
-                    dash_html.I(className="fa-solid fa-circle-info"),
+                    dash_html.I(
+                        className="fa-solid fa-circle-info"
+                    ),
+
                     dash_html.Span([
-                        "PPDA = opponent passes starting before x=60 ÷ pressing actions from x=40 onward. ",
-                        dash_html.Strong("A lower value indicates more frequent pressure."),
+                        dash_html.Strong(
+                            "PPDA = opponent passes ÷ pressing actions. "
+                        ),
+
+                        (
+                            "The numerator includes opponent pass attempts "
+                            "starting in their first 60% of the pitch "
+                            "(x < 60). The denominator includes tackles, "
+                            "challenges, interceptions, blocked passes and "
+                            "fouls committed from x ≥ 40. "
+                        ),
+
+                        dash_html.Strong(
+                            "Lower PPDA = more intense pressure."
+                        ),
                     ]),
-                ], className="match-analysis-note ppda-definition-note"),
+
+                ], className=(
+                    "match-analysis-note "
+                    "ppda-definition-note"
+                )),
 
                 dash_html.Div([
                     summary_card(HTEAM_NAME, home_profile, HCOL),
@@ -5335,10 +6075,12 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                 dash_html.Section([
                     dash_html.Div([
                         dash_html.Div([
-                            dash_html.Span("DENOMINATOR DETAIL", className="match-panel-eyebrow"),
-                            dash_html.H3("Pressing actions by player", className="match-panel-title"),
                             dash_html.P(
-                                "Only actions occurring in the PPDA action zone are included.",
+                                (
+                                    "Counts tackles, challenges, interceptions, "
+                                    "blocked passes and fouls committed from x ≥ 40. "
+                                    "Fouls suffered are excluded."
+                                ),
                                 className="match-panel-description",
                             ),
                         ]),
@@ -5544,6 +6286,39 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
                         'passes':
                             'Opp. avg completed passes',
+                    },
+
+                    funnel_tooltip_overrides={
+                        'reached_opposition_half': (
+                            "The opponent reached the "
+                            "defending team's half during "
+                            "the 12-second transition window."
+                        ),
+
+                        'reached_final_third': (
+                            "The opponent reached the "
+                            "defending team's final third "
+                            "during the 12-second transition "
+                            "window."
+                        ),
+
+                        'entered_penalty_area': (
+                            "The opponent reached the "
+                            "defending team's penalty area "
+                            "during the 12-second transition "
+                            "window."
+                        ),
+
+                        'produced_shot': (
+                            "The opponent produced a shot "
+                            "before the defensive transition "
+                            "phase ended."
+                        ),
+
+                        'produced_goal': (
+                            "The opponent scored before the "
+                            "defensive transition phase ended."
+                        ),
                     },
 
                     hint_text=(
@@ -7392,16 +8167,31 @@ def layout_crosses_tab(active_nested_tab):
         return None # Non mostrare nulla se non siamo in questa tab
 
     return dash_html.Div([
+
         dbc.Tabs(
             id="crosses-team-tabs",
             active_tab="crosses-home",
             children=[
-                dbc.Tab(label="Home Team Crosses", tab_id="crosses-home"),
-                dbc.Tab(label="Away Team Crosses", tab_id="crosses-away"),
-            ]
+                dbc.Tab(
+                    label="Home Crosses",
+                    tab_id="crosses-home",
+                ),
+                dbc.Tab(
+                    label="Away Crosses",
+                    tab_id="crosses-away",
+                ),
+            ],
+            className="cross-team-tabs",
         ),
-        dcc.Loading(type="circle", children=dash_html.Div(id="crosses-team-content"))
-    ])
+
+        dcc.Loading(
+            type="circle",
+            children=dash_html.Div(
+                id="crosses-team-content"
+            ),
+        ),
+
+    ], className="cross-analysis")
 
 # Callback 2: Genera il contenuto per la squadra selezionata (Home o Away)
 @app.callback(
@@ -7433,48 +8223,585 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
 
         cards = cross_metrics.create_cross_summary_cards(crosses_filtered, active_filter)
 
-        home_flow_table = cross_metrics.generate_cross_flow_table(crosses_filtered)
-        sankey_plot = cross_plots.plot_cross_sankey(crosses_filtered)
+        flow_summary, flow_routes = (
+            cross_metrics.build_cross_flow_profile(
+                crosses_filtered,
+                limit=8,
+            )
+        )
 
-        analysis_summary_content = dash_html.Div([
-            dbc.Button("❌ Reset Filters & Selection", id={'type': 'reset-btn', 'section': 'crosses'}, color="danger", size="sm", className="mb-3"),
-            cards
-        ])
+        def build_cross_flow_component(
+            summary,
+            routes,
+            team_color,
+        ):
+            if (
+                routes is None
+                or routes.empty
+            ):
+                return dash_html.Div(
+                    "No cross-flow data available.",
+                    className="cross-flow-empty",
+                )
 
-        return dash_html.Div([
-            dcc.Store(id='cross-data-store-current-team', data=crosses_filtered.to_json(orient='split')),
-            dash_html.H4(f"Analysis for {team_name}", className="text-white mt-4"),
-            dbc.Button(
-                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Analysis Summary"],
-                id="cross-summary-toggle-button", # L'ID che il callback si aspetta
-                className="mb-3 w-100",
-                color="info",
-                outline=True
-            ),
+            max_count = max(
+                int(
+                    routes['Crosses'].max()
+                ),
+                1,
+            )
 
-            # Ora il Collapse ha un solo figlio: il Div che contiene tutto il resto
+            route_rows = []
+
+            for rank, (_, row) in enumerate(
+                routes.iterrows(),
+                start=1,
+            ):
+                count = int(
+                    row['Crosses']
+                )
+
+                share = float(
+                    row['Share %']
+                )
+
+                completed = int(
+                    row['Completed']
+                )
+
+                completion_pct = float(
+                    row['Completion %']
+                )
+
+                bar_width = (
+                    count
+                    / max_count
+                    * 100
+                )
+
+                route_rows.append(
+                    dash_html.Div([
+
+                        dash_html.Span(
+                            str(rank),
+                            className="cross-flow-rank",
+                        ),
+
+                        dash_html.Div([
+
+                            dash_html.Div([
+
+                                dash_html.Span(
+                                    row['Origin Zone'],
+                                    className=(
+                                        "cross-flow-zone "
+                                        "cross-flow-zone--origin"
+                                    ),
+                                ),
+
+                                dash_html.I(
+                                    className=(
+                                        "fa-solid "
+                                        "fa-arrow-right "
+                                        "cross-flow-arrow"
+                                    ),
+                                ),
+
+                                dash_html.Span(
+                                    row['Destination Zone'],
+                                    className=(
+                                        "cross-flow-zone "
+                                        "cross-flow-zone--destination"
+                                    ),
+                                ),
+
+                            ], className="cross-flow-route"),
+
+                            dash_html.Div(
+                                dash_html.Span(
+                                    style={
+                                        "width":
+                                            f"{bar_width:.1f}%",
+                                        "backgroundColor":
+                                            team_color,
+                                    }
+                                ),
+                                className="cross-flow-track",
+                            ),
+
+                            dash_html.Div([
+
+                                dash_html.Span(
+                                    f"{share:.0f}% of crosses",
+                                ),
+
+                                dash_html.Span(
+                                    "·",
+                                ),
+
+                                dash_html.Span(
+                                    (
+                                        f"{completed}/{count} "
+                                        f"completed "
+                                        f"({completion_pct:.0f}%)"
+                                    ),
+                                ),
+
+                            ], className="cross-flow-detail"),
+
+                        ], className="cross-flow-main"),
+
+                        dash_html.Strong(
+                            str(count),
+                            className="cross-flow-count",
+                        ),
+
+                    ], className="cross-flow-row")
+                )
+
+            return dash_html.Div([
+
+                # -----------------------------------------------------
+                # SUMMARY
+                # -----------------------------------------------------
+
+                dash_html.Div([
+
+                    dash_html.Div([
+                        dash_html.Span(
+                            "MOST USED ROUTE",
+                            className="cross-flow-kpi-label",
+                        ),
+
+                        dash_html.Strong(
+                            summary['top_route'],
+                            className="cross-flow-kpi-value",
+                        ),
+
+                        dash_html.Small(
+                            (
+                                f"{summary['top_route_count']} crosses · "
+                                f"{summary['top_route_pct']:.0f}% "
+                                "of the sample"
+                            ),
+                            className="cross-flow-kpi-detail",
+                        ),
+                    ], className="cross-flow-kpi"),
+
+                    dash_html.Div([
+                        dash_html.Span(
+                            "TOP 3 CONCENTRATION",
+                            className="cross-flow-kpi-label",
+                        ),
+
+                        dash_html.Strong(
+                            f"{summary['top_three_pct']:.0f}%",
+                            className="cross-flow-kpi-value",
+                        ),
+
+                        dash_html.Small(
+                            "Share of crosses using the three most common routes",
+                            className="cross-flow-kpi-detail",
+                        ),
+                    ], className="cross-flow-kpi"),
+
+                    dash_html.Div([
+                        dash_html.Span(
+                            "SAMPLE",
+                            className="cross-flow-kpi-label",
+                        ),
+
+                        dash_html.Strong(
+                            str(
+                                summary['total_crosses']
+                            ),
+                            className="cross-flow-kpi-value",
+                        ),
+
+                        dash_html.Small(
+                            "Currently filtered crosses",
+                            className="cross-flow-kpi-detail",
+                        ),
+                    ], className="cross-flow-kpi"),
+
+                ], className="cross-flow-kpi-grid"),
+
+                # -----------------------------------------------------
+                # ROUTES
+                # -----------------------------------------------------
+
+                dash_html.Div(
+                    route_rows,
+                    className="cross-flow-route-list",
+                ),
+
+            ])
+
+        flow_component = (
+            build_cross_flow_component(
+                flow_summary,
+                flow_routes,
+                HCOL if not is_away else ACOL,
+            )
+        )
+
+        # -----------------------------------------------------
+        # TEAM HEADER
+        # -----------------------------------------------------
+
+        team_header = dash_html.Div([
+
+            dash_html.Div([
+
+                dash_html.Span(
+                    (
+                        "AWAY TEAM"
+                        if is_away
+                        else "HOME TEAM"
+                    ),
+                    className="match-panel-eyebrow",
+                ),
+
+                dash_html.H4(
+                    team_name,
+                    className="match-team-name",
+                ),
+
+            ]),
+
+            dash_html.Div([
+
+                dash_html.Span(
+                    (
+                        f"n = {len(crosses_filtered)} "
+                        "crosses"
+                    ),
+                    className="progressive-sample-size",
+                ),
+
+                dash_html.Span(
+                    "All teams attack left to right",
+                    className="match-panel-hint",
+                ),
+
+            ], className="progressive-panel-meta"),
+
+        ], className=(
+            "match-panel-header "
+            "cross-team-header"
+        ))
+
+
+        # -----------------------------------------------------
+        # FILTERABLE PROFILE
+        # -----------------------------------------------------
+
+        summary_panel = dash_html.Section([
+
+            dash_html.Div([
+
+                dash_html.Div([
+
+                    dash_html.Span(
+                        "FILTERABLE PROFILE",
+                        className="match-panel-eyebrow",
+                    ),
+
+                    dash_html.H3(
+                        "Cross profile",
+                        className="match-panel-title",
+                    ),
+
+                    dash_html.P(
+                        (
+                            "Explore delivery patterns by "
+                            "origin, destination, swing, "
+                            "outcome, foot, taker and "
+                            "play type."
+                        ),
+                        className="match-panel-description",
+                    ),
+
+                ]),
+
+                dash_html.Div([
+
+                    dbc.Button(
+                        [
+                            dash_html.I(
+                                className=(
+                                    "fa-solid "
+                                    "fa-sliders me-2"
+                                )
+                            ),
+                            "Show / hide profile",
+                        ],
+                        id=(
+                            "cross-summary-toggle-button"
+                        ),
+                        className="match-secondary-button",
+                        size="sm",
+                    ),
+
+                    dbc.Button(
+                        [
+                            dash_html.I(
+                                className=(
+                                    "fa-solid "
+                                    "fa-rotate-left me-2"
+                                )
+                            ),
+                            "Reset filters",
+                        ],
+                        id={
+                            'type': 'reset-btn',
+                            'section': 'crosses',
+                        },
+                        className="match-secondary-button",
+                        size="sm",
+                    ),
+
+                ], className="cross-profile-actions"),
+
+            ], className="match-panel-header"),
+
             dbc.Collapse(
-                analysis_summary_content,
+
+                dash_html.Div(
+                    cards,
+                    className="cross-summary-content",
+                ),
+
                 id="cross-summary-collapse",
                 is_open=True,
             ),
-            dash_html.Hr(),
-            dbc.Tabs([
-                dbc.Tab(label="📍 Location Heatmaps", tab_id="heatmaps-tab", children=[ # <-- Aggiungi tab_id
-                    dbc.Row([
-                        dbc.Col(dcc.Graph(id='cross-origin-map'), md=6),
-                        dbc.Col(dcc.Graph(id='cross-dest-map'), md=6),
-                    ], className="mt-4"),
-                ]),
-                dbc.Tab(label="🌊 Cross Flow Analysis", tab_id="flow-tab", children=[ # <-- Aggiungi tab_id
-                    dash_html.Div(home_flow_table, className="mt-4"),
-                    dcc.Graph(figure=sankey_plot)
-                ]),
+
+        ], className=(
+            "match-panel "
+            "cross-summary-panel"
+        ))
+
+
+        # -----------------------------------------------------
+        # ANALYSIS WORKSPACE
+        # -----------------------------------------------------
+
+        analysis_tabs = dbc.Tabs(
+
+            [
+
+                # ---------------------------------------------
+                # LOCATION MAPS
+                # ---------------------------------------------
+                dbc.Tab(
+
+                    label="Location maps",
+                    tab_id="heatmaps-tab",
+
+                    children=[
+
+                        dash_html.Div([
+
+                            dash_html.Section([
+
+                                dash_html.Div([
+
+                                    dash_html.Span(
+                                        "CROSS ORIGINS",
+                                        className=(
+                                            "match-panel-eyebrow"
+                                        ),
+                                    ),
+
+                                    dash_html.H3(
+                                        "Where crosses started",
+                                        className=(
+                                            "match-panel-title"
+                                        ),
+                                    ),
+
+                                    dash_html.P(
+                                        (
+                                            "Click a cross to "
+                                            "highlight the same "
+                                            "delivery on both maps."
+                                        ),
+                                        className=(
+                                            "match-panel-description"
+                                        ),
+                                    ),
+
+                                ], className=(
+                                    "cross-map-header"
+                                )),
+
+                                dcc.Graph(
+                                    id="cross-origin-map",
+                                    config={
+                                        "displayModeBar": False,
+                                        "responsive": True,
+                                    },
+                                    className="cross-map-graph",
+                                ),
+
+                            ], className=(
+                                "match-panel "
+                                "cross-map-panel"
+                            )),
+
+
+                            dash_html.Section([
+
+                                dash_html.Div([
+
+                                    dash_html.Span(
+                                        "CROSS DESTINATIONS",
+                                        className=(
+                                            "match-panel-eyebrow"
+                                        ),
+                                    ),
+
+                                    dash_html.H3(
+                                        "Where crosses arrived",
+                                        className=(
+                                            "match-panel-title"
+                                        ),
+                                    ),
+
+                                    dash_html.P(
+                                        (
+                                            "Destination locations "
+                                            "for the currently "
+                                            "filtered deliveries."
+                                        ),
+                                        className=(
+                                            "match-panel-description"
+                                        ),
+                                    ),
+
+                                ], className=(
+                                    "cross-map-header"
+                                )),
+
+                                dcc.Graph(
+                                    id="cross-dest-map",
+                                    config={
+                                        "displayModeBar": False,
+                                        "responsive": True,
+                                    },
+                                    className="cross-map-graph",
+                                ),
+
+                            ], className=(
+                                "match-panel "
+                                "cross-map-panel"
+                            )),
+
+                        ], className="cross-map-grid"),
+
+                    ],
+
+                ),
+
+
+                # ---------------------------------------------
+                # FLOW
+                # ---------------------------------------------
+                dbc.Tab(
+
+                    label="Flow analysis",
+                    tab_id="flow-tab",
+
+                    children=[
+
+                        dash_html.Section([
+
+                            dash_html.Div([
+
+                                dash_html.Div([
+
+                                    dash_html.Span(
+                                        "DELIVERY PATHWAYS",
+                                        className="match-panel-eyebrow",
+                                    ),
+
+                                    dash_html.H3(
+                                        "Cross flow profile",
+                                        className="match-panel-title",
+                                    ),
+
+                                    dash_html.P(
+                                        (
+                                            "Rank the most common routes from "
+                                            "cross origin to destination. "
+                                            "Percentages use all currently "
+                                            "filtered crosses."
+                                        ),
+                                        className="match-panel-description",
+                                    ),
+
+                                ]),
+
+                                dash_html.Div(
+                                    dash_html.Span(
+                                        (
+                                            "Routes combine crosses with the "
+                                            "same origin and destination zones."
+                                        ),
+                                        className="match-panel-hint",
+                                    ),
+                                ),
+
+                            ], className="match-panel-header"),
+
+                            dash_html.Div(
+                                flow_component,
+                                className="cross-flow-profile-body",
+                            ),
+
+                        ], className=(
+                            "match-panel "
+                            "cross-flow-profile-panel"
+                        )),
+
+                    ],
+
+                ),
+
             ],
-            id="cross-analysis-subtabs",  # <--- AGGIUNGI UN ID
-            active_tab="heatmaps-tab"    # <--- IMPOSTA LA TAB DI DEFAULT
-            )
-        ])
+
+            id="cross-analysis-subtabs",
+            active_tab="heatmaps-tab",
+            className="cross-analysis-tabs",
+        )
+
+
+        # -----------------------------------------------------
+        # RETURN
+        # -----------------------------------------------------
+
+        return dash_html.Div([
+
+            dcc.Store(
+                id="cross-data-store-current-team",
+                data=crosses_filtered.to_json(
+                    orient="split"
+                ),
+            ),
+
+            dash_html.Section([
+                team_header,
+            ], className=(
+                "match-panel "
+                "cross-team-panel"
+            )),
+
+            summary_panel,
+
+            analysis_tabs,
+
+        ], className="cross-team-analysis")
+
     except Exception as e:
         return dbc.Alert(f"Error rendering crosses: {traceback.format_exc()}", color="danger")
 
