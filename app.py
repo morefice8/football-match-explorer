@@ -142,6 +142,349 @@ def parse_match(filename):
     if len(parts) < 4: return None
     return {"round": parts[0], "home_team": parts[1], "away_team": "_".join(parts[2:-1]), "id": parts[-1], "file": filename}
 
+def enrich_match_info_with_raw_metadata(
+    json_data,
+    match_info,
+):
+    """
+    Add useful match metadata from the raw Opta payload
+    to the compact match_info dictionary stored by the app.
+    """
+
+    if match_info is None:
+        match_info = {}
+
+    # ---------------------------------------------------------
+    # FIND MATCH ROOT
+    # ---------------------------------------------------------
+
+    raw_match = {}
+
+    if isinstance(json_data, dict):
+
+        # Match-details feed:
+        # {
+        #     "match": [
+        #         {
+        #             "matchInfo": ...,
+        #             "liveData": ...
+        #         }
+        #     ]
+        # }
+        match_list = json_data.get(
+            'match'
+        )
+
+        if (
+            isinstance(match_list, list)
+            and match_list
+            and isinstance(
+                match_list[0],
+                dict,
+            )
+        ):
+            raw_match = match_list[0]
+
+        # Single-match feed:
+        # {
+        #     "matchInfo": ...,
+        #     "liveData": ...
+        # }
+        elif 'matchInfo' in json_data:
+            raw_match = json_data
+
+    if not raw_match:
+        return match_info
+
+    raw_match_info = (
+        raw_match.get(
+            'matchInfo',
+            {}
+        )
+        or {}
+    )
+
+    live_data = (
+        raw_match.get(
+            'liveData',
+            {}
+        )
+        or {}
+    )
+
+    # ---------------------------------------------------------
+    # MATCHWEEK
+    # ---------------------------------------------------------
+
+    week = raw_match_info.get(
+        'week'
+    )
+
+    if week not in (
+        None,
+        '',
+    ):
+        match_info['week'] = week
+
+    # ---------------------------------------------------------
+    # VENUE
+    # ---------------------------------------------------------
+
+    venue = (
+        raw_match_info.get(
+            'venue',
+            {}
+        )
+        or {}
+    )
+
+    venue_name = (
+        venue.get('longName')
+        or venue.get('shortName')
+        or ''
+    )
+
+    if venue_name:
+        match_info[
+            'venue_name'
+        ] = venue_name
+
+    # ---------------------------------------------------------
+    # REFEREE
+    # ---------------------------------------------------------
+
+    match_details_extra = (
+        live_data.get(
+            'matchDetailsExtra'
+        )
+        or {}
+    )
+
+    # Defensive fallback in case another Opta payload
+    # nests it inside matchDetails.
+    if not match_details_extra:
+        match_details_extra = (
+            live_data
+            .get(
+                'matchDetails',
+                {}
+            )
+            .get(
+                'matchDetailsExtra',
+                {}
+            )
+            or {}
+        )
+
+    officials = (
+        match_details_extra.get(
+            'matchOfficial',
+            []
+        )
+        or []
+    )
+
+    main_referee = next(
+        (
+            official
+            for official in officials
+            if str(
+                official.get(
+                    'type',
+                    ''
+                )
+            ).lower()
+            == 'main'
+        ),
+        None,
+    )
+
+    if main_referee:
+
+        referee_name = " ".join(
+            part
+            for part in [
+                main_referee.get(
+                    'firstName'
+                ),
+                main_referee.get(
+                    'lastName'
+                ),
+            ]
+            if part
+        ).strip()
+
+        if referee_name:
+            match_info[
+                'referee_name'
+            ] = referee_name
+
+    # ---------------------------------------------------------
+    # HOME / AWAY CONTESTANT IDS
+    # ---------------------------------------------------------
+
+    contestant_positions = {}
+
+    for contestant in (
+        raw_match_info.get(
+            'contestant',
+            []
+        )
+        or []
+    ):
+        contestant_id = (
+            contestant.get('id')
+        )
+
+        position = (
+            contestant.get(
+                'position'
+            )
+        )
+
+        if (
+            contestant_id
+            and position
+            in (
+                'home',
+                'away',
+            )
+        ):
+            contestant_positions[
+                contestant_id
+            ] = position
+
+        # ---------------------------------------------------------
+        # GOALS
+        # ---------------------------------------------------------
+
+        goals = []
+
+        # ---------------------------------------------------------
+        # CASE 1:
+        # Dedicated Opta goal feed when available
+        # ---------------------------------------------------------
+
+        raw_goals = (
+            live_data.get(
+                'goal',
+                []
+            )
+            or []
+        )
+
+        for goal in raw_goals:
+
+            contestant_id = (
+                goal.get(
+                    'contestantId'
+                )
+            )
+
+            goals.append({
+                'team_position':
+                    contestant_positions.get(
+                        contestant_id
+                    ),
+
+                'scorer':
+                    goal.get(
+                        'scorerName'
+                    )
+                    or 'Unknown',
+
+                'timeMin':
+                    goal.get(
+                        'timeMin'
+                    ),
+
+                'timeMinSec':
+                    goal.get(
+                        'timeMinSec'
+                    ),
+
+                'periodId':
+                    goal.get(
+                        'periodId'
+                    ),
+
+                'goal_type':
+                    goal.get(
+                        'type',
+                        'G',
+                    ),
+            })
+
+
+        # ---------------------------------------------------------
+        # CASE 2:
+        # Eventing feed.
+        #
+        # In Match Eventing, goals may only exist as typeId = 16
+        # events rather than in liveData.goal.
+        # ---------------------------------------------------------
+
+        if not goals:
+
+            for event in (
+                live_data.get(
+                    'event',
+                    []
+                )
+                or []
+            ):
+
+                if event.get(
+                    'typeId'
+                ) != 16:
+                    continue
+
+                contestant_id = (
+                    event.get(
+                        'contestantId'
+                    )
+                )
+
+                goals.append({
+                    'team_position':
+                        contestant_positions.get(
+                            contestant_id
+                        ),
+
+                    'scorer':
+                        event.get(
+                            'playerName'
+                        )
+                        or 'Unknown',
+
+                    'timeMin':
+                        event.get(
+                            'timeMin'
+                        ),
+
+                    'timeMinSec':
+                        (
+                            f"{event.get('timeMin', 0)}:"
+                            f"{event.get('timeSec', 0):02d}"
+                        ),
+
+                    'periodId':
+                        event.get(
+                            'periodId'
+                        ),
+
+                    'goal_type':
+                        'G',
+                })
+
+
+        if goals:
+            match_info[
+                'goals'
+            ] = goals
+
+    return match_info
+
 def get_team_logo_src_by_code(team_short_code):
     if not team_short_code: return DEFAULT_LOGO_PATH
     logo_filename = f"{LOGO_PREFIX}{str(team_short_code).upper()}{LOGO_EXTENSION}"
@@ -900,6 +1243,12 @@ def handle_upload(contents, filename):
         event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
         qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
         match_info = config.extract_match_info(json_data)
+        match_info = (
+            enrich_match_info_with_raw_metadata(
+                json_data,
+                match_info,
+            )
+        )
         df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
         if df is None or df.empty: return no_update, no_update, dbc.Alert("Processing resulted in empty data.", color="warning", duration=4000)
 
@@ -950,6 +1299,12 @@ def populate_main_store(pathname, uploaded_data):
                         event_map = mapping_loader.load_opta_event_mapping(config.OPTA_EVENTS_XLSX)
                         qualifier_map = mapping_loader.load_opta_qualifier_mapping(config.OPTA_QUALIFIERS_JSON)
                         match_info = config.extract_match_info(json_data)
+                        match_info = (
+                            enrich_match_info_with_raw_metadata(
+                                json_data,
+                                match_info,
+                            )
+                        )
                         parsed_info = parse_match(file_name)
                         if parsed_info: match_info['roundNameFromFilename'] = parsed_info['round']
                         df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
@@ -1273,114 +1628,1137 @@ def render_match_tab_content(search_query, stored_data_json):
 
     if active_tab == "overview":
         if not stored_data_json:
-            return dash_html.P("⚠ No data in store for overview.", style={"color": "orange"})
-        try:
-            df_json_str = stored_data_json.get('df')
-            if not df_json_str: return dash_html.P("⚠ DataFrame missing in stored data.", style={"color": "orange"})
-            df = pd.read_json(io.StringIO(df_json_str), orient='split')
-            if df.empty: return dash_html.P("⚠ The DataFrame is empty.", style={"color": "orange"})
-
-            match_info = json.loads(stored_data_json.get('match_info', '{}'))
-            home_name = match_info.get('hteamName', 'Home')
-            away_name = match_info.get('ateamName', 'Away')
-            home_score = match_info.get('home_score', 0)
-            away_score = match_info.get('away_score', 0)
-
-            event_names = df.get('type_name', pd.Series(index=df.index, dtype='object'))
-            teams = df.get('team_name', pd.Series(index=df.index, dtype='object'))
-            shot_names = ['Goal', 'Miss', 'Attempt Saved', 'Post']
-            home_passes = int(((teams == home_name) & (event_names == 'Pass')).sum())
-            away_passes = int(((teams == away_name) & (event_names == 'Pass')).sum())
-            home_shots = int(((teams == home_name) & event_names.isin(shot_names)).sum())
-            away_shots = int(((teams == away_name) & event_names.isin(shot_names)).sum())
-            home_recoveries = int(((teams == home_name) & (event_names == 'Ball recovery')).sum())
-            away_recoveries = int(((teams == away_name) & (event_names == 'Ball recovery')).sum())
-
-            column_labels = {
-                'timeMin': 'Min', 'timeSec': 'Sec', 'team_name': 'Team',
-                'playerName': 'Player', 'type_name': 'Event', 'outcome': 'Outcome',
-                'x': 'Start X', 'y': 'Start Y', 'end_x': 'End X', 'end_y': 'End Y',
-                'Mapped Jersey Number': '#', 'positional_role': 'Role',
-            }
-            visible_columns = [column for column in column_labels if column in df.columns]
-            table_df = df[visible_columns].copy()
-
-            datatable_component = dash_table.DataTable(
-                id='overview-datatable',
-                data=table_df.to_dict("records"),
-                columns=[{"name": column_labels[column], "id": column} for column in visible_columns],
-                page_size=20,
-                filter_action="native",
-                filter_options={"case": "insensitive"},
-                sort_action="native",
-                sort_mode="multi",
-                page_action="native",
-                fixed_rows={'headers': True},
-                style_table={"overflowX": "auto", "maxWidth": "100%", "maxHeight": "640px"},
-                style_cell={
-                    "backgroundColor": "#ffffff", "color": "#233b53", "textAlign": "left",
-                    "minWidth": "74px", "maxWidth": "180px", "whiteSpace": "normal",
-                    "border": "0", "borderBottom": "1px solid #e7eef3",
-                    "fontFamily": "Inter, Arial, sans-serif", "fontSize": "12px", "padding": "11px 10px",
-                },
-                style_cell_conditional=[
-                    {'if': {'column_id': 'timeMin'}, 'width': '54px', 'textAlign': 'center'},
-                    {'if': {'column_id': 'timeSec'}, 'width': '54px', 'textAlign': 'center'},
-                    {'if': {'column_id': 'Mapped Jersey Number'}, 'width': '44px', 'textAlign': 'center'},
-                    {'if': {'column_id': 'playerName'}, 'minWidth': '145px'},
-                    {'if': {'column_id': 'type_name'}, 'minWidth': '125px'},
-                ],
-                style_header={
-                    "backgroundColor": "#f5f9fb", "color": "#526b7d", "fontWeight": "800",
-                    "border": "0", "borderBottom": "1px solid #dbe7ed", "padding": "12px 10px",
-                    "fontSize": "10px", "textTransform": "uppercase", "letterSpacing": ".06em",
-                },
-                style_data_conditional=[
-                    {'if': {'filter_query': '{outcome} = "Successful"', 'column_id': 'outcome'}, 'color': '#17805f', 'fontWeight': '700'},
-                    {'if': {'filter_query': '{outcome} = "Unsuccessful"', 'column_id': 'outcome'}, 'color': '#c75147', 'fontWeight': '700'},
-                    {'if': {'state': 'active'}, 'backgroundColor': '#edf8fb', 'border': '1px solid #7bc9db'},
-                ],
+            return dash_html.P(
+                "No data available for overview.",
+                style={"color": "orange"},
             )
 
+        try:
+            # -------------------------------------------------
+            # LOAD DATA
+            # -------------------------------------------------
+
+            df_json_str = stored_data_json.get('df')
+
+            if not df_json_str:
+                return dash_html.P(
+                    "DataFrame missing in stored data.",
+                    style={"color": "orange"},
+                )
+
+            df = pd.read_json(
+                io.StringIO(df_json_str),
+                orient='split',
+            )
+
+            if df.empty:
+                return dash_html.P(
+                    "The DataFrame is empty.",
+                    style={"color": "orange"},
+                )
+
+            match_info = json.loads(
+                stored_data_json.get(
+                    'match_info',
+                    '{}',
+                )
+            )
+
+            # Use internal team names for filtering.
+            home_team = match_info.get(
+                'hteamName',
+                'Home',
+            )
+
+            away_team = match_info.get(
+                'ateamName',
+                'Away',
+            )
+
+            # Use display names in the UI where available.
+            home_display = match_info.get(
+                'hteamDisplayName',
+                home_team,
+            )
+
+            away_display = match_info.get(
+                'ateamDisplayName',
+                away_team,
+            )
+
+            home_score = match_info.get(
+                'home_score',
+                0,
+            )
+
+            away_score = match_info.get(
+                'away_score',
+                0,
+            )
+
+            competition = match_info.get(
+                'competitionName',
+                '',
+            )
+
+            game_date = match_info.get(
+                'date_formatted',
+                '',
+            )
+
+            round_name = match_info.get(
+                'roundNameFromFilename',
+                '',
+            )
+
+            week = match_info.get(
+                'week'
+            )
+
+            venue_name = match_info.get(
+                'venue_name',
+                '',
+            )
+
+            referee_name = match_info.get(
+                'referee_name',
+                '',
+            )
+
+            match_goals = match_info.get(
+                'goals',
+                [],
+            ) or []
+
+            if week not in (
+                None,
+                '',
+            ):
+                round_label = (
+                    f"Matchweek {week}"
+                )
+
+            elif round_name:
+                round_label = (
+                    f"Round {round_name}"
+                )
+
+            else:
+                round_label = ''
+
+            def format_goal_minute(
+                goal,
+            ):
+                try:
+                    minute = int(
+                        goal.get(
+                            'timeMin'
+                        )
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    return "—"
+
+                try:
+                    period_id = int(
+                        goal.get(
+                            'periodId'
+                        )
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    period_id = None
+
+                # Football-style injury time.
+                if (
+                    period_id == 1
+                    and minute > 45
+                ):
+                    return (
+                        f"45+{minute - 45}'"
+                    )
+
+                if (
+                    period_id == 2
+                    and minute > 90
+                ):
+                    return (
+                        f"90+{minute - 90}'"
+                    )
+
+                return f"{minute}'"
+
+
+            def goal_suffix(
+                goal,
+            ):
+                goal_type = str(
+                    goal.get(
+                        'goal_type',
+                        'G',
+                    )
+                ).upper()
+
+                if goal_type == 'PG':
+                    return " (P)"
+
+                if goal_type == 'OG':
+                    return " (OG)"
+
+                return ""
+
+
+            home_goals = [
+                goal
+                for goal in match_goals
+                if goal.get(
+                    'team_position'
+                ) == 'home'
+            ]
+
+            away_goals = [
+                goal
+                for goal in match_goals
+                if goal.get(
+                    'team_position'
+                ) == 'away'
+            ]
+
+            def scorer_list(
+                goals,
+                is_away=False,
+            ):
+                if not goals:
+                    return None
+
+                return dash_html.Div(
+                    [
+                        dash_html.Div([
+
+                            dash_html.Span(
+                                (
+                                    f"{goal.get('scorer', 'Unknown')}"
+                                    f"{goal_suffix(goal)}"
+                                ),
+                                className=(
+                                    "overview-scorer-name"
+                                ),
+                            ),
+
+                            dash_html.Span(
+                                format_goal_minute(
+                                    goal
+                                ),
+                                className=(
+                                    "overview-scorer-minute"
+                                ),
+                            ),
+
+                        ], className=(
+                            "overview-scorer "
+                            + (
+                                "overview-scorer--away"
+                                if is_away
+                                else ""
+                            )
+                        ))
+
+                        for goal in goals
+                    ],
+                    className=(
+                        "overview-scorers "
+                        + (
+                            "overview-scorers--away"
+                            if is_away
+                            else ""
+                        )
+                    ),
+                )
+
+            # -------------------------------------------------
+            # LOGOS
+            # -------------------------------------------------
+
+            home_logo = get_team_logo_path(
+                competition,
+                home_display,
+            )
+
+            away_logo = get_team_logo_path(
+                competition,
+                away_display,
+            )
+
+            # -------------------------------------------------
+            # BASIC EVENTS
+            # -------------------------------------------------
+
+            event_names = df.get(
+                'type_name',
+                pd.Series(
+                    index=df.index,
+                    dtype='object',
+                ),
+            )
+
+            teams = df.get(
+                'team_name',
+                pd.Series(
+                    index=df.index,
+                    dtype='object',
+                ),
+            )
+
+            shot_names = [
+                'Goal',
+                'Miss',
+                'Attempt Saved',
+                'Post',
+            ]
+
+            home_shots = int(
+                (
+                    (teams == home_team)
+                    & event_names.isin(
+                        shot_names
+                    )
+                ).sum()
+            )
+
+            away_shots = int(
+                (
+                    (teams == away_team)
+                    & event_names.isin(
+                        shot_names
+                    )
+                ).sum()
+            )
+
+            home_recoveries = int(
+                (
+                    (teams == home_team)
+                    & (
+                        event_names
+                        == 'Ball recovery'
+                    )
+                ).sum()
+            )
+
+            away_recoveries = int(
+                (
+                    (teams == away_team)
+                    & (
+                        event_names
+                        == 'Ball recovery'
+                    )
+                ).sum()
+            )
+
+            # -------------------------------------------------
+            # PASSING
+            # -------------------------------------------------
+
+            all_passes = (
+                pass_processing.get_passes_df(
+                    df.copy()
+                )
+            )
+
+            home_pass_df = all_passes[
+                all_passes['team_name']
+                == home_team
+            ].copy()
+
+            away_pass_df = all_passes[
+                all_passes['team_name']
+                == away_team
+            ].copy()
+
+            home_passes = len(
+                home_pass_df
+            )
+
+            away_passes = len(
+                away_pass_df
+            )
+
+            home_completed_passes = int(
+                (
+                    home_pass_df['outcome']
+                    == 'Successful'
+                ).sum()
+            )
+
+            away_completed_passes = int(
+                (
+                    away_pass_df['outcome']
+                    == 'Successful'
+                ).sum()
+            )
+
+            def percentage(
+                numerator,
+                denominator,
+            ):
+                if not denominator:
+                    return 0.0
+
+                return (
+                    numerator
+                    / denominator
+                    * 100
+                )
+
+            home_pass_completion = percentage(
+                home_completed_passes,
+                home_passes,
+            )
+
+            away_pass_completion = percentage(
+                away_completed_passes,
+                away_passes,
+            )
+
+            # -------------------------------------------------
+            # PROGRESSIVE PASSES
+            # -------------------------------------------------
+
+            if (
+                'is_progressive_attempt'
+                in all_passes.columns
+            ):
+                progressive_mask = (
+                    all_passes[
+                        'is_progressive_attempt'
+                    ]
+                    .fillna(False)
+                    .astype(bool)
+                )
+
+                progressive_passes = (
+                    all_passes[
+                        progressive_mask
+                    ]
+                    .copy()
+                )
+
+                home_progressive = int(
+                    (
+                        (
+                            progressive_passes[
+                                'team_name'
+                            ]
+                            == home_team
+                        )
+                        & (
+                            progressive_passes[
+                                'outcome'
+                            ]
+                            == 'Successful'
+                        )
+                    ).sum()
+                )
+
+                away_progressive = int(
+                    (
+                        (
+                            progressive_passes[
+                                'team_name'
+                            ]
+                            == away_team
+                        )
+                        & (
+                            progressive_passes[
+                                'outcome'
+                            ]
+                            == 'Successful'
+                        )
+                    ).sum()
+                )
+
+            else:
+                home_progressive = 0
+                away_progressive = 0
+
+            # -------------------------------------------------
+            # FINAL-THIRD ENTRIES
+            # -------------------------------------------------
+
+            successful_passes = (
+                all_passes[
+                    all_passes['outcome']
+                    == 'Successful'
+                ]
+                .copy()
+            )
+
+            carries_df = (
+                pass_processing.infer_carries(
+                    df.copy()
+                )
+            )
+
+            def final_third_entries_for_team(
+                team_name,
+            ):
+                team_passes = (
+                    successful_passes[
+                        successful_passes[
+                            'team_name'
+                        ]
+                        == team_name
+                    ]
+                    .copy()
+                )
+
+                if (
+                    carries_df is not None
+                    and not carries_df.empty
+                    and 'team_name'
+                    in carries_df.columns
+                ):
+                    team_carries = (
+                        carries_df[
+                            carries_df[
+                                'team_name'
+                            ]
+                            == team_name
+                        ]
+                        .copy()
+                    )
+                else:
+                    team_carries = (
+                        pd.DataFrame()
+                    )
+
+                _, stats = (
+                    pass_metrics
+                    .analyze_final_third_entries(
+                        team_passes,
+                        team_carries,
+                    )
+                )
+
+                return int(
+                    stats.get(
+                        'total_final_third',
+                        0,
+                    )
+                )
+
+            home_final_third = (
+                final_third_entries_for_team(
+                    home_team
+                )
+            )
+
+            away_final_third = (
+                final_third_entries_for_team(
+                    away_team
+                )
+            )
+
+            # -------------------------------------------------
+            # CROSSES
+            # -------------------------------------------------
+
+            home_crosses_df = (
+                cross_metrics.analyze_crosses(
+                    df,
+                    home_team,
+                )
+            )
+
+            away_crosses_df = (
+                cross_metrics.analyze_crosses(
+                    df,
+                    away_team,
+                )
+            )
+
+            home_crosses = (
+                len(home_crosses_df)
+                if home_crosses_df
+                is not None
+                else 0
+            )
+
+            away_crosses = (
+                len(away_crosses_df)
+                if away_crosses_df
+                is not None
+                else 0
+            )
+
+            # -------------------------------------------------
+            # COMPARISON COMPONENT
+            # -------------------------------------------------
+
+            def comparison_row(
+                label,
+                home_value,
+                away_value,
+                *,
+                home_display_value=None,
+                away_display_value=None,
+                description=None,
+            ):
+                home_numeric = float(
+                    home_value or 0
+                )
+
+                away_numeric = float(
+                    away_value or 0
+                )
+
+                maximum = max(
+                    home_numeric,
+                    away_numeric,
+                    1,
+                )
+
+                home_width = (
+                    home_numeric
+                    / maximum
+                    * 100
+                )
+
+                away_width = (
+                    away_numeric
+                    / maximum
+                    * 100
+                )
+
+                if home_display_value is None:
+                    home_display_value = (
+                        str(home_value)
+                    )
+
+                if away_display_value is None:
+                    away_display_value = (
+                        str(away_value)
+                    )
+
+                return dash_html.Div([
+
+                    # HOME
+                    dash_html.Div([
+
+                        dash_html.Strong(
+                            home_display_value,
+                            className=(
+                                "overview-comparison-value"
+                            ),
+                        ),
+
+                        dash_html.Div(
+                            dash_html.Span(
+                                style={
+                                    "width":
+                                        f"{home_width:.1f}%",
+                                    "backgroundColor":
+                                        HCOL,
+                                }
+                            ),
+                            className=(
+                                "overview-comparison-track "
+                                "overview-comparison-track--home"
+                            ),
+                        ),
+
+                    ], className=(
+                        "overview-comparison-side"
+                    )),
+
+                    # METRIC
+                    dash_html.Div([
+
+                        dash_html.Strong(
+                            label,
+                            className=(
+                                "overview-comparison-label"
+                            ),
+                        ),
+
+                        dash_html.Small(
+                            description,
+                            className=(
+                                "overview-comparison-description"
+                            ),
+                        )
+                        if description
+                        else None,
+
+                    ], className=(
+                        "overview-comparison-middle"
+                    )),
+
+                    # AWAY
+                    dash_html.Div([
+
+                        dash_html.Strong(
+                            away_display_value,
+                            className=(
+                                "overview-comparison-value "
+                                "overview-comparison-value--away"
+                            ),
+                        ),
+
+                        dash_html.Div(
+                            dash_html.Span(
+                                style={
+                                    "width":
+                                        f"{away_width:.1f}%",
+                                    "backgroundColor":
+                                        ACOL,
+                                }
+                            ),
+                            className=(
+                                "overview-comparison-track "
+                                "overview-comparison-track--away"
+                            ),
+                        ),
+
+                    ], className=(
+                        "overview-comparison-side"
+                    )),
+
+                ], className=(
+                    "overview-comparison-row"
+                ))
+
+            # -------------------------------------------------
+            # MATCH META
+            # -------------------------------------------------
+
+            def overview_meta_item(
+                icon,
+                text,
+            ):
+                if not text:
+                    return None
+
+                return dash_html.Div([
+                    dash_html.I(
+                        className=icon
+                    ),
+
+                    dash_html.Span(
+                        text
+                    ),
+
+                ], className=(
+                    "overview-meta-item"
+                ))
+
+
+            meta_items = [
+                overview_meta_item(
+                    "fa-solid fa-trophy",
+                    competition,
+                ),
+
+                overview_meta_item(
+                    "fa-regular fa-calendar",
+                    round_label,
+                ),
+
+                overview_meta_item(
+                    "fa-regular fa-calendar-days",
+                    game_date,
+                ),
+
+                overview_meta_item(
+                    "fa-solid fa-location-dot",
+                    venue_name,
+                ),
+
+                overview_meta_item(
+                    "fa-solid fa-user-tie",
+                    (
+                        f"Referee: {referee_name}"
+                        if referee_name
+                        else ''
+                    ),
+                ),
+            ]
+
+            meta_items = [
+                item
+                for item in meta_items
+                if item is not None
+            ]
+
+            # -------------------------------------------------
+            # RETURN
+            # -------------------------------------------------
+
             return dash_html.Div([
+
                 match_section_header(
                     "Match overview",
-                    "A compact summary of the game and a searchable view of the underlying event feed.",
+                    (
+                        "The key match indicators at a "
+                        "glance before exploring the "
+                        "detailed analysis."
+                    ),
                     "fa-solid fa-chart-simple",
                     eyebrow="GAME STATE",
-                    actions=[dbc.Button(
-                        [dash_html.I(className="fas fa-download me-2"), "Download full CSV"],
-                        id="btn-download-csv", className="match-action-button", size="sm"
-                    )],
-                ),
-                dash_html.Div([
-                    match_kpi_card("fa-solid fa-futbol", "Final score", f"{home_score} – {away_score}", f"{home_name} vs {away_name}", "coral"),
-                    match_kpi_card("fa-solid fa-arrow-right-arrow-left", "Passes", f"{home_passes} – {away_passes}", "Home – Away", "blue"),
-                    match_kpi_card("fa-solid fa-bullseye", "Shots", f"{home_shots} – {away_shots}", "Home – Away", "gold"),
-                    match_kpi_card("fa-solid fa-rotate", "Ball recoveries", f"{home_recoveries} – {away_recoveries}", "Home – Away", "green"),
-                ], className="match-kpi-grid"),
-                dash_html.Section([
-                    dash_html.Div([
-                        dash_html.Div([
-                            dash_html.Span("EVENT FEED", className="match-panel-eyebrow"),
-                            dash_html.H3("Event explorer", className="match-panel-title"),
-                            dash_html.P(
-                                f"{df.shape[0]:,} processed events. Filter any column or combine multiple sorts.",
-                                className="match-panel-description",
+                    actions=[
+                        dbc.Button(
+                            [
+                                dash_html.I(
+                                    className=(
+                                        "fas fa-download me-2"
+                                    )
+                                ),
+                                "Download full CSV",
+                            ],
+                            id="btn-download-csv",
+                            className=(
+                                "match-action-button"
                             ),
-                        ]),
+                            size="sm",
+                        ),
+                    ],
+                ),
+
+                # =============================================
+                # SCORE HERO
+                # =============================================
+
+                dash_html.Section([
+
+                    dash_html.Div([
+
+                        # HOME
                         dash_html.Div([
-                            dash_html.I(className="fa-solid fa-circle-info"),
-                            dash_html.Span("The CSV download retains every technical field."),
+
+                            dash_html.Img(
+                                src=home_logo,
+                                className=(
+                                    "overview-team-logo"
+                                ),
+                            ),
+
+                            dash_html.Div([
+
+                                dash_html.Span(
+                                    "HOME",
+                                    className="overview-team-role",
+                                ),
+
+                                dash_html.Strong(
+                                    home_display,
+                                    className="overview-team-name",
+                                ),
+
+                                scorer_list(
+                                    home_goals,
+                                    is_away=False,
+                                ),
+
+                            ]),
+
+                        ], className=(
+                            "overview-team "
+                            "overview-team--home"
+                        )),
+
+                        # SCORE
+                        dash_html.Div([
+
+                            dash_html.Strong(
+                                (
+                                    f"{home_score}"
+                                    f" – "
+                                    f"{away_score}"
+                                ),
+                                className=(
+                                    "overview-score"
+                                ),
+                            ),
+
+                            dash_html.Span(
+                                "FULL TIME",
+                                className=(
+                                    "overview-score-label"
+                                ),
+                            ),
+
+                        ], className=(
+                            "overview-score-block"
+                        )),
+
+                        # AWAY
+                        dash_html.Div([
+
+                            dash_html.Div([
+
+                                dash_html.Span(
+                                    "AWAY",
+                                    className="overview-team-role",
+                                ),
+
+                                dash_html.Strong(
+                                    away_display,
+                                    className="overview-team-name",
+                                ),
+
+                                scorer_list(
+                                    away_goals,
+                                    is_away=True,
+                                ),
+
+                            ]),
+
+                            dash_html.Img(
+                                src=away_logo,
+                                className=(
+                                    "overview-team-logo"
+                                ),
+                            ),
+
+                        ], className=(
+                            "overview-team "
+                            "overview-team--away"
+                        )),
+
+                    ], className="overview-score-hero"),
+
+                    dash_html.Div(
+                        meta_items,
+                        className="overview-match-meta",
+                    )
+                    if meta_items
+                    else None,
+
+                ], className=(
+                    "match-panel "
+                    "overview-score-panel"
+                )),
+
+                # =============================================
+                # QUICK KPIs
+                # =============================================
+
+                dash_html.Div([
+
+                    match_kpi_card(
+                        "fa-solid fa-arrow-right-arrow-left",
+                        "Passes",
+                        (
+                            f"{home_passes} – "
+                            f"{away_passes}"
+                        ),
+                        "Home – Away",
+                        "blue",
+                    ),
+
+                    match_kpi_card(
+                        "fa-solid fa-bullseye",
+                        "Shots",
+                        (
+                            f"{home_shots} – "
+                            f"{away_shots}"
+                        ),
+                        "Home – Away",
+                        "gold",
+                    ),
+
+                    match_kpi_card(
+                        "fa-solid fa-rotate",
+                        "Ball recoveries",
+                        (
+                            f"{home_recoveries} – "
+                            f"{away_recoveries}"
+                        ),
+                        "Home – Away",
+                        "green",
+                    ),
+
+                    match_kpi_card(
+                        "fa-solid fa-location-crosshairs",
+                        "Final-third entries",
+                        (
+                            f"{home_final_third} – "
+                            f"{away_final_third}"
+                        ),
+                        "Passes + reliable carries",
+                        "coral",
+                    ),
+
+                ], className="match-kpi-grid"),
+
+                # =============================================
+                # MATCH COMPARISON
+                # =============================================
+
+                dash_html.Section([
+
+                    dash_html.Div([
+
+                        dash_html.Div([
+
+                            dash_html.Span(
+                                "MATCH COMPARISON",
+                                className=(
+                                    "match-panel-eyebrow"
+                                ),
+                            ),
+
+                            dash_html.H3(
+                                "Game profile",
+                                className=(
+                                    "match-panel-title"
+                                ),
+                            ),
+
+                            dash_html.P(
+                                (
+                                    "A compact comparison of "
+                                    "the main attacking and "
+                                    "possession indicators."
+                                ),
+                                className=(
+                                    "match-panel-description"
+                                ),
+                            ),
+
+                        ]),
+
+                        dash_html.Div([
+                            dash_html.I(
+                                className=(
+                                    "fa-solid "
+                                    "fa-circle-info"
+                                )
+                            ),
+                            dash_html.Span(
+                                (
+                                    "Bars compare the two "
+                                    "teams within each metric; "
+                                    "they do not imply that "
+                                    "higher is always better."
+                                )
+                            ),
                         ], className="match-panel-hint"),
+
                     ], className="match-panel-header"),
-                    dash_html.Div(datatable_component, className="match-event-table"),
-                ], className="match-panel"),
-                dcc.Download(id="download-dataframe-csv"),
-            ], className="match-module match-overview-module")
+
+                    # Team header
+                    dash_html.Div([
+
+                        dash_html.Strong(
+                            home_display,
+                            style={
+                                "color": HCOL,
+                            },
+                        ),
+
+                        dash_html.Span(
+                            "Metric",
+                        ),
+
+                        dash_html.Strong(
+                            away_display,
+                            style={
+                                "color": ACOL,
+                            },
+                        ),
+
+                    ], className=(
+                        "overview-comparison-header"
+                    )),
+
+                    comparison_row(
+                        "Passes",
+                        home_passes,
+                        away_passes,
+                    ),
+
+                    comparison_row(
+                        "Pass completion",
+                        home_pass_completion,
+                        away_pass_completion,
+                        home_display_value=(
+                            f"{home_pass_completion:.1f}%"
+                        ),
+                        away_display_value=(
+                            f"{away_pass_completion:.1f}%"
+                        ),
+                    ),
+
+                    comparison_row(
+                        "Shots",
+                        home_shots,
+                        away_shots,
+                    ),
+
+                    comparison_row(
+                        "Progressive passes",
+                        home_progressive,
+                        away_progressive,
+                        description=(
+                            "Completed open-play "
+                            "progressive passes"
+                        ),
+                    ),
+
+                    comparison_row(
+                        "Final-third entries",
+                        home_final_third,
+                        away_final_third,
+                        description=(
+                            "Completed passes + "
+                            "reliable carries"
+                        ),
+                    ),
+
+                    comparison_row(
+                        "Crosses",
+                        home_crosses,
+                        away_crosses,
+                    ),
+
+                    comparison_row(
+                        "Ball recoveries",
+                        home_recoveries,
+                        away_recoveries,
+                    ),
+
+                ], className=(
+                    "match-panel "
+                    "overview-comparison-panel"
+                )),
+
+                # Download target remains available.
+                dcc.Download(
+                    id="download-dataframe-csv"
+                ),
+
+            ], className=(
+                "match-module "
+                "match-overview-module"
+            ))
 
         except Exception as e:
-            return dbc.Alert(f"Error loading overview: {e}", color="danger")
+            tb_str = traceback.format_exc()
+
+            return dbc.Alert(
+                (
+                    f"Error loading overview: {e}"
+                    f"\n{tb_str}"
+                ),
+                color="danger",
+                style={
+                    "whiteSpace": "pre-wrap",
+                },
+            )
 
     elif active_tab == "formation":
             return dash_html.Div([
