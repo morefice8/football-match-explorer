@@ -385,7 +385,30 @@ def plot_opponent_buildup_after_loss_plotly(
         last_event = df.iloc[-1]
         
         # --- START: LOGICA DI INIZIO FLESSIBILE ---
-        if metric_to_analyze in ('buildup_phases', 'set_piece'):
+        canonical_duration = np.nan
+
+        if metric_to_analyze == 'buildup_phases':
+            start_min = first_event.get(
+                'timeMin_at_active_start',
+                first_event.get('timeMin'),
+            )
+            start_sec = first_event.get(
+                'timeSec_at_active_start',
+                first_event.get('timeSec'),
+            )
+            type_of_trigger_str = first_event.get(
+                'type_of_initial_trigger',
+                'Unknown Event',
+            )
+            canonical_duration = pd.to_numeric(
+                pd.Series([
+                    first_event.get(
+                        'buildup_active_duration_seconds'
+                    )
+                ]),
+                errors='coerce',
+            ).iloc[0]
+        elif metric_to_analyze == 'set_piece':
             start_min = first_event.get('timeMin_at_trigger')
             start_sec = first_event.get('timeSec_at_trigger')
             type_of_trigger_str = first_event.get('type_of_initial_trigger', 'Unknown Event')
@@ -398,7 +421,9 @@ def plot_opponent_buildup_after_loss_plotly(
         end_min = last_event.get('timeMin')
         end_sec = last_event.get('timeSec')
         
-        if pd.notna(start_min) and pd.notna(start_sec) and pd.notna(end_min) and pd.notna(end_sec):
+        if metric_to_analyze == 'buildup_phases' and pd.notna(canonical_duration):
+            duration_str = f"{float(canonical_duration):.2f}s"
+        elif pd.notna(start_min) and pd.notna(start_sec) and pd.notna(end_min) and pd.notna(end_sec):
             start_total_seconds = start_min * 60 + start_sec
             end_total_seconds = end_min * 60 + end_sec
             duration_seconds = end_total_seconds - start_total_seconds

@@ -7079,9 +7079,12 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 ACOL,
                 title="Buildup progression",
                 description=(
-                    "Compare how often each team's "
-                    "buildups progressed into increasingly "
-                    "dangerous territory."
+                    "First phase starts with the first active action, "
+                    "ends when controlled possession reaches the "
+                    "opposition half or the "
+                    f"{buildup_metrics.MAX_ACTIVE_BUILDUP_SECONDS:.0f}s "
+                    "active window expires, and excludes restart "
+                    "dead time from duration."
                 ),
             )
         )
@@ -7094,26 +7097,35 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
         if not all_sequences:
             return dbc.Alert(f"No sequences found for {attacking_team} after grouping.", color="warning", className="mt-3")
 
-        # --- 3. Assign lb_type to each sequence ---
+        # --- 3. Use the canonical first-phase buildup type ---
         sequences_with_type = []
+
         for seq_df in all_sequences:
             if seq_df.empty:
-                sequences_with_type.append(seq_df)
+                sequences_with_type.append(
+                    seq_df
+                )
                 continue
-            passes = seq_df[seq_df['type_name'] == 'Pass'].copy()
-            if passes.empty:
-                lb_type = 'Short-Short'
-            else:
-                first_pass = passes.iloc[0]
-                if first_pass.get('lb') == 1:
-                    lb_type = 'Long Ball'
-                elif len(passes) > 1 and passes.iloc[1:].get('lb', pd.Series()).eq(1).any():
-                    lb_type = 'Short-Long'
-                else:
-                    lb_type = 'Short-Short'
+
+            buildup_type = seq_df.iloc[-1].get(
+                'buildup_type'
+            )
+
+            if not buildup_type:
+                buildup_type = (
+                    buildup_metrics
+                    .classify_buildup_type(
+                        seq_df
+                    )
+                )
+
             seq_df = seq_df.copy()
-            seq_df['lb_type'] = lb_type
-            sequences_with_type.append(seq_df)
+            # Keep the historical UI/filter key while deriving it from the
+            # canonical detector rather than recalculating it in app.py.
+            seq_df['lb_type'] = buildup_type
+            sequences_with_type.append(
+                seq_df
+            )
         sequences_with_type = buildup_metrics.assign_flank_to_sequences(sequences_with_type, is_away)
 
         filter_labels = {

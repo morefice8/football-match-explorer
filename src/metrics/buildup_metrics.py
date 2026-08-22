@@ -58,7 +58,507 @@ def _is_point_in_plot_big_chance_area(point_x, point_y, is_attacking_right_to_le
         return dist_sq <= BC_SEMICIRCLE_RADIUS_SQUARED_STD
 
 # --- Function: Find Opponent Buildup After Specific Team's trigger ---
-def find_buildup_sequences(df_processed, attacking_team,
+
+FIRST_PHASE_EXIT_X = 50.0
+MAX_ACTIVE_BUILDUP_SECONDS = 20.0
+
+DEFAULT_FIRST_PHASE_BUILDUP_TRIGGERS = (
+    'Out',
+    'Foul',
+    'Offside provoked',
+    'Keeper pick-up',
+    'Claim',
+    'Ball recovery',
+    'Goal kick',
+)
+GOAL_KICK_FLAG_ALIASES = ('Goal kick', 'Goal kick taken')
+FIRST_PHASE_ACTIVE_EVENT_TYPES = frozenset({
+    'Pass', 'Take On', 'Ball touch', 'Dispossessed', 'Offside Pass',
+    'Foul', 'Out', 'Goal', 'Miss', 'Attempt Saved', 'Post',
+})
+
+
+def _flag_is_true(value):
+    if value is None or pd.isna(value):
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'y'}
+    return bool(value)
+
+
+def _row_has_any_flag(row, aliases):
+    return any(
+        alias in row.index and _flag_is_true(row.get(alias))
+        for alias in aliases
+    )
+
+
+def _event_total_seconds(row):
+    minute = pd.to_numeric(pd.Series([row.get('timeMin')]), errors='coerce').iloc[0]
+    second = pd.to_numeric(pd.Series([row.get('timeSec')]), errors='coerce').iloc[0]
+    if pd.isna(minute) or pd.isna(second):
+        return np.nan
+    return float(minute) * 60.0 + float(second)
+
+
+def _attacking_perspective_x(event, attacking_team):
+    x = pd.to_numeric(pd.Series([event.get('x')]), errors='coerce').iloc[0]
+    if pd.isna(x):
+        return np.nan
+    return float(x) if event.get('team_name') == attacking_team else 100.0 - float(x)
+
+
+def _is_goal_kick_pass(event, attacking_team):
+    return (
+        event.get('team_name') == attacking_team
+        and event.get('type_name') == 'Pass'
+        and _row_has_any_flag(event, GOAL_KICK_FLAG_ALIASES)
+    )
+
+
+def _is_first_phase_active_event(event, attacking_team):
+    return (
+        event.get('team_name') == attacking_team
+        and event.get('type_name') in FIRST_PHASE_ACTIVE_EVENT_TYPES
+    )
+
+
+def classify_buildup_type(sequence_df):
+    """
+    Canonical first-phase distribution:
+    - Long Ball: first pass attempt is long;
+    - Short-Long: first pass is short, a later first-phase pass is long;
+    - Short-Short: all first-phase pass attempts are short.
+    """
+    if sequence_df is None or sequence_df.empty or 'type_name' not in sequence_df.columns:
+        return None
+
+    passes = sequence_df[sequence_df['type_name'].eq('Pass')]
+    if passes.empty:
+        return None
+    if _flag_is_true(passes.iloc[0].get('lb')):
+        return 'Long Ball'
+    if len(passes) > 1 and passes.iloc[1:]['lb'].apply(_flag_is_true).any():
+        return 'Short-Long'
+    return 'Short-Short'
+
+
+def _build_first_phase_trigger_mask(df, attacking_team, defending_team, triggers_buildups):
+    trigger_types = set(triggers_buildups or DEFAULT_FIRST_PHASE_BUILDUP_TRIGGERS)
+
+    # These are canonical REL-05 triggers even when an older config list omits them.
+    trigger_types.update({'Goal kick', 'Ball recovery'})
+
+    mask = pd.Series(False, index=df.index, dtype=bool)
+
+    if 'Out' in trigger_types:
+        mask |= (
+            df['team_name'].eq(defending_team)
+            & df['type_name'].eq('Out')
+            & df['outcome'].eq('Unsuccessful')
+        )
+    if 'Foul' in trigger_types:
+        mask |= (
+            df['team_name'].eq(defending_team)
+            & df['type_name'].eq('Foul')
+            & df['outcome'].eq('Unsuccessful')
+        )
+    if 'Offside provoked' in trigger_types:
+        mask |= (
+            df['team_name'].eq(attacking_team)
+            & df['type_name'].eq('Offside provoked')
+            & df['outcome'].eq('Successful')
+        )
+    if 'Keeper pick-up' in trigger_types:
+        mask |= (
+            df['team_name'].eq(attacking_team)
+            & df['type_name'].eq('Keeper pick-up')
+            & df['outcome'].eq('Successful')
+        )
+    if 'Claim' in trigger_types:
+        mask |= (
+            df['team_name'].eq(attacking_team)
+            & df['type_name'].eq('Claim')
+            & df['outcome'].eq('Successful')
+        )
+    if 'Ball recovery' in trigger_types:
+        positional_roles = df.get(
+            'positional_role',
+            pd.Series(
+                index=df.index,
+                dtype='object',
+            ),
+        )
+
+        mask |= (
+            df['team_name'].eq(attacking_team)
+            & df['type_name'].eq('Ball recovery')
+            & df['outcome'].eq('Successful')
+            & positional_roles.eq('GK')
+        )
+    if 'Goal kick' in trigger_types:
+        mask |= df.apply(
+            lambda row: _is_goal_kick_pass(row, attacking_team),
+            axis=1,
+        )
+
+    return mask
+
+
+def _controlled_event_reaches_phase_exit(event, phase_exit_x):
+    x = pd.to_numeric(pd.Series([event.get('x')]), errors='coerce').iloc[0]
+    end_x = pd.to_numeric(pd.Series([event.get('end_x')]), errors='coerce').iloc[0]
+    if pd.notna(x) and float(x) >= phase_exit_x:
+        return True
+    return (
+        event.get('outcome') == 'Successful'
+        and pd.notna(end_x)
+        and float(end_x) >= phase_exit_x
+    )
+
+
+def _find_first_phase_buildup_sequences(
+    df_processed,
+    attacking_team,
+    defending_team,
+    *,
+    triggers_buildups=None,
+    max_passes_in_buildup_sequence=50,
+    shot_types=None,
+    start_x=50,
+    phase_exit_x=FIRST_PHASE_EXIT_X,
+    max_active_buildup_seconds=MAX_ACTIVE_BUILDUP_SECONDS,
+):
+    """
+    Canonical first-phase build-up contract.
+
+    Trigger: own-half restart/control event.
+    Active start: first on-ball action after the trigger; an explicit goal kick
+    is both trigger and active start.
+    End: controlled entry into the opposition half, 20s active-possession
+    boundary, terminal event, turnover, or period boundary.
+    Dead/restart time is stored separately and excluded from active duration.
+    """
+    shot_types = shot_types or ['Goal', 'Miss', 'Attempt Saved', 'Post']
+
+    required_cols = [
+        'id', 'eventId', 'team_name', 'type_name', 'outcome', 'x', 'y',
+        'end_x', 'end_y', 'playerName', 'Mapped Jersey Number', 'timeMin',
+        'timeSec', 'lb', 'Length', 'cross', 'Corner taken',
+    ]
+    missing = [col for col in required_cols if col not in df_processed.columns]
+    if missing:
+        print(f"Error: Missing required columns: {set(missing)}")
+        return pd.DataFrame()
+
+    optional_cols = [
+        'positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger',
+        'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal',
+        'Penalty', 'Blocked', 'Goal mouth y co-ordinate', 'periodId',
+        *GOAL_KICK_FLAG_ALIASES,
+    ]
+    cols = required_cols + [
+        col for col in optional_cols
+        if col in df_processed.columns and col not in required_cols
+    ]
+    df = df_processed[cols].copy().reset_index(drop=True)
+
+    trigger_mask = _build_first_phase_trigger_mask(
+        df, attacking_team, defending_team, triggers_buildups
+    )
+    triggers = df[trigger_mask].copy()
+    if triggers.empty:
+        return pd.DataFrame()
+
+    triggers['_attacking_trigger_x'] = triggers.apply(
+        lambda row: _attacking_perspective_x(row, attacking_team),
+        axis=1,
+    )
+    triggers = triggers[triggers['_attacking_trigger_x'].le(float(start_x))]
+    triggers = triggers.drop_duplicates(subset=['id'], keep='first')
+    if triggers.empty:
+        return pd.DataFrame()
+
+    all_rows = []
+    consumed_event_ids = set()
+    sequence_id = 0
+
+    for trigger_idx in triggers.index:
+        trigger_event = df.iloc[trigger_idx]
+        if trigger_event.get('id') in consumed_event_ids:
+            continue
+
+        trigger_period = trigger_event.get('periodId')
+        trigger_x = _attacking_perspective_x(trigger_event, attacking_team)
+        trigger_zone = get_pitch_third(trigger_x)
+        trigger_is_goal_kick = _is_goal_kick_pass(trigger_event, attacking_team)
+        trigger_type = 'Goal kick' if trigger_is_goal_kick else str(
+            trigger_event.get('type_name', 'Unknown trigger')
+        )
+
+        first_active_idx = None
+        scan_start = trigger_idx if trigger_is_goal_kick else trigger_idx + 1
+
+        for candidate_idx in range(scan_start, len(df)):
+            candidate = df.iloc[candidate_idx]
+            candidate_period = candidate.get('periodId')
+
+            if (
+                pd.notna(trigger_period)
+                and pd.notna(candidate_period)
+                and candidate_period != trigger_period
+            ):
+                break
+
+            if _is_first_phase_active_event(candidate, attacking_team):
+                first_active_idx = candidate_idx
+                break
+
+            if (
+                candidate.get('team_name') == defending_team
+                and candidate.get('outcome') == 'Successful'
+            ):
+                break
+
+        if first_active_idx is None:
+            continue
+
+        first_active = df.iloc[first_active_idx]
+        active_start_total = _event_total_seconds(first_active)
+        active_start_min = first_active.get('timeMin')
+        active_start_sec = first_active.get('timeSec')
+        first_active_type = (
+            'Goal kick'
+            if _is_goal_kick_pass(first_active, attacking_team)
+            else first_active.get('type_name', 'Unknown')
+        )
+
+        sequence_events = []
+        successful_passes = 0
+        pass_attempts = 0
+        legacy_outcome = 'Unknown'
+        termination_reason = None
+
+        for event_idx in range(first_active_idx, len(df)):
+            event = df.iloc[event_idx]
+            event_period = event.get('periodId')
+
+            if (
+                pd.notna(trigger_period)
+                and pd.notna(event_period)
+                and event_period != trigger_period
+            ):
+                if sequence_events:
+                    legacy_outcome = 'Possession Retained'
+                    termination_reason = 'period_boundary'
+                break
+
+            event_total = _event_total_seconds(event)
+            if (
+                sequence_events
+                and pd.notna(active_start_total)
+                and pd.notna(event_total)
+                and max_active_buildup_seconds is not None
+                and event_total - active_start_total > float(max_active_buildup_seconds)
+            ):
+                legacy_outcome = 'Possession Consolidated'
+                termination_reason = 'time_window_elapsed'
+                break
+
+            event_team = event.get('team_name')
+            event_type = event.get('type_name')
+            outcome = event.get('outcome')
+            successful = outcome == 'Successful'
+            unsuccessful = outcome == 'Unsuccessful'
+
+            # A foul can be recorded on the defending team that committed it.
+            # It must terminate the attacking buildup before generic
+            # opponent-event handling skips unsuccessful opponent actions.
+            if event_type == 'Foul':
+                if sequence_events:
+                    is_penalty_foul = (
+                        event.get('Penalty')
+                        in [1, '1', True]
+                    )
+
+                    legacy_outcome = (
+                        'Penalty won'
+                        if is_penalty_foul
+                        else 'Foul'
+                    )
+
+                    termination_reason = (
+                        'penalty_awarded'
+                        if is_penalty_foul
+                        else 'foul'
+                    )
+
+                break
+
+            if event_team == defending_team:
+                if unsuccessful:
+                    continue
+                if successful:
+                    legacy_outcome = 'Lost Possessions'
+                    termination_reason = 'opponent_regain'
+                    break
+                continue
+
+            if event_team != attacking_team or event_type == 'Unknown':
+                continue
+
+            action = event.to_dict()
+            action.update({
+                'trigger_sequence_id': sequence_id,
+                'trigger_zone': trigger_zone,
+                'triggering_trigger_Opta_id': trigger_event.get('id'),
+                'timeMin_at_trigger': trigger_event.get('timeMin'),
+                'timeSec_at_trigger': trigger_event.get('timeSec'),
+                'type_of_initial_trigger': trigger_type,
+                'timeMin_at_active_start': active_start_min,
+                'timeSec_at_active_start': active_start_sec,
+                'first_active_action_type': first_active_type,
+            })
+
+            if event_type == 'Pass':
+                sequence_events.append(action)
+                pass_attempts += 1
+
+                if unsuccessful:
+                    legacy_outcome = 'Lost Possessions'
+                    termination_reason = 'unsuccessful_pass'
+                    break
+
+                if successful:
+                    successful_passes += 1
+
+                    if _controlled_event_reaches_phase_exit(event, float(phase_exit_x)):
+                        legacy_outcome = 'Possession Consolidated'
+                        termination_reason = 'opposition_half_reached'
+                        break
+
+                    if (
+                        max_passes_in_buildup_sequence is not None
+                        and pass_attempts >= int(max_passes_in_buildup_sequence)
+                    ):
+                        legacy_outcome = 'Possession Consolidated'
+                        termination_reason = 'safety_pass_limit'
+                        break
+
+                continue
+
+            if event_type in shot_types:
+                action['shot_end_y'] = event.get('Goal mouth y co-ordinate')
+                sequence_events.append(action)
+                if event_type == 'Goal':
+                    legacy_outcome = (
+                        'Own Goal'
+                        if event.get('Own goal') in [1, '1', True]
+                        else 'Goals'
+                    )
+                else:
+                    legacy_outcome = 'Shots'
+                break
+
+            if event_type == 'Offside Pass':
+                if sequence_events:
+                    sequence_events.append(action)
+                    legacy_outcome = 'Offside'
+                break
+
+            if event_type == 'Out':
+                if sequence_events:
+                    sequence_events.append(action)
+                    legacy_outcome = 'Out'
+                break
+
+            if event_type == 'Dispossessed':
+                if sequence_events:
+                    sequence_events.append(action)
+                    legacy_outcome = 'Lost Possessions'
+                    termination_reason = 'dispossessed'
+                break
+
+            if event_type == 'Take On' and unsuccessful:
+                sequence_events.append(action)
+                legacy_outcome = 'Lost Possessions'
+                termination_reason = 'failed_take_on'
+                break
+
+            if event_type == 'Ball touch' and unsuccessful:
+                if sequence_events:
+                    sequence_events.append(action)
+                    legacy_outcome = 'Lost Possessions'
+                    termination_reason = 'failed_control'
+                break
+
+            if event_type in {'Take On', 'Ball touch'} and successful:
+                sequence_events.append(action)
+                if _controlled_event_reaches_phase_exit(event, float(phase_exit_x)):
+                    legacy_outcome = 'Possession Consolidated'
+                    termination_reason = 'opposition_half_reached'
+                    break
+
+        if sequence_events and legacy_outcome == 'Unknown':
+            legacy_outcome = 'Possession Retained'
+            termination_reason = 'data_end'
+
+        if not sequence_events or pass_attempts == 0:
+            continue
+
+        df_seq = pd.DataFrame(sequence_events)
+        df_seq = df_seq[df_seq['team_name'].eq(attacking_team)].drop_duplicates(
+            subset=[
+                'eventId', 'team_name', 'type_name', 'x', 'y',
+                'end_x', 'end_y', 'timeMin', 'timeSec',
+            ]
+        ).copy()
+        if df_seq.empty:
+            continue
+
+        buildup_type = classify_buildup_type(df_seq)
+
+        if (
+            termination_reason == 'time_window_elapsed'
+            and max_active_buildup_seconds is not None
+        ):
+            active_duration = float(max_active_buildup_seconds)
+        else:
+            last_total = _event_total_seconds(df_seq.iloc[-1])
+            active_duration = (
+                max(0.0, float(last_total) - float(active_start_total))
+                if pd.notna(last_total) and pd.notna(active_start_total)
+                else np.nan
+            )
+
+        df_seq['buildup_pass_count'] = int(successful_passes)
+        df_seq['buildup_active_duration_seconds'] = active_duration
+        df_seq['buildup_type'] = buildup_type
+        df_seq['sequence_outcome_type'] = legacy_outcome
+        df_seq = apply_sequence_outcome_contract(
+            df_seq,
+            viewpoint='attacking',
+            legacy_outcome=legacy_outcome,
+            termination_reason=termination_reason,
+        )
+
+        all_rows.extend(df_seq.to_dict('records'))
+        consumed_event_ids.update(df_seq['id'].dropna().tolist())
+        consumed_event_ids.add(trigger_event.get('id'))
+        sequence_id += 1
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(all_rows)
+    print(
+        f"Constructed {result['trigger_sequence_id'].nunique()} "
+        "canonical first-phase buildup sequences."
+    )
+    return result
+
+
+def _find_legacy_buildup_sequences(df_processed, attacking_team,
                         defending_team, # Team that lost possession
                         metric_to_analyze = 'buildup_phase',
                         triggers_buildups=['Out', 'Foul', 'Card', 'Miss', 'Offside provoked', 'Save', 'Claim', 'Keeper pick-up', 'Ball recovery', 'Corner Awarded', 'Attempt Saved'], # Triggers that start a buildup
@@ -372,6 +872,59 @@ def find_buildup_sequences(df_processed, attacking_team,
     print(f"Constructed {df_all_sequences['trigger_sequence_id'].nunique()} opponent buildup sequences (incl. terminating event).")
     return df_all_sequences
 
+
+def find_buildup_sequences(
+    df_processed,
+    attacking_team,
+    defending_team,
+    metric_to_analyze='buildup_phase',
+    triggers_buildups=None,
+    max_passes_in_buildup_sequence=50,
+    shot_types=None,
+    start_x=50,
+    phase_exit_x=FIRST_PHASE_EXIT_X,
+    max_active_buildup_seconds=MAX_ACTIVE_BUILDUP_SECONDS,
+):
+    """
+    Public detector. Build-up uses the REL-05 first-phase contract; set pieces
+    retain their established sequence definition.
+    """
+    shot_types = shot_types or ['Goal', 'Miss', 'Attempt Saved', 'Post']
+
+    if metric_to_analyze == 'buildup_phase':
+        return _find_first_phase_buildup_sequences(
+            df_processed,
+            attacking_team,
+            defending_team,
+            triggers_buildups=triggers_buildups,
+            max_passes_in_buildup_sequence=max_passes_in_buildup_sequence,
+            shot_types=shot_types,
+            start_x=start_x,
+            phase_exit_x=phase_exit_x,
+            max_active_buildup_seconds=max_active_buildup_seconds,
+        )
+
+    legacy_triggers = (
+        list(triggers_buildups)
+        if triggers_buildups is not None
+        else [
+            'Out', 'Foul', 'Card', 'Miss', 'Offside provoked', 'Save',
+            'Claim', 'Keeper pick-up', 'Ball recovery', 'Corner Awarded',
+            'Attempt Saved',
+        ]
+    )
+    return _find_legacy_buildup_sequences(
+        df_processed,
+        attacking_team,
+        defending_team,
+        metric_to_analyze=metric_to_analyze,
+        triggers_buildups=legacy_triggers,
+        max_passes_in_buildup_sequence=max_passes_in_buildup_sequence,
+        shot_types=shot_types,
+        start_x=start_x,
+    )
+
+
 def calculate_team_cross_stats(df_team_crosses, team_name):
     """Helper to calculate summary stats for one team's crosses."""
     if df_team_crosses.empty:
@@ -578,30 +1131,16 @@ def calculate_buildup_stats(sequence_list, attacking_team_is_home):
     flanks = [seq.iloc[0].get('dominant_flank', 'Unknown') for seq in sequence_list if not seq.empty]
     flank_counts = pd.Series(flanks).value_counts().to_dict()
 
-    # --- FIX 3: Correctly calculate buildup type using 'lb' column ---
+    # 3. Canonical first-phase distribution type.
     buildup_type_map = {'Short-Short': 0, 'Short-Long': 0, 'Long Ball': 0}
     for seq in sequence_list:
-        if seq.empty: continue
-        passes_in_seq = seq[seq['type_name'] == 'Pass'].copy()
-        if passes_in_seq.empty:
-            buildup_type_map['Short-Short'] += 1 # No passes, count as short
+        if seq.empty:
             continue
-
-        # Check the first pass for 'lb' == 1
-        first_pass = passes_in_seq.iloc[0]
-        if first_pass.get('lb') == 1:
-            buildup_type_map['Long Ball'] += 1
-        else:
-            # If first pass is not a long ball, check subsequent passes
-            if len(passes_in_seq) > 1:
-                # Check if 'lb' == 1 exists in any of the *other* passes
-                if passes_in_seq.iloc[1:].get('lb', pd.Series()).eq(1).any():
-                    buildup_type_map['Short-Long'] += 1
-                else:
-                    buildup_type_map['Short-Short'] += 1
-            else:
-                # Only one short pass in the sequence
-                buildup_type_map['Short-Short'] += 1
+        buildup_type = seq.iloc[-1].get('buildup_type')
+        if not buildup_type or buildup_type not in buildup_type_map:
+            buildup_type = classify_buildup_type(seq)
+        if buildup_type in buildup_type_map:
+            buildup_type_map[buildup_type] += 1
 
     return {
         "total": total_sequences,

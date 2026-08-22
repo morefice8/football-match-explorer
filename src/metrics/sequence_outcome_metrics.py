@@ -333,6 +333,8 @@ def summarize_sequences(
         'team_name',
         'start_zone',
         'initial_action_type',
+        'first_active_action_type',
+        'buildup_type',
         'terminal_outcome',
         'termination_reason',
         'viewpoint',
@@ -382,6 +384,12 @@ def summarize_sequences(
         start_second_col = (
             'timeSec_at_trigger'
         )
+        active_start_minute_col = (
+            'timeMin_at_active_start'
+        )
+        active_start_second_col = (
+            'timeSec_at_active_start'
+        )
 
     elif sequence_kind in (
         'offensive_transition',
@@ -404,6 +412,8 @@ def summarize_sequences(
         start_second_col = (
             'timeSec_at_loss'
         )
+        active_start_minute_col = None
+        active_start_second_col = None
 
     else:
         raise ValueError(
@@ -455,6 +465,23 @@ def summarize_sequences(
             'Unknown',
         )
 
+        first_active_action_type = first_event.get(
+            'first_active_action_type',
+            first_event.get(
+                'type_name',
+                'Unknown',
+            ),
+        )
+
+        buildup_type = (
+            first_event.get(
+                'buildup_type',
+                None,
+            )
+            if sequence_kind == 'buildup'
+            else None
+        )
+
         trigger_minute = first_event.get(
             start_minute_col,
             np.nan,
@@ -487,28 +514,40 @@ def summarize_sequences(
         # the transition starts at the possession-loss event itself.
 
         if sequence_kind == 'buildup':
-            start_minute = first_action_minute
-            start_second = first_action_second
+            start_minute = first_event.get(
+                active_start_minute_col,
+                first_action_minute,
+            )
+            start_second = first_event.get(
+                active_start_second_col,
+                first_action_second,
+            )
+
+            if pd.isna(start_minute):
+                start_minute = first_action_minute
+
+            if pd.isna(start_second):
+                start_second = first_action_second
 
             if (
                 pd.notna(trigger_minute)
                 and pd.notna(trigger_second)
-                and pd.notna(first_action_minute)
-                and pd.notna(first_action_second)
+                and pd.notna(start_minute)
+                and pd.notna(start_second)
             ):
                 trigger_total_seconds = (
                     float(trigger_minute) * 60
                     + float(trigger_second)
                 )
 
-                first_action_total_seconds = (
-                    float(first_action_minute) * 60
-                    + float(first_action_second)
+                active_start_total_seconds = (
+                    float(start_minute) * 60
+                    + float(start_second)
                 )
 
                 restart_delay_seconds = max(
                     0.0,
-                    first_action_total_seconds
+                    active_start_total_seconds
                     - trigger_total_seconds,
                 )
             else:
@@ -540,13 +579,28 @@ def summarize_sequences(
             np.nan,
         )
 
-        duration_seconds = (
-            _calculate_duration_seconds(
-                sequence_df,
-                start_minute,
-                start_second,
+        if (
+            sequence_kind == 'buildup'
+            and 'buildup_active_duration_seconds'
+            in sequence_df.columns
+        ):
+            duration_seconds = _first_non_null(
+                pd.to_numeric(
+                    sequence_df[
+                        'buildup_active_duration_seconds'
+                    ],
+                    errors='coerce',
+                ),
+                default=np.nan,
             )
-        )
+        else:
+            duration_seconds = (
+                _calculate_duration_seconds(
+                    sequence_df,
+                    start_minute,
+                    start_second,
+                )
+            )
 
         # -----------------------------------------------------
         # OUTCOME
@@ -637,6 +691,12 @@ def summarize_sequences(
 
             'initial_action_type':
                 initial_action_type,
+
+            'first_active_action_type':
+                first_active_action_type,
+
+            'buildup_type':
+                buildup_type,
 
             'terminal_outcome':
                 terminal_outcome,
