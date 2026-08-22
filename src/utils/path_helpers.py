@@ -8,6 +8,9 @@ from src.utils.league_config import LEAGUES, LEAGUE_NAME_TO_FOLDER
 
 # Definiamo le costanti qui, in modo che siano centralizzate
 DATA_PATH = os.path.join("data", "fbref")
+SPORTMONKS_TEAM_ALIASES = {
+    "milan": "ac milan",
+}
 
 
 @lru_cache(maxsize=512)
@@ -24,6 +27,9 @@ def _get_sportmonks_team_logo(league_name, team_name):
     )
     target_league = str(league_name or "").strip().casefold()
     target_team = str(team_name or "").strip().casefold()
+
+    # Apply aliases if available
+    target_team = SPORTMONKS_TEAM_ALIASES.get(target_team, target_team)
 
     for season_folder in season_folders:
         teams_csv = season_folder / "teams.csv"
