@@ -686,9 +686,17 @@ def plot_opponent_buildup_after_loss_plotly(
     }
     title_line1 = title_map.get(metric_to_analyze, "Sequence Analysis")
     
+    display_outcome = df.iloc[-1].get(
+        'sequence_outcome_type',
+        outcome_text,
+    )
+
+    if pd.isna(display_outcome) or not str(display_outcome).strip():
+        display_outcome = outcome_text
+
     # --- START: AGGIORNAMENTO TITOLO ---
     fig.update_layout(
-        title=f"<b>{title_line1}</b><br>Time: {time_str} | Duration: {duration_str} | Outcome: {outcome_text}",
+        title=f"<b>{title_line1}</b><br>Time: {time_str} | Duration: {duration_str} | Outcome: {display_outcome}",
         title_font=dict(color='#18344d', size=16, family='Inter, Arial'),
         title_x=0.5,
         title_y=0.97,

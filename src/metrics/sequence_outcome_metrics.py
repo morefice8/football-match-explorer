@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from src.utils.sequence_outcomes import apply_sequence_outcome_contract
+
 
 MIDDLE_THIRD_X = 33.33
 OPPOSITION_HALF_X = 50.0
@@ -53,6 +55,10 @@ def calculate_sequence_milestones(
         'entered_penalty_area': False,
         'produced_shot': False,
         'produced_goal': False,
+        'milestone_final_third': False,
+        'milestone_box': False,
+        'milestone_shot': False,
+        'milestone_goal': False,
     }
 
     if (
@@ -162,9 +168,23 @@ def calculate_sequence_milestones(
         .any()
     )
 
-    # Some special cases such as forced own goals may be
-    # represented primarily through the sequence outcome.
-    if 'sequence_outcome_type' in df.columns:
+    # Canonical terminal outcome is authoritative for special cases
+    # such as forced own goals that may not be represented by a shot row
+    # belonging to the attacking team.
+    if 'terminal_outcome' in df.columns:
+        terminal_values = (
+            df['terminal_outcome']
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        if terminal_values.eq('goal').any():
+            produced_goal = True
+            produced_shot = True
+    elif 'sequence_outcome_type' in df.columns:
+        # Backward compatibility for historical flattened sequence frames.
         outcome_text = ' '.join(
             df['sequence_outcome_type']
             .dropna()
@@ -208,6 +228,15 @@ def calculate_sequence_milestones(
 
         'produced_goal':
             produced_goal,
+
+        # Canonical milestone aliases used by the sequence contract.
+        'milestone_final_third': (
+            pd.notna(max_controlled_x)
+            and max_controlled_x >= FINAL_THIRD_X
+        ),
+        'milestone_box': entered_penalty_area,
+        'milestone_shot': produced_shot,
+        'milestone_goal': produced_goal,
     }
 
 def _first_non_null(series, default=None):
@@ -304,6 +333,9 @@ def summarize_sequences(
         'team_name',
         'start_zone',
         'initial_action_type',
+        'terminal_outcome',
+        'termination_reason',
+        'viewpoint',
         'final_outcome',
         'pass_count',
         'event_count',
@@ -322,6 +354,10 @@ def summarize_sequences(
         'entered_penalty_area',
         'produced_shot',
         'produced_goal',
+        'milestone_final_third',
+        'milestone_box',
+        'milestone_shot',
+        'milestone_goal',
     ]
 
     if (
@@ -334,6 +370,7 @@ def summarize_sequences(
 
     if sequence_kind == 'buildup':
         sequence_id_col = 'trigger_sequence_id'
+        sequence_viewpoint = 'attacking'
         zone_col = 'trigger_zone'
         pass_count_col = 'buildup_pass_count'
         initial_action_col = (
@@ -351,6 +388,11 @@ def summarize_sequences(
         'defensive_transition',
     ):
         sequence_id_col = 'loss_sequence_id'
+        sequence_viewpoint = (
+            'defending'
+            if sequence_kind == 'defensive_transition'
+            else 'attacking'
+        )
         zone_col = 'loss_zone'
         pass_count_col = 'opponent_pass_count'
         initial_action_col = (
@@ -385,7 +427,10 @@ def summarize_sequences(
     )
 
     for sequence_id, sequence_df in grouped:
-        sequence_df = sequence_df.copy()
+        sequence_df = apply_sequence_outcome_contract(
+            sequence_df,
+            viewpoint=sequence_viewpoint,
+        )
 
         first_event = sequence_df.iloc[0]
         last_event = sequence_df.iloc[-1]
@@ -507,6 +552,21 @@ def summarize_sequences(
         # OUTCOME
         # -----------------------------------------------------
 
+        terminal_outcome = last_event.get(
+            'terminal_outcome',
+            'unknown',
+        )
+        termination_reason = last_event.get(
+            'termination_reason',
+            'unknown',
+        )
+        viewpoint = last_event.get(
+            'viewpoint',
+            sequence_viewpoint,
+        )
+
+        # Compatibility/UI label. Canonical logic must use the three
+        # fields above rather than branching on this string.
         final_outcome = last_event.get(
             'sequence_outcome_type',
             'Unknown',
@@ -577,6 +637,15 @@ def summarize_sequences(
 
             'initial_action_type':
                 initial_action_type,
+
+            'terminal_outcome':
+                terminal_outcome,
+
+            'termination_reason':
+                termination_reason,
+
+            'viewpoint':
+                viewpoint,
 
             'final_outcome':
                 final_outcome,
@@ -658,6 +727,8 @@ def aggregate_sequence_outcomes(
                 in milestone_columns
             },
             'outcomes': {},
+            'terminal_outcomes': {},
+            'termination_reasons': {},
             'avg_duration_seconds': np.nan,
             'median_duration_seconds': np.nan,
             'avg_completed_passes': np.nan,
@@ -700,28 +771,45 @@ def aggregate_sequence_outcomes(
     # TERMINAL OUTCOMES
     # ---------------------------------------------------------
 
-    outcomes = {}
+    def _count_categories(column, fallback):
+        if column not in df.columns:
+            return {}
 
-    if 'final_outcome' in df.columns:
-        outcome_counts = (
-            df['final_outcome']
-            .fillna('Unknown')
+        counts = (
+            df[column]
+            .fillna(fallback)
+            .astype(str)
             .value_counts()
         )
 
-        for outcome, count in (
-            outcome_counts.items()
-        ):
-            count = int(count)
-
-            outcomes[str(outcome)] = {
-                'count': count,
+        return {
+            str(value): {
+                'count': int(count),
                 'percentage': (
-                    count
+                    int(count)
                     / total_sequences
                     * 100
                 ),
             }
+            for value, count in counts.items()
+        }
+
+    # Compatibility/UI labels retained for existing cards and plots.
+    outcomes = _count_categories(
+        'final_outcome',
+        'Unknown',
+    )
+
+    # Canonical domain aggregation. New logic should consume these keys.
+    terminal_outcomes = _count_categories(
+        'terminal_outcome',
+        'unknown',
+    )
+
+    termination_reasons = _count_categories(
+        'termination_reason',
+        'unknown',
+    )
 
     # ---------------------------------------------------------
     # DURATION
@@ -756,6 +844,12 @@ def aggregate_sequence_outcomes(
 
         'outcomes':
             outcomes,
+
+        'terminal_outcomes':
+            terminal_outcomes,
+
+        'termination_reasons':
+            termination_reasons,
 
         'avg_duration_seconds': (
             float(durations.mean())
@@ -979,6 +1073,31 @@ def build_sequence_comparison(
                 away_data['percentage'],
         })
 
+    canonical_outcome_rows = []
+    canonical_outcomes = set(
+        home_agg['terminal_outcomes'].keys()
+    ) | set(
+        away_agg['terminal_outcomes'].keys()
+    )
+
+    for outcome in sorted(canonical_outcomes):
+        home_data = home_agg['terminal_outcomes'].get(
+            outcome,
+            {'count': 0, 'percentage': 0.0},
+        )
+        away_data = away_agg['terminal_outcomes'].get(
+            outcome,
+            {'count': 0, 'percentage': 0.0},
+        )
+
+        canonical_outcome_rows.append({
+            'terminal_outcome': outcome,
+            'home_count': home_data['count'],
+            'home_percentage': home_data['percentage'],
+            'away_count': away_data['count'],
+            'away_percentage': away_data['percentage'],
+        })
+
     # ---------------------------------------------------------
     # SEQUENCE PROFILE
     # ---------------------------------------------------------
@@ -1047,6 +1166,9 @@ def build_sequence_comparison(
 
         'outcomes':
             outcome_rows,
+
+        'terminal_outcomes':
+            canonical_outcome_rows,
 
         'profile':
             profile,

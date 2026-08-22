@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from src import config
 from src.metrics.transition_metrics import get_pitch_third
+from src.utils.sequence_outcomes import apply_sequence_outcome_contract
 # --- Set display options to show all columns and more rows ---
 pd.set_option('display.max_columns', None) # Show all columns
 pd.set_option('display.max_rows', None)    # Show all rows (be careful with very large DFs)
@@ -350,10 +351,17 @@ def find_buildup_sequences(df_processed, attacking_team,
                 (df_seq_deduped['type_name'] == 'Pass') & (df_seq_deduped['outcome'] == 'Successful')
             ].shape[0]
 
-            for event_data_dict in df_seq_deduped.to_dict('records'):
-                event_data_dict['buildup_pass_count'] = pass_count
-                event_data_dict['sequence_outcome_type'] = sequence_outcome_type
-                all_buildup_events_with_trigger_info.append(event_data_dict)
+            df_seq_deduped['buildup_pass_count'] = pass_count
+            df_seq_deduped['sequence_outcome_type'] = sequence_outcome_type
+            df_seq_deduped = apply_sequence_outcome_contract(
+                df_seq_deduped,
+                viewpoint='attacking',
+                legacy_outcome=sequence_outcome_type,
+            )
+
+            all_buildup_events_with_trigger_info.extend(
+                df_seq_deduped.to_dict('records')
+            )
 
             sequence_id_counter += 1
 
@@ -556,6 +564,14 @@ def calculate_buildup_stats(sequence_list, attacking_team_is_home):
     # 1. Outcome Analysis (this logic is correct)
     outcomes = [seq.iloc[-1]['sequence_outcome_type'] for seq in sequence_list if not seq.empty]
     outcome_counts = pd.Series(outcomes).value_counts().to_dict()
+    terminal_outcomes = [
+        seq.iloc[-1].get('terminal_outcome', 'unknown')
+        for seq in sequence_list
+        if not seq.empty
+    ]
+    terminal_outcome_counts = (
+        pd.Series(terminal_outcomes).value_counts().to_dict()
+    )
 
     # --- FIX 2: Correctly calculate flank based on the 'trigger_zone' ---
     # Your `find_buildup_sequences` function already calculates this for us.
@@ -590,6 +606,7 @@ def calculate_buildup_stats(sequence_list, attacking_team_is_home):
     return {
         "total": total_sequences,
         "outcomes": outcome_counts,
+        "terminal_outcomes": terminal_outcome_counts,
         "flanks": flank_counts,
         "types": buildup_type_map
     }

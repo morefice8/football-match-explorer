@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import dash_bootstrap_components as dbc
 from dash import html
+from src.utils.sequence_outcomes import apply_sequence_outcome_contract
 
 # Adjust Opta typeIds if necessary
 # Note: Freekick might be complex (Pass, Shot, etc.). We'll focus on the 'Pass' part for deliveries.
@@ -106,7 +107,13 @@ def extract_penalty_set_piece_sequences(
             ),
         })
 
-        sequences.append(pd.DataFrame([event_data]))
+        sequence_df = pd.DataFrame([event_data])
+        sequence_df = apply_sequence_outcome_contract(
+            sequence_df,
+            viewpoint='attacking',
+            legacy_outcome=event_data['sequence_outcome_type'],
+        )
+        sequences.append(sequence_df)
 
     return sequences
 
@@ -441,6 +448,9 @@ def analyze_and_summarize_set_pieces(sequence_list):
             'Swing': swing,
             'Foot': player_foot,
             'Destination': destination,
+            'terminal_outcome': seq.iloc[-1].get('terminal_outcome', 'unknown'),
+            'termination_reason': seq.iloc[-1].get('termination_reason', 'unknown'),
+            'viewpoint': seq.iloc[-1].get('viewpoint', 'attacking'),
             'Outcome': seq.iloc[-1].get('sequence_outcome_type', 'Unknown')
         })
         
@@ -458,7 +468,8 @@ def analyze_and_summarize_set_pieces(sequence_list):
         'swings': df[df['Swing'] != 'N/A']['Swing'].value_counts().to_dict(),
         'feet': df[df['Foot'] != 'Unknown']['Foot'].value_counts().to_dict(),
         'destinations': df[df['Destination'] != 'N/A']['Destination'].value_counts().to_dict(),
-        'outcomes': df['Outcome'].value_counts().to_dict()
+        'outcomes': df['Outcome'].value_counts().to_dict(),
+        'terminal_outcomes': df['terminal_outcome'].value_counts().to_dict(),
     }
     
     return df, stats

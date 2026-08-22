@@ -6,6 +6,7 @@ from collections import defaultdict
 from dash import Dash, html as dash_html, dcc, Input, Output, dash_table, no_update
 # import dash.html as html
 from src import config
+from src.utils.sequence_outcomes import apply_sequence_outcome_contract
 # --- Set display options to show all columns and more rows ---
 pd.set_option('display.max_columns', None) # Show all columns
 pd.set_option('display.max_rows', None)    # Show all rows (be careful with very large DFs)
@@ -819,10 +820,22 @@ def find_buildup_after_possession_loss(df_processed,
                 (df_seq_deduped['type_name'] == 'Pass') & (df_seq_deduped['outcome'] == 'Successful')
             ].shape[0]
 
-            for event_data_dict in df_seq_deduped.to_dict('records'):
-                event_data_dict['opponent_pass_count'] = pass_count
-                event_data_dict['sequence_outcome_type'] = sequence_outcome_type
-                all_buildup_events_with_loss_info.append(event_data_dict)
+            df_seq_deduped['opponent_pass_count'] = pass_count
+            df_seq_deduped['sequence_outcome_type'] = sequence_outcome_type
+            viewpoint = (
+                'defending'
+                if metric_to_analyze == 'defensive_transitions'
+                else 'attacking'
+            )
+            df_seq_deduped = apply_sequence_outcome_contract(
+                df_seq_deduped,
+                viewpoint=viewpoint,
+                legacy_outcome=sequence_outcome_type,
+            )
+
+            all_buildup_events_with_loss_info.extend(
+                df_seq_deduped.to_dict('records')
+            )
 
             sequence_id_counter += 1
             # print(f"DEBUG Sequence {sequence_id_counter}: {pass_count} real passes, {len(current_opponent_sequence_events)} events, num_passes = {num_passes_in_seq}, outcome = {sequence_outcome_type}")
@@ -1003,6 +1016,14 @@ def calculate_def_transition_stats(sequence_list, is_away=False):
     # --- 1. Outcomes ---
     outcomes = [seq.iloc[-1]['sequence_outcome_type'] for seq in sequence_list if not seq.empty and 'sequence_outcome_type' in seq.columns]
     outcome_counts = pd.Series(outcomes).value_counts().to_dict()
+    terminal_outcomes = [
+        seq.iloc[-1].get('terminal_outcome', 'unknown')
+        for seq in sequence_list
+        if not seq.empty
+    ]
+    terminal_outcome_counts = (
+        pd.Series(terminal_outcomes).value_counts().to_dict()
+    )
 
     # --- 2. Flanks (dominant) ---
     flanks = []
@@ -1065,6 +1086,7 @@ def calculate_def_transition_stats(sequence_list, is_away=False):
     return {
         "total": total_sequences,
         "outcomes": outcome_counts,
+        "terminal_outcomes": terminal_outcome_counts,
         "flanks": flank_counts,
         "types": loss_type_counts,
         "transition_profile_table": pd.DataFrame(profile_table)
@@ -1196,6 +1218,14 @@ def calculate_off_transition_stats(sequence_list, is_away=False):
     # 1. Outcomes (esattamente come per quelle difensive, ma il significato è invertito)
     outcomes = [seq.iloc[-1]['sequence_outcome_type'] for seq in sequence_list if not seq.empty]
     outcome_counts = pd.Series(outcomes).value_counts().to_dict()
+    terminal_outcomes = [
+        seq.iloc[-1].get('terminal_outcome', 'unknown')
+        for seq in sequence_list
+        if not seq.empty
+    ]
+    terminal_outcome_counts = (
+        pd.Series(terminal_outcomes).value_counts().to_dict()
+    )
 
     # 2. Flanks (dove si sviluppa la transizione offensiva)
     flanks = [calculate_flank(seq["y"]) for seq in sequence_list if not seq.empty]
@@ -1236,6 +1266,7 @@ def calculate_off_transition_stats(sequence_list, is_away=False):
     return {
         "total": total_sequences,
         "outcomes": outcome_counts,
+        "terminal_outcomes": terminal_outcome_counts,
         "flanks": flank_counts,
         "types": recovery_type_counts, # Ora rappresenta i tipi di recupero
         "transition_profile_table": pd.DataFrame(profile_table_data)
