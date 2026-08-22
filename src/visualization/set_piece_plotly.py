@@ -3,6 +3,7 @@
 import plotly.graph_objects as go
 from .buildup_plotly import draw_plotly_pitch
 from ..config import BG_COLOR, LINE_COLOR
+from src.visualization.plotly_branding import add_attacking_direction
 
 def plot_set_piece_map(df_analyzed, team_color):
     """
@@ -10,6 +11,7 @@ def plot_set_piece_map(df_analyzed, team_color):
     """
     fig = go.Figure()
     draw_plotly_pitch(fig)
+    add_attacking_direction(fig, dark=True)
 
     if df_analyzed.empty:
         fig.add_annotation(text="No set piece data to display", showarrow=False, font=dict(color='white'))

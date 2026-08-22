@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.utils.formation_layouts import get_formation_layout_coords, get_formation_name, FORMATION_COORDINATES
 from .buildup_plotly import draw_plotly_pitch
+from src.visualization.plotly_branding import add_attacking_direction
 
 # Colori e costanti (prendili dal tuo config.py)
 BG_COLOR = 'rgba(46, 52, 57, 1)' # #2E3439 in RGBA per Plotly
@@ -485,7 +486,6 @@ def plot_formation_interactive_with_timeline(timeline, team_color="#1f77b4"):
         )],
         margin=dict(t=40, b=40, l=10, r=10)
     )
-
     return fig
 
 def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_away=False):
@@ -496,13 +496,10 @@ def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_awa
     fig = go.Figure()
     fig = draw_plotly_pitch(fig)
 
-    # Gestione assi (corretta con inversione per away)
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    # Match Analysis coordinates are already team-relative.
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
     
     # 1. Heatmap di tutti i tocchi
     if not df_all_touches.empty:
@@ -556,10 +553,8 @@ def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_awa
         # Il calcolo dei metri usa sempre la coordinata originale, non quella invertita per il plot
         avg_line_meters = avg_line_x * (pitch_length_meters / 100.0)
 
-        # Posizionamento relativo dell'etichetta (funziona indipendentemente dall'inversione)
+        # The label follows the same left-to-right coordinate system.
         x_paper_coord = avg_line_x / 100.0
-        if is_away:
-             x_paper_coord = 1 - x_paper_coord # Inverti la posizione relativa per il team away
 
         fig.add_annotation(
             x=x_paper_coord, y=1.05,
@@ -581,6 +576,8 @@ def plot_mean_positions_plotly(df_all_touches, df_player_agg, team_color, is_awa
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
         yaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True, scaleanchor="x", scaleratio=0.68)
     )
+
+    add_attacking_direction(fig, dark=False)
 
     return fig
 

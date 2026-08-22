@@ -3371,7 +3371,7 @@ def render_formation_content(active_tab, stored_data_json):
                             dash_html.Div([
                                 dash_html.Span("AWAY TEAM", className="match-panel-eyebrow"),
                                 dash_html.H3(ATEAM_NAME, className="match-panel-title"),
-                                dash_html.P("Average player locations, mirrored to support a direct visual comparison.", className="match-panel-description"),
+                                dash_html.P("Average player locations with the team's territorial touch density.", className="match-panel-description"),
                             ], className="match-panel-header"),
                             dcc.Graph(
                                 figure=fig_away,
@@ -4421,7 +4421,6 @@ def generate_final_third_plot(stored_data_json):
             axs[1].text(0.5,0.5, f"{ATEAM_NAME}\nNo Final Third Entries", ha='center', va='center', color=TEXT_COLOR)
             axs[1].set_facecolor(FIG_BG_COLOR); axs[1].axis('off')
             pitch_plots.setup_pitch(axs[1], pitch_type='opta', line_color=TEXT_COLOR, background_color=FIG_BG_COLOR) # Draw empty pitch
-            axs[1].invert_xaxis(); axs[1].invert_yaxis() # Still invert for consistent away view
 
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])

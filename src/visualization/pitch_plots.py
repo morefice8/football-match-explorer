@@ -13,6 +13,7 @@ from src import config
 from scipy.spatial import ConvexHull
 from scipy.spatial import Voronoi, voronoi_plot_2d
 from src.utils import formation_layouts 
+from src.visualization.coordinate_contract import add_matplotlib_attacking_direction
 # Optional: Load font manager if using custom fonts
 # try:
 #     robotto_regular = FontManager() # Add URL or path if needed
@@ -61,25 +62,16 @@ BC_SEMICIRCLE_RADIUS_SQUARED_STD = BC_SEMICIRCLE_RADIUS_STD**2
 def plot_pass_density(ax, passes_df, team_name, cmap='viridis', is_away_team=False): # Added is_away_team
     """Plots a Kernel Density Estimate (KDE) of pass start locations."""
     print(f"Plotting pass density for {team_name}...")
-    # Using VerticalPitch for this example plot
-    pitch = VerticalPitch(pitch_type='opta', line_color='#000009', line_zorder=2, corner_arcs=True)
+    pitch = Pitch(pitch_type='opta', line_color='#000009', line_zorder=2, corner_arcs=True)
     pitch.draw(ax=ax)
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, '#536d80')
 
     # Plot KDE if there's data
     if not passes_df.empty and 'x' in passes_df.columns and 'y' in passes_df.columns:
         pitch.kdeplot(passes_df.x, passes_df.y, ax=ax,
                       fill=True, levels=100, thresh=0, cut=4, cmap=cmap, zorder=1) # Lower zorder
 
-        # --- Axis Inversion and Arrow Logic ---
-        if is_away_team:
-            ax.invert_xaxis() # Invert X axis for away team
-            ax.invert_yaxis() # Invert Y axis for away team
-            ax.annotate('', xy=(pitch.dim.left + 10, 65), xytext=(pitch.dim.left + 10, 35),
-                         arrowprops=dict(facecolor='white', edgecolor='white', arrowstyle='->', lw=2))
-        else:
-            ax.annotate('', xy=(pitch.dim.left + 10, 65), xytext=(pitch.dim.left + 10, 35),
-                         arrowprops=dict(facecolor='white', edgecolor='white', arrowstyle='->', lw=2))
-        # --- End Inversion Logic ---
     else:
         print(f"Warning: No pass data or missing coordinates for density plot of {team_name}.")
 
@@ -90,9 +82,10 @@ def plot_pass_density(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
 def plot_pass_heatmap(ax, passes_df, team_name, cmap='viridis', is_away_team=False):
     """Plots a positional heatmap of pass start locations, including scatter points."""
     print(f"Plotting pass heatmap for {team_name}...")
-    # Using VerticalPitch for this plot
-    pitch = VerticalPitch(pitch_type='opta', line_zorder=3, pitch_color='#FAFAFA', line_color='black', corner_arcs=True) # Lighter pitch color
+    pitch = Pitch(pitch_type='opta', line_zorder=3, pitch_color='#FAFAFA', line_color='black', corner_arcs=True)
     pitch.draw(ax=ax)
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, '#536d80')
 
     # Calculate and plot heatmap if there's data
     if not passes_df.empty and 'x' in passes_df.columns and 'y' in passes_df.columns:
@@ -110,11 +103,6 @@ def plot_pass_heatmap(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
                               ax=ax, ha='center', va='center', str_format='{:.0%}', # Percentage format
                               path_effects=PATH_EFFECTS_HEATMAP, zorder=4) # Ensure labels are on top
 
-        # --- Axis Inversion ---
-        if is_away_team:
-            ax.invert_xaxis() # Invert X axis for away team
-            ax.invert_yaxis() # Invert Y axis for away team
-        # --- End Inversion ---
     else:
         print(f"Warning: No pass data or missing coordinates for heatmap plot of {team_name}.")
 
@@ -137,6 +125,8 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
     # Setup Pitch (Standard Horizontal for Network)
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color='white', line_color='black', linewidth=2)
     pitch.draw(ax=ax)
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit function gracefully if no data to plot
     if passes_between_df.empty or average_locs_and_count_df.empty:
@@ -218,10 +208,8 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
         avg_position_meters = avg_position_x_opta * (PITCH_LENGTH_METERS / 100.0)
         # --- *** END CONVERSION *** ---
 
-        # Adjust text position and alignment based on whether axis is inverted
-        # Position text vertically near the top/bottom edge depending on inversion
-        text_y_pos = pitch.dim.top + 3 if is_away_team else pitch.dim.bottom - 3 # Position near top/bottom edge
-        horizontal_alignment = 'right' if is_away_team else 'left'
+        text_y_pos = pitch.dim.bottom - 3
+        horizontal_alignment = 'left'
 
         # Display the value in METERS, formatted to one decimal place
         ax.text(avg_position_x_opta + 1, # Position text slightly right of the line (using Opta X for positioning)
@@ -234,22 +222,8 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
     # Add main title
     ax.set_title(f"{team_name}\nPassing Network", color='black', size=18, fontweight='bold')    
 
-    # --- Axis Inversion (X and Y) and Direction Arrow Logic ---
-    if is_away_team:
-        ax.invert_xaxis() # Invert X axis for away team plot
-        ax.invert_yaxis() # Invert Y axis for away team plot
-        # Place attacking direction text on the left side after inversion
-        ax.text(2, 2, "○ = Starter\n□ = Substitute", color=team_color, size=10,
-            ha='right', va='top')
-        ax.text(0.98, -0.01, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-
-    else:
-        # Default: Place attacking direction text on the right side
-        ax.text(2, 98, "○ = Starter\n□ = Substitute", color=team_color, size=10,
+    ax.text(2, 98, "○ = Starter\n□ = Substitute", color=team_color, size=10,
             ha='left', va='top')
-        ax.text(0.02, -0.01, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
-
-    # --- End Inversion Logic ---
 
 # --- Progressive Pass Maps ---
 # This function visualizes progressive passes for a specific team on a pitch map.
@@ -269,6 +243,8 @@ def plot_progressive_passes(ax, df_prog_passes_team, zone_counts_team,
     pitch = Pitch(pitch_type='opta', pitch_color=PITCH_COLOR, line_color=LINE_COLOR,
                   linewidth=2, corner_arcs=True)
     pitch.draw(ax=ax)
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     total_team_prog_count = zone_counts_team.get('total', 0)
 
@@ -342,15 +318,7 @@ def plot_progressive_passes(ax, df_prog_passes_team, zone_counts_team,
         fig.text(0.5, 0.90, exclusion_text, # Adjust y=0.90 as needed
                  color=LINE_COLOR, fontsize=10, ha='center', va='top')
 
-    # --- Axis Inversion and Direction Arrow Logic ---
-    # ... (Inversion logic remains the same) ...
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
-        ax.text(0.98, -0.01, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.02, -0.01, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
-    # --- End Inversion Logic ---
+
 
 # --- Shot Map and Stats Bar ---
 # This function plots a shot map showing shots from both teams attacking the same goal,
@@ -384,6 +352,7 @@ def plot_shot_map_and_stats(ax, shots_df, home_stats, away_stats,
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=bg_color,
                   linewidth=2, line_color=line_color)
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, '#536d80')
     # Adjust limits slightly for padding if needed, but default usually fine
     # ax.set_ylim(-0.5, 100.5)
     # ax.set_xlim(-0.5, 100.5)
@@ -400,17 +369,17 @@ def plot_shot_map_and_stats(ax, shots_df, home_stats, away_stats,
     aSaveData = shots_df[(shots_df['team_name'] == ateamName) & (shots_df['type_name'] == 'Attempt Saved')]
     aMissData = shots_df[(shots_df['team_name'] == ateamName) & (shots_df['type_name'] == 'Miss')]
 
-    # Plot Home Team Shots (Inverting coordinates: 100-x, 100-y to attack right goal)
+    # Coordinates are already team-relative: both teams attack towards x=100.
     if not hPostData.empty:
-        pitch.scatter(100 - hPostData.x, 100 - hPostData.y, s=200, edgecolors=hcol, c=hcol, marker='o', ax=ax, label='Home Post/Bar')
+        pitch.scatter(hPostData.x, hPostData.y, s=200, edgecolors=hcol, c=hcol, marker='o', ax=ax, label='Home Post/Bar')
     if not hSaveData.empty:
-        pitch.scatter(100 - hSaveData.x, 100 - hSaveData.y, s=200, edgecolors=hcol, c='None', hatch='///////', marker='o', ax=ax, label='Home Saved')
+        pitch.scatter(hSaveData.x, hSaveData.y, s=200, edgecolors=hcol, c='None', hatch='///////', marker='o', ax=ax, label='Home Saved')
     if not hMissData.empty:
-        pitch.scatter(100 - hMissData.x, 100 - hMissData.y, s=200, edgecolors=hcol, c='None', marker='o', ax=ax, label='Home Miss')
+        pitch.scatter(hMissData.x, hMissData.y, s=200, edgecolors=hcol, c='None', marker='o', ax=ax, label='Home Miss')
     if not hGoalData.empty:
-        pitch.scatter(100 - hGoalData.x, 100 - hGoalData.y, s=350, edgecolors='green', linewidths=0.8, c=bg_color, marker='football', zorder=3, ax=ax, label='Home Goal')
+        pitch.scatter(hGoalData.x, hGoalData.y, s=350, edgecolors='green', linewidths=0.8, c=bg_color, marker='football', zorder=3, ax=ax, label='Home Goal')
 
-    # Plot Away Team Shots (Using original coordinates x, y to attack right goal)
+    # Away uses the same team-relative orientation.
     if not aPostData.empty:
         pitch.scatter(aPostData.x, aPostData.y, s=200, edgecolors=acol, c=acol, marker='o', ax=ax, label='Away Post/Bar')
     if not aSaveData.empty:
@@ -577,6 +546,8 @@ def plot_zone14_halfspace_map(ax, df_zone14, df_lhs, df_rhs, zone_stats_dict,
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=2, corner_arcs=True)
     pitch.draw(ax=ax)
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # --- Zone Definitions (inspired by user's original code) ---
     # Zone 14
@@ -663,16 +634,7 @@ def plot_zone14_halfspace_map(ax, df_zone14, df_lhs, df_rhs, zone_stats_dict,
     # --- Title and Direction Text (using current function's style) ---
     ax.set_title(f"{team_name}\nZone 14 & Half-Space", color=line_color, fontsize=20, fontweight='bold')
 
-    # Axis inversion and attacking direction arrow
-    if is_away_team:
-        ax.invert_xaxis(); ax.invert_yaxis()
-        # Place arrow on the left side for away team (attacking left after inversion)
-        ax.text(0.98, -0.01, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes) # Bottom left
-    else:
-        # Place arrow on the right side for home team (attacking right)
-        ax.text(0.02, -0.01, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes) # Bottom right
 
-    # --- End Inversion Logic ---
 
 # --- High Turnover Plot Function *** ---
 # This function plots high turnover locations for both teams on a single pitch,
@@ -696,6 +658,7 @@ def plot_high_turnovers(ax, home_high_to_df_opta, away_high_to_df_opta, # Input 
                   pitch_color=bg_color, line_color=line_color,
                   linewidth=2, corner_arcs=True, line_zorder=1) # Ensure lines are behind points/circles
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, '#536d80')
     ax.set_ylim(0, pitch_width_meters)
     ax.set_xlim(0, pitch_length_meters)
 
@@ -785,7 +748,7 @@ def plot_chance_creation(ax, df_chances_team, team_name, team_color, is_away_tea
                                        'is_key_pass', 'is_assist' columns).
         team_name (str): Name of the team.
         team_color (str): Primary color hex for the team (used for heatmap).
-        is_away_team (bool, optional): Flag to invert axes. Defaults to False.
+        is_away_team (bool, optional): UI compatibility flag; it does not change pitch geometry.
         bg_color (str, optional): Background color. Defaults to '#FAFAFA'.
         line_color (str, optional): Pitch line color. Defaults to '#222222'.
         kp_color (str, optional): Color for key pass arrows. Defaults to VIOLET.
@@ -797,11 +760,8 @@ def plot_chance_creation(ax, df_chances_team, team_name, team_color, is_away_tea
     pitch = Pitch(pitch_type='opta', line_color=line_color, corner_arcs=True,
                   line_zorder=2, pitch_color=bg_color, linewidth=2)
     pitch.draw(ax=ax)
-
-    # Invert axes if it's the away team
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit if no data
     if df_chances_team.empty:
@@ -850,15 +810,8 @@ def plot_chance_creation(ax, df_chances_team, team_name, team_color, is_away_tea
     # Total count text
     count_text = f"Total Chances Created = {total_chances}"
 
-    # Position annotations based on home/away
-    if is_away_team:
-        ax.text(0.02, 0.02, legend_text, color=line_color, size=12, ha='left', va='top', transform=ax.transAxes)
-        ax.text(0.98, 0, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-        ax.text(0.50, 0.97, count_text, color=team_color, fontsize=12, fontweight='bold', ha='center', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.98, 0.02, legend_text, color=line_color, size=12, ha='right', va='top', transform=ax.transAxes)
-        ax.text(0.02, 0, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
-        ax.text(0.50, 0.97, count_text, color=team_color, fontsize=12, fontweight='bold', ha='center', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, 0.02, legend_text, color=line_color, size=12, ha='right', va='top', transform=ax.transAxes)
+    ax.text(0.50, 0.97, count_text, color=team_color, fontsize=12, fontweight='bold', ha='center', va='bottom', transform=ax.transAxes)
 
     ax.set_title(title, color=line_color, fontsize=18, fontweight='bold') # Slightly smaller title fontsize
 
@@ -892,11 +845,8 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=2, line_zorder=2, corner_arcs=True)
     pitch.draw(ax=ax)
-
-    # Invert axes if away team
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit if no aggregated player data
     if df_player_agg_team.empty:
@@ -961,9 +911,8 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
         pitch_length_meters = 105.0
         avg_def_line_meters = avg_def_line_x_opta * (pitch_length_meters / 100.0)
 
-        # Position text based on team (adjust Y offset as needed)
-        text_y_pos = pitch.dim.top + 3 if is_away_team else pitch.dim.bottom - 3 # Position near top/bottom edge
-        horizontal_alignment = 'right' if is_away_team else 'left'
+        text_y_pos = pitch.dim.bottom - 3
+        horizontal_alignment = 'left'
 
         ax.text(avg_def_line_x_opta + 1, # Offset text slightly from line
                 text_y_pos,
@@ -978,12 +927,7 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
 
     # Add legend/direction text
     legend_text = "○ = Starter | □ = Substitute\nSize = Def. Action Count"
-    if is_away_team:
-        ax.text(0.02, -0.015, legend_text, color='black', size=10, ha='left', va='bottom', transform=ax.transAxes)
-        ax.text(0.98, 0, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.98, -0.015, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
-        ax.text(0.02, 0, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, -0.015, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
 
 # --- NEW Defensive Shape Plot (Convex Hull) ---
 def plot_defensive_hull(ax, df_player_agg_team,
@@ -1010,11 +954,8 @@ def plot_defensive_hull(ax, df_player_agg_team,
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=2, line_zorder=1, corner_arcs=True)
     pitch.draw(ax=ax)
-
-    # Invert axes if away team
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit if no player data
     if df_player_agg_team.empty or len(df_player_agg_team) < 3: # Need at least 3 points for a hull
@@ -1063,12 +1004,7 @@ def plot_defensive_hull(ax, df_player_agg_team,
 
     # Add legend/direction text
     legend_text = "○ = Starter | □ = Substitute"
-    if is_away_team:
-        ax.text(0.02, 0.02, legend_text, color='black', size=10, ha='left', va='bottom', transform=ax.transAxes)
-        ax.text(0.98, 0.02, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.98, 0.02, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
-        ax.text(0.02, 0.02, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, 0.02, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
 
 
 # --- Defensive Shape Plot (Voronoi) ---
@@ -1085,11 +1021,8 @@ def plot_defensive_voronoi(ax, df_player_agg_team,
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=1, line_zorder=1, corner_arcs=True)
     pitch.draw(ax=ax)
-
-    # Invert axes if away team
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit if no player data
     if df_player_agg_team.empty or len(df_player_agg_team) < 3: # Voronoi often needs >= 3 points
@@ -1144,12 +1077,7 @@ def plot_defensive_voronoi(ax, df_player_agg_team,
     # (Title and legend logic remains the same)
     ax.set_title(f"{team_name}\nDefensive Coverage (Voronoi)", color=line_color, fontsize=18, fontweight='bold')
     legend_text = "○ = Starter | □ = Substitute"
-    if is_away_team:
-        ax.text(0.02, 0.02, legend_text, color='black', size=10, ha='left', va='bottom', transform=ax.transAxes)
-        ax.text(0.98, 0.02, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.98, 0.02, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
-        ax.text(0.02, 0.02, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, 0.02, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
 
 # --- Pass-to-Shot Sequence Plot Function ---
 # This function visualizes a single pass-to-shot sequence on a pitch.
@@ -1170,6 +1098,7 @@ def plot_individual_shot_sequence(ax, sequence_data, team_name, team_color, sequ
                   linewidth=1.5, corner_arcs=True,
                   pad_top=2, pad_bottom=2, pad_left=2, pad_right=2) # Adjust padding values (default is usually larger)
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, team_color)
 
      # --- *** Try Setting Limits AFTER Drawing *** ---
     ax.set_xlim(pitch.dim.left - 2, pitch.dim.right + 2) # Slightly beyond pitch edge
@@ -1363,6 +1292,7 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=1, line_zorder=1, corner_arcs=True)
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, team_color)
 
     has_transitions = not df_bin_transitions.empty
     has_origins = not df_shot_origins.empty
@@ -1494,11 +1424,8 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
                   linewidth=2, line_zorder=2, corner_arcs=True)
     pitch.draw(ax=ax)
-
-    # Invert axes if away team
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Exit if no aggregated player data
     if df_player_loc_agg.empty:
@@ -1558,9 +1485,8 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
         # Convert to meters for display
         pitch_length_meters = 105.0 # Standard length assumption
         avg_line_meters = avg_line_x_opta * (pitch_length_meters / 100.0)
-        # Position text based on team
-        text_y_pos = pitch.dim.top + 2.2 if is_away_team else pitch.dim.bottom - 2.2 # Offset from top/bottom edge
-        horizontal_alignment = 'right' if is_away_team else 'left'
+        text_y_pos = pitch.dim.bottom - 2.2
+        horizontal_alignment = 'left'
         ax.text(avg_line_x_opta + 1, # Offset text from line
                 text_y_pos, f"Avg Line: {avg_line_meters:.1f}m",
                 fontsize=12, color='dimgray', ha=horizontal_alignment, va='center')
@@ -1573,12 +1499,7 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
 
     # Add legend/direction text
     legend_text = "○ = Starter | □ = Substitute"
-    if is_away_team:
-        ax.text(0.02, 0, legend_text, color='black', size=10, ha='left', va='bottom', transform=ax.transAxes)
-        ax.text(0.98, 0, "← Attacking Direction", color=team_color, size=12, ha='right', va='bottom', transform=ax.transAxes)
-    else:
-        ax.text(0.98, 0, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
-        ax.text(0.02, 0, "Attacking Direction →", color=team_color, size=12, ha='left', va='bottom', transform=ax.transAxes)
+    ax.text(0.98, 0, legend_text, color='black', size=10, ha='right', va='bottom', transform=ax.transAxes)
 
 # --- Pressure Map Plot Function ---
 # This function visualizes pressure events for a specific team on a football pitch.
@@ -1605,7 +1526,7 @@ def plot_ppda_actions(ax, df, team_name, team_color,
         action_ids_to_plot (list): List of typeIds counting as defensive actions for PPDA.
         def_action_zone_thresh (float): Min x-coordinate for defensive actions to be included.
         # ... (other args remain mostly the same: event_id_col, plot_type, styling, event_mapping) ...
-        is_away_team (bool): If True, inverts pitch axes.
+        is_away_team (bool): UI compatibility flag; it does not change pitch geometry.
     """
     # --- Dynamically Generate Title ---
     action_names = []
@@ -1651,11 +1572,8 @@ def plot_ppda_actions(ax, df, team_name, team_color,
     pitch = Pitch(pitch_type='opta', pitch_color=pitch_color, line_color=line_color,
                   line_zorder=2)
     pitch.draw(ax=ax)
-
-    # Invert axes if away team BEFORE plotting data
-    if is_away_team:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    del is_away_team
+    add_matplotlib_attacking_direction(ax, team_color)
 
     if pressure_df.empty:
         print(f"No pressure events found for {team_name} with IDs {action_ids_to_plot}.")
@@ -1733,6 +1651,7 @@ def plot_buildup_sequence(ax, sequence_data, team_name, team_color, opponent_col
                   linewidth=1.5, corner_arcs=True,
                   pad_top=2, pad_bottom=2, pad_left=2, pad_right=2) # Adjust padding values (default is usually larger)
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, team_color)
 
      # --- *** Try Setting Limits AFTER Drawing *** ---
     ax.set_xlim(pitch.dim.left - 1, pitch.dim.right + 1) # Slightly beyond pitch edge
@@ -2039,6 +1958,7 @@ def plot_recovery_first_pass(ax, df_recovery_sequences, team_name, team_color,
                   linewidth=1.5, line_zorder=1, corner_arcs=True,
                   pad_left=2, pad_right=2, pad_top=2, pad_bottom=2)
     pitch.draw(ax=ax)
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # --- *** ADD VERTICAL LINES FOR PITCH THIRDS *** ---
     # X-coordinates for the lines dividing the thirds (on Opta 0-100 scale)
@@ -2170,7 +2090,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
         opponent_color (str): Color for the opponent's passes and nodes.
         loss_sequence_id (int): ID of this sequence.
         loss_zone (str): The zone where 'your_team_name' lost possession.
-        is_buildup_team_away (bool): Flag to invert X-axis for away team.
+        is_buildup_team_away (bool): UI compatibility flag; it does not change pitch geometry.
         bg_color (str, optional): Background color.
         line_color (str, optional): Pitch line color.
         unsuccessful_pass_color (str, optional): Color for unsuccessful pass lines.
@@ -2181,6 +2101,8 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=bg_color, line_color=line_color, linewidth=1.5,
                   pad_left=2, pad_right=2, pad_top=2, pad_bottom=2)
     pitch.draw(ax=ax)
+    del is_buildup_team_away
+    add_matplotlib_attacking_direction(ax, color_for_buildup_team)
 
     # --- *** ADD VERTICAL LINES FOR PITCH THIRDS *** ---
     # X-coordinates for the lines dividing the thirds (on Opta 0-100 scale)
@@ -2229,10 +2151,6 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
     # ax.add_patch(big_chance_wedge)
     # --- *** END BIG CHANCE SEMICIRCLE *** ---
 
-    if is_buildup_team_away:
-        ax.invert_xaxis()
-        ax.invert_yaxis()
-    
     # --- Extract Time of Loss from the FIRST event in sequence_data for the title ---
     time_str = "Time N/A"
     if sequence_data is not None and not sequence_data.empty:
@@ -2470,6 +2388,7 @@ def plot_transition_sequence(df_sequence, ax=None, title=None, team_name=None):
     ax.set_yticks([])
     ax.set_facecolor("white")
     ax.set_aspect("equal")
+    add_matplotlib_attacking_direction(ax, '#536d80')
 
     # Draw pitch lines (optional: simplify if pitch is drawn elsewhere)
     ax.plot([0, 0, 100, 100, 0], [0, 100, 100, 0, 0], color="black", linewidth=1)
@@ -2535,6 +2454,7 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
                   goal_type='box',
                   line_zorder=1)
     pitch.draw(ax=ax_pitch) # Draw on the provided ax_pitch
+    add_matplotlib_attacking_direction(ax_pitch, text_color)
 
     plot_df = team_crosses_df.copy()
     plot_df['x'] = pd.to_numeric(plot_df['x'], errors='coerce')

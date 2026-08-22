@@ -19,6 +19,8 @@ from mplsoccer import Pitch, FontManager
 import matplotlib.patheffects as path_effects
 import plotly.graph_objects as go
 from . import pitch_plots
+from src.visualization.coordinate_contract import add_matplotlib_attacking_direction
+from src.visualization.plotly_branding import add_attacking_direction
 from src.metrics import player_metrics 
 from src.metrics.sportmonks import LOWER_IS_BETTER, PLAYER_RADAR_GROUPS
 
@@ -397,7 +399,8 @@ def plot_player_pass_map(ax, df_player_passes, player_name, team_color, is_away)
     print(f"Plotting pass map for {player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, linewidth=2)
     pitch.draw(ax=ax)
-    if is_away: ax.invert_xaxis(); ax.invert_yaxis()
+    del is_away
+    add_matplotlib_attacking_direction(ax, team_color)
 
     if df_player_passes.empty:
         print(f"Warning: No pass data for {player_name}.")
@@ -441,8 +444,8 @@ def plot_player_pass_map(ax, df_player_passes, player_name, team_color, is_away)
                            ha='center', va='center', size=10, weight='bold', ax=ax, zorder=4)
 
     # Add annotations
-    ax.text(0.98 if not is_away else 0.02, -0.1, f'Successful: {len(pass_comp)}\nUnsuccessful: {len(pass_incomp)}', color=LINE_COLOR, va='bottom', ha='right' if not is_away else 'left', fontsize=10, transform=ax.transAxes)
-    ax.text(0.02 if not is_away else 0.98, -0.1, f'Key Pass: {len(kp)}\nAssist: {len(assist)}', color=LINE_COLOR, va='bottom', ha='left' if not is_away else 'right', fontsize=10, transform=ax.transAxes)
+    ax.text(0.98, -0.1, f'Successful: {len(pass_comp)}\nUnsuccessful: {len(pass_incomp)}', color=LINE_COLOR, va='bottom', ha='right', fontsize=10, transform=ax.transAxes)
+    ax.text(0.02, -0.1, f'Key Pass: {len(kp)}\nAssist: {len(assist)}', color=LINE_COLOR, va='bottom', ha='left', fontsize=10, transform=ax.transAxes)
     ax.set_title(f"{player_name} Pass Map", color=team_color, fontsize=18, fontweight='bold')
 
 
@@ -451,7 +454,8 @@ def plot_player_received_passes(ax, df_all_passes, target_player_name, team_colo
     print(f"Plotting passes received by {target_player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, linewidth=2)
     pitch.draw(ax=ax)
-    if is_away: ax.invert_xaxis(); ax.invert_yaxis()
+    del is_away
+    add_matplotlib_attacking_direction(ax, team_color)
 
     # Filter successful passes WHERE the NEXT event's player is the target player
     # This uses the potentially fragile shift logic from original code
@@ -519,7 +523,8 @@ def plot_player_defensive_actions(ax, df_player_def_actions, player_name, team_c
     print(f"Plotting defensive actions for {player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, line_zorder=1, linewidth=2)
     pitch.draw(ax=ax)
-    if is_away: ax.invert_xaxis(); ax.invert_yaxis()
+    del is_away
+    add_matplotlib_attacking_direction(ax, team_color)
 
     if df_player_def_actions.empty:
         print(f"Warning: No defensive actions for {player_name}.")
@@ -713,6 +718,7 @@ def plot_player_defensive_actions_plotly(df_player_def_actions, player_name, tea
     
     fig = go.Figure()
     fig = draw_plotly_pitch(fig) # Your existing pitch drawing function is fine
+    add_attacking_direction(fig, dark=True)
 
     # --- CHANGE: Define a new, more appealing background color ---
     # We will use this in the layout update at the end.
@@ -855,13 +861,9 @@ def plot_player_defensive_actions_plotly(df_player_def_actions, player_name, tea
         ] + list(fig.layout.shapes) 
     )
 
-    # Invert axis for away team view - the range setting is the most robust way
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
 
     return fig
 
@@ -1250,6 +1252,7 @@ def plot_player_pass_map_plotly(df_player_passes, player_name, team_color, playe
     Crea una mappa interattiva dei passaggi di un giocatore usando Plotly.
     """
     fig = go.Figure()
+    add_attacking_direction(fig, dark=True)
     
     # Prepara lo sfondo del campo
     pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
@@ -1264,11 +1267,9 @@ def plot_player_pass_map_plotly(df_player_passes, player_name, team_color, playe
         )
         return fig
         
-    # Inverti coordinate per away team
-    if is_away_team:
-        df_player_passes = df_player_passes.copy()
-        df_player_passes[['x', 'end_x']] = 100 - df_player_passes[['x', 'end_x']]
-        df_player_passes[['y', 'end_y']] = 100 - df_player_passes[['y', 'end_y']]
+    # Away changes UI context only, never geometry.
+    del is_away_team
+    df_player_passes = df_player_passes.copy()
 
     # Colori e gerarchia
     COLORS = {
@@ -1451,6 +1452,7 @@ def plot_player_received_passes_plotly(df_received_passes, player_name, team_col
     Crea una mappa interattiva dei passaggi ricevuti da un giocatore.
     """
     fig = go.Figure()
+    add_attacking_direction(fig, dark=True)
     pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
     
     if df_received_passes.empty:
@@ -1458,11 +1460,8 @@ def plot_player_received_passes_plotly(df_received_passes, player_name, team_col
         fig.update_layout(title=f"No successful passes recorded as received by {player_name}")
         return fig
         
-    # Inverti coordinate per away team (visualizzazione da sinistra a destra)
-    if is_away_team:
-        df_received_passes = df_received_passes.copy()
-        df_received_passes[['x', 'end_x']] = 100 - df_received_passes[['x', 'end_x']]
-        df_received_passes[['y', 'end_y']] = 100 - df_received_passes[['y', 'end_y']]
+    del is_away_team
+    df_received_passes = df_received_passes.copy()
 
     # Colori per tipo di passaggio (il passaggio che è stato ricevuto)
     COLORS = {

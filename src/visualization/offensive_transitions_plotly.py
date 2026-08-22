@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 from plotly.colors import sample_colorscale
 from .defensive_transitions_plotly import draw_plotly_pitch # Riusiamo il disegnatore del campo
 from ..config import BG_COLOR
+from src.visualization.plotly_branding import add_attacking_direction
+from src.visualization.coordinate_contract import orient_point
 
 def plot_recovery_heatmap_on_pitch(
     sequences,
@@ -49,12 +51,11 @@ def plot_recovery_heatmap_on_pitch(
         if pd.isna(x) or pd.isna(y):
             continue
 
-        # Keep current visual convention:
-        # away team shown in mirrored orientation.
-        if is_away:
-            x = 100.0 - float(x)
-            y = 100.0 - float(y)
-
+        x, y = orient_point(
+            float(x),
+            float(y),
+            is_away=is_away,
+        )
         x_coords.append(float(x))
         y_coords.append(float(y))
 
@@ -73,6 +74,7 @@ def plot_recovery_heatmap_on_pitch(
         fig = go.Figure()
 
         draw_plotly_pitch(fig)
+        add_attacking_direction(fig, dark=False)
 
         fig.update_shapes(
             line_color='#708696',
@@ -167,6 +169,7 @@ def plot_recovery_heatmap_on_pitch(
     fig = go.Figure()
 
     draw_plotly_pitch(fig)
+    add_attacking_direction(fig, dark=False)
 
     # Softer pitch lines, closer to the Match Analysis UI.
     fig.update_shapes(

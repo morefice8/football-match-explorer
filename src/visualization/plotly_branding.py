@@ -1,5 +1,7 @@
 import plotly.graph_objects as go
 
+from src.visualization.coordinate_contract import ATTACKING_DIRECTION_LABEL
+
 
 DARK_PLOT_BG = '#29343d'
 DARK_TEXT = '#ffffff'
@@ -103,4 +105,33 @@ def apply_dark_pitch_layout(
         ),
     )
 
+    return fig
+
+def add_attacking_direction(
+    fig,
+    *,
+    dark=True,
+    x=0.985,
+    y=0.985,
+):
+    """Add the canonical left-to-right attacking-direction label."""
+    text_color = DARK_MUTED_TEXT if dark else '#536d80'
+    bg_color = 'rgba(16,47,69,0.72)' if dark else 'rgba(255,255,255,0.88)'
+
+    fig.add_annotation(
+        x=x,
+        y=y,
+        xref='paper',
+        yref='paper',
+        text=f"<b>{ATTACKING_DIRECTION_LABEL}</b>",
+        showarrow=False,
+        xanchor='right',
+        yanchor='top',
+        font=dict(
+            size=10,
+            color=text_color,
+        ),
+        bgcolor=bg_color,
+        borderpad=3,
+    )
     return fig

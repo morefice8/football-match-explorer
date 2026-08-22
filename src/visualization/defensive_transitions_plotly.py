@@ -5,6 +5,8 @@ from scipy.spatial import ConvexHull
 from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPES, UNSUCCESSFUL_COLOR
 from plotly.colors import sample_colorscale
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
+from src.visualization.plotly_branding import add_attacking_direction
+from src.visualization.coordinate_contract import orient_point
 
 # This is the helper function we created for the defender map. We can reuse it.
 def draw_plotly_pitch(fig):
@@ -110,13 +112,11 @@ def plot_loss_heatmap_on_pitch(
         if pd.isna(x) or pd.isna(y):
             continue
 
-        # Coordinates are metric-normalized.
-        # Mirror only for the visual convention used
-        # for the away team.
-        if losing_team_is_away:
-            x = 100.0 - float(x)
-            y = 100.0 - float(y)
-
+        x, y = orient_point(
+            float(x),
+            float(y),
+            is_away=losing_team_is_away,
+        )
         x_coords.append(
             float(x)
         )
@@ -156,6 +156,7 @@ def plot_loss_heatmap_on_pitch(
         fig = go.Figure()
 
         draw_plotly_pitch(fig)
+        add_attacking_direction(fig, dark=False)
 
         fig.update_shapes(
             line_color='#718797',
@@ -261,6 +262,7 @@ def plot_loss_heatmap_on_pitch(
     fig = go.Figure()
 
     draw_plotly_pitch(fig)
+    add_attacking_direction(fig, dark=False)
 
     fig.update_shapes(
         line_color='#718797',
@@ -466,14 +468,11 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
         fig.add_shape(type="line", x0=x, y0=0, x1=x, y1=100,
                       line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"))
 
-    # --- 1. GESTIONE ASSI CORRETTA ---
-    # Gli assi vengono invertiti per la squadra in trasferta per una visualizzazione standard
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    # Geometry is identical for home and away; is_away is UI-only.
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
+    add_attacking_direction(fig, dark=False)
 
     # Heatmap
     if not df_def_actions.empty:
@@ -547,10 +546,7 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
         # La distanza è sempre calcolata dalla coordinata x non invertita
         avg_line_meters = avg_line_x * (pitch_length_meters / 100.0)
         
-        # Posizionamento relativo dell'etichetta (funziona indipendentemente dall'inversione)
         x_paper_coord = avg_line_x / 100.0
-        if is_away:
-             x_paper_coord = 1 - x_paper_coord # Inverti la posizione relativa per il team away
 
         fig.add_annotation(
             x=x_paper_coord, y=1.05,
@@ -585,12 +581,10 @@ def plot_defensive_hull_plotly(df_player_agg, team_color, is_away=False):
     fig = go.Figure()
     fig = draw_plotly_pitch(fig)
 
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
+    add_attacking_direction(fig, dark=False)
 
     # --- Escludi il portiere per una forma più realistica ---
     if 'Mapped Jersey Number' in df_player_agg.columns:
@@ -681,13 +675,10 @@ def plot_ppda_plotly(
     fig = go.Figure()
     fig = draw_plotly_pitch(fig)
 
-    # --- 1. Gestione assi (con inversione per away team) ---
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
+    add_attacking_direction(fig, dark=False)
 
     # The numerator and denominator overlap between x=40 and x=60 by design.
     fig.add_shape(

@@ -7,6 +7,7 @@ from src.visualization import pitch_plots
 from src.visualization.plotly_branding import (
     add_plot_header,
     apply_dark_pitch_layout,
+    add_attacking_direction,
 )
 
 # def plot_pass_network_plotly(passes_between, avg_locs, team_name, team_color, sub_list, is_away=False):
@@ -445,21 +446,7 @@ def plot_pass_network_plotly(
                 )
             )
 
-    # ---------------------------------------------------------
-    # ATTACKING DIRECTION
-    # ---------------------------------------------------------
-    fig.add_annotation(
-        x=98,
-        y=104,
-        text='<b>ATTACKING →</b>',
-        showarrow=False,
-        xanchor='right',
-
-        font=dict(
-            color='#94dbea',
-            size=11,
-        ),
-    )
+    add_attacking_direction(fig, dark=True)
 
     # ---------------------------------------------------------
     # LAYOUT
@@ -588,10 +575,7 @@ def plot_progressive_passes_plotly(df_prog_passes, team_name, team_color, is_awa
             showarrow=False, font=dict(color='white', size=15),
         )
 
-    fig.add_annotation(
-        x=98, y=104, text='<b>ATTACKING →</b>', showarrow=False,
-        xanchor='right', font=dict(color='#94dbea', size=11),
-    )
+    add_attacking_direction(fig, dark=True)
     fig.update_layout(
         showlegend=True,
         legend=dict(
@@ -739,8 +723,8 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
         margin=dict(l=20, r=20, t=80, b=20) # Margine per titolo/legenda
     )
 
-    if is_away:
-        fig.update_layout(xaxis_autorange="reversed", yaxis_autorange="reversed")
+    del is_away
+    add_attacking_direction(fig, dark=True)
 
     return fig
 
@@ -1087,11 +1071,8 @@ def plot_final_third_entries_plotly(
         dark=True,
     )
 
-    if is_away:
-        fig.update_layout(
-            xaxis_autorange='reversed',
-            yaxis_autorange='reversed',
-        )
+    del is_away
+    add_attacking_direction(fig, dark=True)
 
     return fig
 
@@ -1105,12 +1086,8 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
         subplot_titles=("Pass Density (KDE)", "Pass Heatmap")
     )
 
-    # Prepara i dati
+    # Coordinates are already team-relative. Away only changes palette.
     df_plot = passes_df.copy()
-    if is_away:
-        df_plot['x'] = 100 - df_plot['x']
-        df_plot['y'] = 100 - df_plot['y']
-
     colorscale = 'Reds' if not is_away else 'Blues'
 
     if not df_plot.empty:
@@ -1174,6 +1151,8 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
     # Applica le impostazioni degli assi a entrambi i subplot
     fig.update_xaxes(range=[-2, 102], visible=False)
     fig.update_yaxes(range=[-2, 102], visible=False, scaleanchor="x", scaleratio=0.68)
+
+    add_attacking_direction(fig, dark=True)
 
     return fig
 
@@ -1377,17 +1356,7 @@ def plot_pass_density_plotly(
     # ---------------------------------------------
     # ATTACKING DIRECTION
     # ---------------------------------------------
-    fig.add_annotation(
-        x=98,
-        y=104,
-        text='<b>ATTACKING →</b>',
-        showarrow=False,
-        xanchor='right',
-        font=dict(
-            color='#94dbea',
-            size=10,
-        ),
-    )
+    add_attacking_direction(fig, dark=True)
 
     fig.update_layout(
         shapes=pitch_shapes,
@@ -1724,17 +1693,7 @@ def plot_pass_heatmap_plotly(
             ),
         )
 
-    fig.add_annotation(
-        x=98,
-        y=104,
-        text='<b>ATTACKING →</b>',
-        showarrow=False,
-        xanchor='right',
-        font=dict(
-            color='#94dbea',
-            size=10,
-        ),
-    )
+    add_attacking_direction(fig, dark=True)
 
     fig.update_layout(
         shapes=pitch_shapes,

@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPES, UNSUCCESSFUL_COLOR
+from src.visualization.plotly_branding import add_attacking_direction
 
 # This is the helper function we created for the defender map. We can reuse it.
 def draw_plotly_pitch(fig):
@@ -29,6 +30,7 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
     """
     fig = go.Figure()
     fig = draw_plotly_pitch(fig)
+    add_attacking_direction(fig, dark=False)
 
     if sequence_data is None or sequence_data.empty:
         fig.add_annotation(x=50, y=50, text="No Sequence Data", showarrow=False, font=dict(size=16, color="red"))
@@ -129,12 +131,11 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
         margin=dict(l=10, r=10, t=40, b=10)
     )
 
-    if is_away:
-        fig.update_xaxes(range=[100, 0])
-        fig.update_yaxes(range=[100, 0])
-    else:
-        fig.update_xaxes(range=[0, 100])
-        fig.update_yaxes(range=[0, 100])
+    # Match Analysis coordinates are already team-relative.
+    # Home/away never changes pitch geometry.
+    del is_away
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
         
     return fig
 
@@ -326,29 +327,25 @@ def plot_opponent_buildup_after_loss_plotly(
     # Draw pitch lines, thirds, etc.
     # (You can use your draw_plotly_pitch helper, then add thirds lines)
     fig = draw_plotly_pitch(fig)
+    add_attacking_direction(fig, dark=False)
     # Add thirds lines
     thirds = [100/3, 2*100/3]
     for x in thirds:
         fig.add_shape(type="line", x0=x, y0=0, x1=x, y1=100, line=dict(color="grey", width=1, dash="dash"))
         fig.add_shape(type="line", x0=0, y0=x, x1=100, y1=x, line=dict(color="grey", width=1, dash="dash"))
 
-    # Invert axes for away team
-    if is_buildup_team_away:
-        x_range = [100, 0]
-        y_range = [100, 0]
-    else:
-        x_range = [0, 100]
-        y_range = [0, 100]
+    # Coordinates are already oriented towards x=100 for both teams.
+    del is_buildup_team_away
 
     fig.update_xaxes(
-        range=x_range,
+        range=[0, 100],
         showgrid=False,
         zeroline=False,
         showticklabels=False,
         fixedrange=True
     )
     fig.update_yaxes(
-        range=y_range,
+        range=[0, 100],
         showgrid=False,
         zeroline=False,
         showticklabels=False,
@@ -718,6 +715,7 @@ def plot_buildup_sequence_animated(df, team_color="#007BFF"):
     all_traces = []
 
     fig = go.Figure()
+    add_attacking_direction(fig, dark=False)
 
     # --- 1. Disegna il campo (campo standard 100x100) ---
     fig.update_layout(
