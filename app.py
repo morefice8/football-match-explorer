@@ -359,38 +359,117 @@ def enrich_match_info_with_raw_metadata(
                 contestant_id
             ] = position
 
-        # ---------------------------------------------------------
-        # GOALS
-        # ---------------------------------------------------------
+    # ---------------------------------------------------------
+    # GOALS
+    # ---------------------------------------------------------
+    # Goal extraction must run only after the full contestant map
+    # is available. This is especially important for away goals and
+    # own goals, where the benefiting team can differ from the scorer's
+    # contestantId.
 
-        goals = []
+    goals = []
+    seen_goals = set()
 
-        # ---------------------------------------------------------
-        # CASE 1:
-        # Dedicated Opta goal feed when available
-        # ---------------------------------------------------------
+    def opposite_position(position):
+        if position == 'home':
+            return 'away'
+        if position == 'away':
+            return 'home'
+        return position
 
-        raw_goals = (
-            live_data.get(
-                'goal',
-                []
-            )
+    def event_has_qualifier(event, qualifier_id):
+        for qualifier in (
+            event.get('qualifier', [])
             or []
+        ):
+            try:
+                current_id = int(
+                    qualifier.get('qualifierId')
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            if current_id == qualifier_id:
+                return True
+
+        return False
+
+    def add_goal(goal_data, dedupe_key):
+        if dedupe_key in seen_goals:
+            return
+
+        seen_goals.add(dedupe_key)
+        goals.append(goal_data)
+
+    # ---------------------------------------------------------
+    # CASE 1:
+    # Dedicated Opta goal feed when available.
+    # ---------------------------------------------------------
+
+    raw_goals = (
+        live_data.get(
+            'goal',
+            []
+        )
+        or []
+    )
+
+    for goal in raw_goals:
+        contestant_id = goal.get(
+            'contestantId'
         )
 
-        for goal in raw_goals:
+        goal_type = str(
+            goal.get(
+                'type',
+                'G',
+            )
+            or 'G'
+        ).upper()
 
-            contestant_id = (
-                goal.get(
-                    'contestantId'
-                )
+        team_position = (
+            contestant_positions.get(
+                contestant_id
+            )
+        )
+
+        # Opta associates an own-goal record with the scorer's
+        # contestant. For the match overview we need the team that
+        # benefited from the goal, so flip home/away for OG events.
+        if goal_type == 'OG':
+            team_position = opposite_position(
+                team_position
             )
 
-            goals.append({
+        source_id = (
+            goal.get('optaEventId')
+            or goal.get('id')
+        )
+
+        if source_id is not None:
+            dedupe_key = (
+                'goal-feed',
+                str(source_id),
+            )
+        else:
+            dedupe_key = (
+                'goal-feed-fallback',
+                contestant_id,
+                goal.get('scorerId'),
+                goal.get('scorerName'),
+                goal.get('periodId'),
+                goal.get('timeMin'),
+                goal.get('timeMinSec'),
+                goal_type,
+            )
+
+        add_goal(
+            {
                 'team_position':
-                    contestant_positions.get(
-                        contestant_id
-                    ),
+                    team_position,
 
                 'scorer':
                     goal.get(
@@ -414,47 +493,110 @@ def enrich_match_info_with_raw_metadata(
                     ),
 
                 'goal_type':
-                    goal.get(
-                        'type',
-                        'G',
-                    ),
-            })
+                    goal_type,
+            },
+            dedupe_key,
+        )
 
+    # ---------------------------------------------------------
+    # CASE 2:
+    # Eventing feed.
+    #
+    # In Match Eventing, goals may only exist as typeId = 16
+    # events rather than in liveData.goal. Qualifier 9 marks a
+    # penalty and qualifier 28 marks an own goal.
+    # ---------------------------------------------------------
 
-        # ---------------------------------------------------------
-        # CASE 2:
-        # Eventing feed.
-        #
-        # In Match Eventing, goals may only exist as typeId = 16
-        # events rather than in liveData.goal.
-        # ---------------------------------------------------------
-
-        if not goals:
-
-            for event in (
-                live_data.get(
-                    'event',
-                    []
+    if not goals:
+        for event in (
+            live_data.get(
+                'event',
+                []
+            )
+            or []
+        ):
+            try:
+                event_type_id = int(
+                    event.get('typeId')
                 )
-                or []
+            except (
+                TypeError,
+                ValueError,
             ):
+                continue
 
-                if event.get(
-                    'typeId'
-                ) != 16:
-                    continue
+            if event_type_id != 16:
+                continue
 
-                contestant_id = (
-                    event.get(
-                        'contestantId'
-                    )
+            contestant_id = event.get(
+                'contestantId'
+            )
+
+            if event_has_qualifier(
+                event,
+                28,
+            ):
+                goal_type = 'OG'
+            elif event_has_qualifier(
+                event,
+                9,
+            ):
+                goal_type = 'PG'
+            else:
+                goal_type = 'G'
+
+            team_position = (
+                contestant_positions.get(
+                    contestant_id
+                )
+            )
+
+            if goal_type == 'OG':
+                team_position = opposite_position(
+                    team_position
                 )
 
-                goals.append({
+            minute = event.get('timeMin')
+            second = event.get('timeSec')
+
+            try:
+                time_min_sec = (
+                    f"{int(minute)}:"
+                    f"{int(second):02d}"
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                time_min_sec = None
+
+            source_id = (
+                event.get('id')
+                or event.get('eventId')
+            )
+
+            if source_id is not None:
+                dedupe_key = (
+                    'eventing',
+                    contestant_id,
+                    str(source_id),
+                )
+            else:
+                dedupe_key = (
+                    'eventing-fallback',
+                    contestant_id,
+                    event.get('playerId'),
+                    event.get('playerName'),
+                    event.get('periodId'),
+                    minute,
+                    second,
+                    goal_type,
+                )
+
+            add_goal(
+                {
                     'team_position':
-                        contestant_positions.get(
-                            contestant_id
-                        ),
+                        team_position,
 
                     'scorer':
                         event.get(
@@ -463,15 +605,10 @@ def enrich_match_info_with_raw_metadata(
                         or 'Unknown',
 
                     'timeMin':
-                        event.get(
-                            'timeMin'
-                        ),
+                        minute,
 
                     'timeMinSec':
-                        (
-                            f"{event.get('timeMin', 0)}:"
-                            f"{event.get('timeSec', 0):02d}"
-                        ),
+                        time_min_sec,
 
                     'periodId':
                         event.get(
@@ -479,14 +616,15 @@ def enrich_match_info_with_raw_metadata(
                         ),
 
                     'goal_type':
-                        'G',
-                })
+                        goal_type,
+                },
+                dedupe_key,
+            )
 
-
-        if goals:
-            match_info[
-                'goals'
-            ] = goals
+    if goals:
+        match_info[
+            'goals'
+        ] = goals
 
     return match_info
 
@@ -9555,19 +9693,52 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         defending_team = match_info.get('ateamName') if is_home else match_info.get('hteamName')
         team_color = HCOL if is_home else ACOL
 
+        # Penalty kicks are extracted directly from their shot event.
+        # The award and the kick can be separated by several minutes, so
+        # tracing from the foul is not a reliable way to model penalties.
+        penalty_sequences = (
+            set_piece_metrics.extract_penalty_set_piece_sequences(
+                df_processed,
+                team_name,
+            )
+        )
+
+        # Keep penalty-award fouls out of the regular free-kick pipeline;
+        # otherwise the same penalty can be counted once as a free kick and
+        # once again from the direct penalty-shot extraction above.
+        set_piece_source = df_processed
+        if 'Penalty' in df_processed.columns:
+            penalty_award_mask = (
+                (df_processed['type_name'] == 'Foul')
+                & df_processed['Penalty'].isin([1, '1', True])
+            )
+            set_piece_source = df_processed.loc[
+                ~penalty_award_mask
+            ].copy()
+
         set_piece_triggers = ['Out', 'Foul', 'Corner Awarded']
         df_sequences_raw = buildup_metrics.find_buildup_sequences(
-            df_processed, team_name, defending_team,
+            set_piece_source, team_name, defending_team,
             metric_to_analyze='set_piece',
             triggers_buildups=set_piece_triggers,
             start_x=50
         )
 
-        if df_sequences_raw is None or df_sequences_raw.empty:
-            return dbc.Alert(f"No offensive set pieces found for {team_name}.", color="warning", className="mt-3")
+        all_sequences = []
+        if df_sequences_raw is not None and not df_sequences_raw.empty:
+            all_sequences.extend([
+                df_sequences_raw[
+                    df_sequences_raw['trigger_sequence_id'] == seq_id
+                ]
+                for seq_id in df_sequences_raw[
+                    'trigger_sequence_id'
+                ].unique()
+            ])
 
-        all_sequences = [df_sequences_raw[df_sequences_raw['trigger_sequence_id'] == seq_id]
-                         for seq_id in df_sequences_raw['trigger_sequence_id'].unique()]
+        all_sequences.extend(penalty_sequences)
+
+        if not all_sequences:
+            return dbc.Alert(f"No offensive set pieces found for {team_name}.", color="warning", className="mt-3")
 
         df_analyzed, full_stats = set_piece_metrics.analyze_and_summarize_set_pieces(all_sequences)
         player_jersey_map = df_processed.drop_duplicates(subset=['playerName'])[['playerName', 'Mapped Jersey Number']].set_index('playerName').to_dict()['Mapped Jersey Number']
@@ -9617,11 +9788,13 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
                 return 99 # Manda in fondo le sequenze vuote/errate
             outcome = seq_df.iloc[-1]['sequence_outcome_type']
             # Assegna un punteggio numerico (più basso è meglio)
-            if outcome == 'Goals': return 0
-            elif outcome == 'Shots': return 1
-            elif outcome == 'Big Chances': return 2
-            elif outcome == 'Lost Possessions': return 3
-            else: return 4
+            if outcome == 'Penalty Goal': return 0
+            elif outcome == 'Goals': return 1
+            elif outcome in ('Penalty Saved', 'Penalty Missed'): return 2
+            elif outcome == 'Shots': return 3
+            elif outcome == 'Big Chances': return 4
+            elif outcome == 'Lost Possessions': return 5
+            else: return 6
 
         sorted_sequences_for_carousel = sorted(sequences_for_carousel, key=get_set_piece_quality_score)
         num_items = len(sorted_sequences_for_carousel)

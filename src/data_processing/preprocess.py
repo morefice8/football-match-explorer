@@ -246,7 +246,14 @@ def process_opta_events(opta_data, event_mapping, qualifier_mapping, match_info,
             df[col_name] = pd.to_numeric(df[col_name].astype(str), errors='coerce')
             print(f"Attempted conversion of column '{col_name}' to numeric.")
 
-    flag_like_renamed_columns = ['KeyPass', 'Assist', 'Chipped', 'Corner taken'] # Add your actual renamed flag column names
+    flag_like_renamed_columns = [
+        'KeyPass',
+        'Assist',
+        'Chipped',
+        'Corner taken',
+        'Penalty',
+        'Own goal',
+    ]
     # The "Foul" column is problematic because it comes from "Related event ID" which can have "243"
     # So, "Foul" (if it's qualifier_13 renamed) should NOT be in flag_like_renamed_columns unless you specifically
     # handle the "243" to mean something else (e.g., map it to NaN before numeric conversion, or handle it as a category).

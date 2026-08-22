@@ -13,6 +13,103 @@ PASS_ID = 1
 THROW_IN_ID = 1008  # Placeholder, adjust if you have a real ID
 FREE_KICK_PASS_ID = 3 # This is often used for freekick passes, check your data
 
+PENALTY_SHOT_TYPES = {
+    'Goal',
+    'Miss',
+    'Attempt Saved',
+    'Post',
+}
+
+
+def extract_penalty_set_piece_sequences(
+    df_processed,
+    team_name,
+):
+    """
+    Build one self-contained set-piece sequence per penalty kick.
+
+    Opta can separate the penalty-award event from the eventual kick by
+    several minutes (VAR, cards, treatment, goalkeeper preparation, etc.).
+    Penalties therefore must be identified from the shot event itself rather
+    than by trying to trace continuously from the foul that awarded them.
+    """
+    if df_processed is None or df_processed.empty:
+        return []
+
+    required_columns = {
+        'team_name',
+        'type_name',
+        'Penalty',
+    }
+    if not required_columns.issubset(df_processed.columns):
+        return []
+
+    penalty_mask = (
+        (df_processed['team_name'] == team_name)
+        & df_processed['type_name'].isin(PENALTY_SHOT_TYPES)
+        & df_processed['Penalty'].isin([1, '1', True])
+    )
+
+    penalty_shots = df_processed.loc[penalty_mask].copy()
+    if penalty_shots.empty:
+        return []
+
+    sort_columns = [
+        column
+        for column in (
+            'periodId',
+            'timeMin',
+            'timeSec',
+            'eventId',
+            'id',
+        )
+        if column in penalty_shots.columns
+    ]
+    if sort_columns:
+        penalty_shots = penalty_shots.sort_values(
+            sort_columns,
+            kind='stable',
+        )
+
+    outcome_by_type = {
+        'Goal': 'Penalty Goal',
+        'Attempt Saved': 'Penalty Saved',
+        'Miss': 'Penalty Missed',
+        'Post': 'Penalty Missed',
+    }
+
+    sequences = []
+
+    for row_number, (_, penalty_shot) in enumerate(
+        penalty_shots.iterrows(),
+        start=1,
+    ):
+        event_id = penalty_shot.get('id')
+        if pd.isna(event_id):
+            event_id = penalty_shot.get('eventId')
+        if pd.isna(event_id):
+            event_id = row_number
+
+        sequence_id = f"penalty-{event_id}"
+        event_data = penalty_shot.to_dict()
+        event_data.update({
+            'trigger_sequence_id': sequence_id,
+            'trigger_zone': 'Attacking Third',
+            'triggering_trigger_Opta_id': event_id,
+            'timeMin_at_trigger': penalty_shot.get('timeMin'),
+            'timeSec_at_trigger': penalty_shot.get('timeSec'),
+            'type_of_initial_trigger': 'Penalty',
+            'buildup_pass_count': 0,
+            'sequence_outcome_type': outcome_by_type.get(
+                penalty_shot.get('type_name'),
+                'Penalty Missed',
+            ),
+        })
+
+        sequences.append(pd.DataFrame([event_data]))
+
+    return sequences
+
 def analyze_offensive_set_pieces(df_processed, team_name):
     """
     Identifies and analyzes all offensive set pieces for a given team.
@@ -149,12 +246,18 @@ def calculate_set_piece_stats(sequence_list):
             action_type = 'Free Kick'
         elif trigger_type == 'Corner Awarded':
             action_type = 'Corner'
+        elif trigger_type == 'Penalty':
+            action_type = 'Penalty'
         else:
             action_type = trigger_type
 
         # Delivery Type
         is_cross = first_event.get('cross') == 1
-        delivery = 'Cross' if is_cross else 'Short Pass'
+        delivery = (
+            'Penalty kick'
+            if action_type == 'Penalty'
+            else ('Cross' if is_cross else 'Short Pass')
+        )
 
         # Foot and Swing
         player_foot = 'Right' if first_event.get('Right footed') == 1 else ('Left' if first_event.get('Left footed') == 1 else 'Unknown')
@@ -248,32 +351,67 @@ def analyze_and_summarize_set_pieces(sequence_list):
         trigger_event = seq.iloc[0]
         trigger_type_raw = trigger_event.get('type_of_initial_trigger', 'Unknown')
         
-        action_map = {'Out': 'Throw-in', 'Foul': 'Free Kick', 'Corner Awarded': 'Corner'}
+        action_map = {
+            'Out': 'Throw-in',
+            'Foul': 'Free Kick',
+            'Corner Awarded': 'Corner',
+            'Penalty': 'Penalty',
+        }
         action_type = action_map.get(trigger_type_raw, trigger_type_raw)
 
         # --- LOGICA DI ESTRAZIONE DATI POTENZIATA ---
-        
-        # L'evento di battuta iniziale (può essere un passaggio corto)
-        initial_delivery = seq[seq['type_name'] == 'Pass'].iloc[0] if not seq[seq['type_name'] == 'Pass'].empty else None
-        if initial_delivery is None: continue
-        
-        # L'evento di cross, se esiste nella sequenza
-        cross_event = seq[seq['cross'] == 1].iloc[0] if not seq[seq['cross'] == 1].empty else None
-        
-        # Se c'è un cross, usiamo quello per le metriche di delivery. Altrimenti, usiamo la battuta iniziale.
-        main_delivery_event = cross_event if cross_event is not None else initial_delivery
 
-        # Determina il tipo di delivery
-        is_short_corner = action_type == 'Corner' and cross_event is not None and initial_delivery['eventId'] != cross_event['eventId']
-        if is_short_corner:
-            delivery = "Short Corner + Cross"
-        elif main_delivery_event.get('cross') == 1:
-            delivery = "Direct Cross"
+        if action_type == 'Penalty':
+            # A penalty set piece can be a direct shot with no pass
+            # delivery, so it must not be discarded by the pass-only
+            # logic used for corners/free kicks/throw-ins.
+            penalty_shots = seq[
+                seq['type_name'].isin(
+                    ['Goal', 'Miss', 'Attempt Saved', 'Post']
+                )
+            ]
+
+            if 'Penalty' in seq.columns:
+                flagged_penalties = penalty_shots[
+                    penalty_shots['Penalty'].isin(
+                        [1, '1', True]
+                    )
+                ]
+            else:
+                flagged_penalties = pd.DataFrame()
+
+            if not flagged_penalties.empty:
+                main_delivery_event = flagged_penalties.iloc[0]
+            elif not penalty_shots.empty:
+                main_delivery_event = penalty_shots.iloc[0]
+            else:
+                continue
+
+            cross_event = None
+            delivery = 'Penalty kick'
+
         else:
-            delivery = "Short Pass"
-        
-        if action_type == 'Throw-in':
-            delivery = 'Throw-in'
+            # L'evento di battuta iniziale (può essere un passaggio corto)
+            initial_delivery = seq[seq['type_name'] == 'Pass'].iloc[0] if not seq[seq['type_name'] == 'Pass'].empty else None
+            if initial_delivery is None: continue
+
+            # L'evento di cross, se esiste nella sequenza
+            cross_event = seq[seq['cross'] == 1].iloc[0] if not seq[seq['cross'] == 1].empty else None
+
+            # Se c'è un cross, usiamo quello per le metriche di delivery. Altrimenti, usiamo la battuta iniziale.
+            main_delivery_event = cross_event if cross_event is not None else initial_delivery
+
+            # Determina il tipo di delivery
+            is_short_corner = action_type == 'Corner' and cross_event is not None and initial_delivery['eventId'] != cross_event['eventId']
+            if is_short_corner:
+                delivery = "Short Corner + Cross"
+            elif main_delivery_event.get('cross') == 1:
+                delivery = "Direct Cross"
+            else:
+                delivery = "Short Pass"
+
+            if action_type == 'Throw-in':
+                delivery = 'Throw-in'
 
         # Estrai le altre metriche dall'evento di cross/delivery principale
         player_name = main_delivery_event.get('playerName')
@@ -336,7 +474,7 @@ def create_set_piece_summary_cards(stats, active_filter=None):
         if not data_dict: return None
         data_items = sorted(data_dict.items(), key=lambda item: item[1], reverse=True)
         if filter_type == 'outcome':
-            outcome_order = ['Goals', 'Shots', 'Big Chances', 'Lost Possessions', 'Foul']
+            outcome_order = ['Penalty Goal', 'Goals', 'Penalty Saved', 'Penalty Missed', 'Shots', 'Big Chances', 'Lost Possessions', 'Foul']
             outcome_rank = {v: i for i, v in enumerate(outcome_order)}
             # Ri-ordina la lista 'data_items' basandosi sulla gerarchia definita
             data_items = sorted(data_items, key=lambda item: outcome_rank.get(item[0], 99))

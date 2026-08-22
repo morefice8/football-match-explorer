@@ -88,7 +88,7 @@ def find_buildup_sequences(df_processed, attacking_team,
                      'end_x', 'end_y', 'playerName', 'Mapped Jersey Number',
                      'timeMin', 'timeSec', 'lb', 'Length',  'cross', 'Corner taken']
     # Optional columns that may be present
-    optional_cols = ['positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger', 'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal', 'Blocked', 'Goal mouth y co-ordinate','periodId']
+    optional_cols = ['positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger', 'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal', 'Penalty', 'Blocked', 'Goal mouth y co-ordinate','periodId']
 
     # Check base requirements
     if not all(col in df_processed.columns for col in required_cols):
@@ -214,7 +214,15 @@ def find_buildup_sequences(df_processed, attacking_team,
 
 
         time_min_at_trigger = trigger_event.get('timeMin'); time_sec_at_trigger = trigger_event.get('timeSec')
-        type_of_trigger = trigger_event.get('type_name', 'Unknown trigger')
+        is_penalty_trigger = (
+            trigger_event.get('type_name') == 'Foul'
+            and trigger_event.get('Penalty') in [1, '1', True]
+        )
+        type_of_trigger = (
+            'Penalty'
+            if is_penalty_trigger
+            else trigger_event.get('type_name', 'Unknown trigger')
+        )
 
         current_opponent_sequence_events = []
         num_passes_in_seq = 0
@@ -246,6 +254,7 @@ def find_buildup_sequences(df_processed, attacking_team,
                 is_end_sequence = (action_by_gaining_team['type_name'] in ('Foul', 'Out', 'Keeper pick-up', 'Claim', 'Dispossessed', 'Offside Pass'))
                 is_take_on = (action_by_gaining_team['type_name'] == 'Take On')
                 is_ball_touch = (action_by_gaining_team['type_name'] == 'Ball touch')
+                is_penalty = (action_by_gaining_team.get('Penalty') in [1, '1', True])
 
                 action_data = action_by_gaining_team.to_dict()
                 action_data['trigger_sequence_id'] = sequence_id_counter
@@ -258,7 +267,10 @@ def find_buildup_sequences(df_processed, attacking_team,
                 if is_end_sequence and len(current_opponent_sequence_events) > 0:
                     current_opponent_sequence_events.append(action_data)
                     if action_by_gaining_team['type_name'] == 'Foul':
-                        sequence_outcome_type = 'Foul'
+                        if is_penalty:
+                            sequence_outcome_type = 'Penalty won'
+                        else:
+                            sequence_outcome_type = 'Foul'
                     elif action_by_gaining_team['type_name'] == 'Offside Pass':
                         sequence_outcome_type = 'Offside'
                     elif action_by_gaining_team['type_name'] == 'Out':
@@ -283,7 +295,17 @@ def find_buildup_sequences(df_processed, attacking_team,
 
                     is_own_goal = action_by_gaining_team.get('Own goal') == 1
 
-                    if action_by_gaining_team['type_name'] == 'Goal':
+                    if (
+                        metric_to_analyze == 'set_piece'
+                        and is_penalty
+                    ):
+                        if action_by_gaining_team['type_name'] == 'Goal':
+                            sequence_outcome_type = 'Penalty Goal'
+                        elif action_by_gaining_team['type_name'] == 'Attempt Saved':
+                            sequence_outcome_type = 'Penalty Saved'
+                        else:
+                            sequence_outcome_type = 'Penalty Missed'
+                    elif action_by_gaining_team['type_name'] == 'Goal':
                         if is_own_goal:
                             sequence_outcome_type = "Own Goal"
                         else:
@@ -586,7 +608,7 @@ def create_buildup_summary_cards(stats, active_filter=None):
         return str(active_filter.get(filter_type)) == str(value)
 
     # Card 1: Outcomes
-    outcome_hierarchy = ['Goals', 'Shots', 'Big Chances', 'Lost Possessions', 'Foul', 'Offside', 'Out']
+    outcome_hierarchy = ['Goals', 'Penalty won', 'Shots', 'Big Chances', 'Lost Possessions', 'Foul', 'Offside', 'Out']
     outcome_rank_map = {outcome: i for i, outcome in enumerate(outcome_hierarchy)}
     sorted_outcome_items = sorted(stats.get('outcomes', {}).items(), key=lambda item: outcome_rank_map.get(item[0], 99))
 

@@ -194,6 +194,7 @@ def find_buildup_after_possession_loss(df_processed,
         'receiver',
         'receiver_jersey_number',
         'Own goal',
+        'Penalty',
         'From corner',
         'Goal mouth y co-ordinate',
         'periodId',
@@ -264,6 +265,65 @@ def find_buildup_after_possession_loss(df_processed,
     sequence_id_counter = 0
 
     processed_loss_event_ids = set()
+
+    def _find_immediate_penalty_award(
+        start_idx,
+        max_lookahead_seconds=2.0,
+    ):
+        """
+        Find the penalty-award foul immediately following an action.
+
+        In Opta eventing a dribble/take-on can be recorded as unsuccessful
+        just before the successful Foul event carrying qualifier 9. Without
+        this look-ahead the transition is incorrectly terminated as a lost
+        possession before the penalty award is reached.
+        """
+        start_event = df.iloc[start_idx]
+        start_period = start_event.get('periodId')
+        start_time = start_event.get('total_seconds')
+        fallback_event = None
+
+        for candidate_idx in range(start_idx + 1, len(df)):
+            candidate = df.iloc[candidate_idx]
+            candidate_period = candidate.get('periodId')
+
+            if (
+                pd.notna(start_period)
+                and pd.notna(candidate_period)
+                and candidate_period != start_period
+            ):
+                break
+
+            candidate_time = candidate.get('total_seconds')
+            if (
+                pd.notna(start_time)
+                and pd.notna(candidate_time)
+                and float(candidate_time) - float(start_time)
+                    > max_lookahead_seconds
+            ):
+                break
+
+            if candidate.get('type_name') != 'Foul':
+                continue
+
+            if candidate.get('Penalty') not in [1, '1', True]:
+                continue
+
+            if (
+                candidate.get('team_name') == team_building_up
+                and candidate.get('outcome') == 'Successful'
+            ):
+                return candidate
+
+            if (
+                fallback_event is None
+                and candidate.get('team_name')
+                    == team_that_lost_possession
+                and candidate.get('outcome') == 'Unsuccessful'
+            ):
+                fallback_event = candidate
+
+        return fallback_event
 
     def _first_gaining_team_x_after_trigger(
         trigger_idx,
@@ -570,11 +630,77 @@ def find_buildup_after_possession_loss(df_processed,
                 is_ball_touch = (action_by_gaining_team['type_name'] == 'Ball touch')
                 is_ball_recovery = (action_by_gaining_team['type_name'] == 'Ball recovery')
                 is_from_corner = (action_by_gaining_team.get('From corner') in [1, '1', True])
+                is_penalty_awarded = (action_by_gaining_team.get('Penalty') in [1, '1', True])
+                is_penalty_for_building_team = (
+                    is_penalty_awarded
+                    and (
+                        (
+                            action_by_gaining_team['team_name']
+                            == team_building_up
+                            and is_successful_event
+                        )
+                        or (
+                            action_by_gaining_team['team_name']
+                            == team_that_lost_possession
+                            and is_not_successful_event
+                        )
+                    )
+                )
+
+                # A penalty award is a terminal event even when it is the
+                # first event after the turnover. Do not require an earlier
+                # pass/action in the transition before recording it.
+                if (
+                    action_by_gaining_team['type_name'] == 'Foul'
+                    and is_penalty_for_building_team
+                ):
+                    current_opponent_sequence_events.append(action_data)
+                    if metric_to_analyze == 'defensive_transitions':
+                        sequence_outcome_type = 'Penalty conceded'
+                    else:
+                        sequence_outcome_type = 'Penalty won'
+                    break
+
+                # Opta can emit an unsuccessful take-on immediately before
+                # the penalty-award foul. Look ahead briefly before treating
+                # the current gaining-team action as a turnover.
+                if is_correct_team:
+                    penalty_award_event = (
+                        _find_immediate_penalty_award(
+                            current_event_original_df_idx
+                        )
+                    )
+
+                    if penalty_award_event is not None:
+                        current_opponent_sequence_events.append(action_data)
+
+                        penalty_data = penalty_award_event.to_dict()
+                        penalty_data['loss_sequence_id'] = sequence_id_counter
+                        penalty_data['loss_zone'] = loss_zone
+                        penalty_data['loss_x'] = loss_x
+                        penalty_data['loss_y'] = loss_y
+                        penalty_data['triggering_loss_Opta_id'] = loss_event['id']
+                        penalty_data['timeMin_at_loss'] = time_min_at_loss
+                        penalty_data['timeSec_at_loss'] = time_sec_at_loss
+                        penalty_data['type_of_initial_loss'] = type_of_loss
+                        current_opponent_sequence_events.append(penalty_data)
+
+                        if metric_to_analyze == 'defensive_transitions':
+                            sequence_outcome_type = 'Penalty conceded'
+                        else:
+                            sequence_outcome_type = 'Penalty won'
+                        break
 
                 if is_end_sequence and len(current_opponent_sequence_events) > 0:
                     current_opponent_sequence_events.append(action_data)
                     if action_by_gaining_team['type_name'] == 'Foul':
-                        sequence_outcome_type = 'Foul'
+                        if is_penalty_awarded:
+                            if metric_to_analyze == 'defensive_transitions':
+                                sequence_outcome_type = 'Penalty conceded'
+                            else:
+                                sequence_outcome_type = 'Penalty won'
+                        else:
+                            sequence_outcome_type = 'Foul'
                     elif action_by_gaining_team['type_name'] == 'Offside Pass':
                         sequence_outcome_type = 'Offside'
                     elif action_by_gaining_team['type_name'] == 'Out':
@@ -984,7 +1110,7 @@ def create_def_transition_summary_cards(stats, active_filter=None):
         return str(active_filter.get(filter_type)) == str(value)
 
     # Card 1: Outcomes
-    outcome_order = ['Goals conceded', 'Own Goal Conceded', 'Forced Own Goal', 'Shots conceded', 'Big Chances conceded', 'Regained Possessions', 'Out', 'Offside', 'Foul']
+    outcome_order = ['Goals conceded', 'Own Goal Conceded', 'Forced Own Goal', 'Penalty conceded', 'Shots conceded', 'Big Chances conceded', 'Regained Possessions', 'Out', 'Offside', 'Foul']
     outcome_rank = {v: i for i, v in enumerate(outcome_order)}
     outcome_items = sorted(stats['outcomes'].items(), key=lambda x: outcome_rank.get(x[0], 99))
 
@@ -1127,7 +1253,7 @@ def create_off_transition_summary_cards(stats, active_filter=None):
         return active_filter is not None and str(active_filter.get(filter_type)) == str(value)
 
     # Card 1: Outcomes
-    outcome_order = ['Goals', 'Forced Own Goal', 'Shots', 'Big Chances', 'Lost Possessions', 'Out', 'Offside', 'Foul']
+    outcome_order = ['Goals', 'Forced Own Goal', 'Penalty won', 'Shots', 'Big Chances', 'Lost Possessions', 'Out', 'Offside', 'Foul']
     outcome_rank = {v: i for i, v in enumerate(outcome_order)}
     outcome_items = sorted(stats.get('outcomes', {}).items(), key=lambda x: outcome_rank.get(x[0], 99))
 
