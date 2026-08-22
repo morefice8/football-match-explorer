@@ -25,6 +25,11 @@ from dash import ctx
 from flask import send_from_directory
 from urllib.parse import parse_qs, unquote
 from src.utils.path_helpers import get_team_logo_path
+from src.utils.sequence_filtering import (
+    filter_sequences_exact,
+    make_carousel_controller,
+    step_carousel,
+)
 
 
 # Import dei layout dalle pagine separate
@@ -517,6 +522,25 @@ def match_kpi_card(icon, label, value, note=None, accent="blue"):
             dash_html.Small(note, className="match-kpi-note") if note else None,
         ], className="match-kpi-copy")
     ], className="match-kpi-card")
+
+def sequence_filter_zero_state(
+    sequence_label="sequences",
+):
+    """Shared zero-state for sequence filters with no exact matches."""
+    return dbc.Alert(
+        [
+            dash_html.Strong(
+                f"No {sequence_label} match the current filters."
+            ),
+            dash_html.Br(),
+            dash_html.Span(
+                "Adjust or reset one or more filters to continue."
+            ),
+        ],
+        color="secondary",
+        className="m-3",
+    )
+
 
 def render_sequence_comparison_panel(
     comparison,
@@ -2588,7 +2612,7 @@ def render_match_tab_content(search_query, stored_data_json):
                             f"{home_final_third} – "
                             f"{away_final_third}"
                         ),
-                        "Passes + reliable carries",
+                        "Passes + high-confidence inferred carries",
                         "coral",
                     ),
 
@@ -2714,8 +2738,8 @@ def render_match_tab_content(search_query, stored_data_json):
                         home_final_third,
                         away_final_third,
                         description=(
-                            "Completed passes + "
-                            "reliable carries"
+                            "Completed passes + high-confidence "
+                            "inferred carries"
                         ),
                     ),
 
@@ -4434,6 +4458,14 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             total_entries = stats.get('total_final_third', 0)
             pass_count = stats.get('pass_entries', 0)
             carry_count = stats.get('carry_entries', 0)
+            carry_candidate_count = stats.get(
+                'carry_entry_candidates',
+                0,
+            )
+            excluded_carry_count = stats.get(
+                'carry_entries_excluded_total',
+                0,
+            )
 
             channel_counts = {
                 'Left': stats.get('channel_left', 0),
@@ -4468,23 +4500,33 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                 metric_card(
                     'Total entries',
                     str(total_entries),
-                    'Passes + reliable carries',
                     (
-                        "An entry is counted when the ball starts "
-                        "outside the attacking final third "
-                        "(x < 66.67) and ends inside it "
-                        "(x ≥ 66.67)."
+                        'Completed passes + high-confidence '
+                        'inferred carries'
+                    ),
+                    (
+                        "Passes use the exact final-third boundary. "
+                        "Inferred carries also require a robust "
+                        "crossing and high confidence."
                     ),
                 ),
 
                 metric_card(
-                    'Pass / carry',
+                    'Pass / inferred carry',
                     f"{pass_count} / {carry_count}",
-                    'Method of entry',
                     (
-                        "Pass entries include completed passes only. "
-                        "Carry entries include only inferred carries "
-                        "marked as reliable."
+                        f"{excluded_carry_count} of "
+                        f"{carry_candidate_count} inferred carry "
+                        "candidates excluded"
+                        if carry_candidate_count
+                        else "No inferred carry candidates"
+                    ),
+                    (
+                        "Only high-confidence inferred carries are "
+                        "included. They must start at least 1 Opta "
+                        "point before the boundary, finish at least "
+                        "1 point beyond it and advance at least 3 "
+                        "points longitudinally."
                     ),
                 ),
 
@@ -4686,7 +4728,9 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                             'Carry',
                             'Total',
                         ]
-                    ]
+                    ].rename(columns={
+                        'Carry': 'Inferred carry',
+                    })
 
                     table_content = dbc.Table.from_dataframe(
                         display_table,
@@ -4792,10 +4836,15 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             ),
             dash_html.Span(
                 (
-                    'A final-third entry is recorded when the ball '
-                    'moves from x < 66.67 to x ≥ 66.67. '
-                    'Completed passes and reliably inferred carries '
-                    'are included. Entry channels are classified from '
+                    'A pass entry is recorded when the ball moves from '
+                    'x < 66.67 to x ≥ 66.67. Carry entries are inferred '
+                    'from consecutive events rather than observed '
+                    'directly: the primary KPI includes only '
+                    'high-confidence candidates that start at least 1 '
+                    'Opta point before the boundary, finish at least 1 '
+                    'point beyond it and advance at least 3 points '
+                    'longitudinally. Rejected candidates are disclosed '
+                    'in the KPI card. Entry channels are classified from '
                     'the destination y-coordinate. Zone 14 and the '
                     'half-spaces describe the destination of the entry, '
                     'not the definition of the metric.'
@@ -6948,37 +6997,31 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
         else:
             active_filters_badge = None
 
-        # --- 4. Apply filter if active ---
-        if active_filter:
-            filter_key_map = {
-                "outcomes": "sequence_outcome_type",
-                "flanks": "dominant_flank",
-                "types": "lb_type"
-            }
-
-            print(f"[Filtro multiplo] Attivi: {active_filter}")
-            filtered_sequences = []
-
-            for seq in sequences_with_type:
-                if seq.empty:
-                    continue
-
-                match = True
-                for ftype, fvalue in active_filter.items():
-                    real_col = filter_key_map.get(ftype)
-                    val = seq.iloc[-1].get(real_col)
-                    if str(val).strip() != str(fvalue).strip():
-                        match = False
-                        break
-
-                if match:
-                    filtered_sequences.append(seq)
-
-            if not filtered_sequences:
-                print("[Filtro] Nessuna sequenza trovata, fallback su tutte.")
-                filtered_sequences = sequences_with_type
-        else:
-            filtered_sequences = sequences_with_type
+        # --- 4. Apply filters strictly: no implicit fallback ---
+        filtered_sequences = filter_sequences_exact(
+            sequences_with_type,
+            active_filter,
+            {
+                "outcomes": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "sequence_outcome_type"
+                    )
+                ),
+                "flanks": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "dominant_flank"
+                    )
+                ),
+                "types": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "lb_type"
+                    )
+                ),
+            },
+        )
 
         # --- 5. Sort sequences by quality ---
         def get_quality_score(seq_df):
@@ -6996,7 +7039,24 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
         num_items = len(sorted_sequences)
 
         # --- 6. Compute stats and build layout ---
-        buildup_stats = buildup_metrics.calculate_buildup_stats(filtered_sequences, not is_away)
+        if filtered_sequences:
+            buildup_stats = (
+                buildup_metrics.calculate_buildup_stats(
+                    filtered_sequences,
+                    not is_away,
+                )
+            )
+            summary_content = (
+                buildup_metrics.create_buildup_summary_cards(
+                    buildup_stats,
+                    active_filter,
+                )
+            )
+        else:
+            summary_content = sequence_filter_zero_state(
+                "build-up sequences"
+            )
+
         summary_layout = dash_html.Div([
             dash_html.Div([
                 dash_html.Div([
@@ -7012,7 +7072,7 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 ),
             ], className="match-panel-header"),
             active_filters_badge,
-            buildup_metrics.create_buildup_summary_cards(buildup_stats, active_filter)
+            summary_content,
         ], className="match-summary-content")
 
         return dash_html.Div([
@@ -7021,7 +7081,12 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 'team_color': team_color,
                 'is_away': is_away
             }),
-            dcc.Store(id='buildup-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
+            dcc.Store(
+                id='buildup-carousel-controller',
+                data=make_carousel_controller(
+                    num_items
+                ),
+            ),
 
             buildup_comparison_panel,
 
@@ -7062,12 +7127,18 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 dash_html.Div([
                     dbc.Button(
                         [dash_html.I(className="fa-solid fa-chevron-left me-2"), "Previous"],
-                        id="buildup-prev-button", className="match-carousel-button", size="sm",
+                        id="buildup-prev-button",
+                        className="match-carousel-button",
+                        size="sm",
+                        disabled=(num_items == 0),
                     ),
                     dash_html.Div(id="buildup-indicator-text", className="match-carousel-indicator"),
                     dbc.Button(
                         ["Next", dash_html.I(className="fa-solid fa-chevron-right ms-2")],
-                        id="buildup-next-button", className="match-carousel-button", size="sm",
+                        id="buildup-next-button",
+                        className="match-carousel-button",
+                        size="sm",
+                        disabled=(num_items == 0),
                     ),
                 ], className="match-carousel-controls"),
             ], className="match-panel match-sequence-panel"),
@@ -7108,11 +7179,25 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
     prevent_initial_call=True
 )
 def next_slide(n_clicks, controller_data):
-    if n_clicks and controller_data:
-        new_index = (controller_data['active_index'] + 1) % controller_data['total_items']
-        controller_data['active_index'] = new_index
-        return controller_data
-    return no_update
+    if (
+        not n_clicks
+        or not controller_data
+    ):
+        return no_update
+
+    if int(
+        controller_data.get(
+            "total_items",
+            0,
+        )
+        or 0
+    ) <= 0:
+        return no_update
+
+    return step_carousel(
+        controller_data,
+        1,
+    )
 
 # Callback 2: Handles the "Previous" button click
 @app.callback(
@@ -7122,11 +7207,25 @@ def next_slide(n_clicks, controller_data):
     prevent_initial_call=True
 )
 def prev_slide(n_clicks, controller_data):
-    if n_clicks and controller_data:
-        new_index = (controller_data['active_index'] - 1 + controller_data['total_items']) % controller_data['total_items']
-        controller_data['active_index'] = new_index
-        return controller_data
-    return no_update
+    if (
+        not n_clicks
+        or not controller_data
+    ):
+        return no_update
+
+    if int(
+        controller_data.get(
+            "total_items",
+            0,
+        )
+        or 0
+    ) <= 0:
+        return no_update
+
+    return step_carousel(
+        controller_data,
+        -1,
+    )
 
 # Callback 3: Updates the plot and indicator text based on the controller's state
 @app.callback(
@@ -7139,20 +7238,56 @@ def update_buildup_plot_and_indicator(controller_data, stored_sequence_data):
     if not controller_data or not stored_sequence_data:
         return no_update, no_update
 
-    active_index = controller_data.get('active_index', 0)
-    total_items = controller_data.get('total_items', 0)
+    sequences_json = (
+        stored_sequence_data.get(
+            "sequences",
+            [],
+        )
+    )
 
-    indicator_text = f"Sequence {active_index + 1} of {total_items}"
+    total_items = int(
+        controller_data.get(
+            "total_items",
+            len(sequences_json),
+        )
+        or 0
+    )
+
+    if (
+        total_items <= 0
+        or not sequences_json
+    ):
+        return (
+            sequence_filter_zero_state(
+                "build-up sequences"
+            ),
+            "0 sequences",
+        )
+
+    active_index = int(
+        controller_data.get(
+            "active_index",
+            0,
+        )
+        or 0
+    )
+
+    if active_index >= len(sequences_json):
+        active_index = 0
+
+    indicator_text = (
+        f"Sequence {active_index + 1} "
+        f"of {total_items}"
+    )
 
     try:
-        sequences_json = stored_sequence_data['sequences']
         team_color = stored_sequence_data['team_color']
         is_away = stored_sequence_data['is_away']
 
-        if active_index >= len(sequences_json):
-            return dbc.Alert("Invalid sequence index."), indicator_text
-
-        seq_df = pd.read_json(sequences_json[active_index], orient='split')
+        seq_df = pd.read_json(
+            sequences_json[active_index],
+            orient='split',
+        )
 
         # Call the Plotly function
         # fig = buildup_plotly.plot_buildup_sequence_plotly(seq_df, team_color, is_away)
@@ -7734,36 +7869,33 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                 for seq_id in df_transitions['loss_sequence_id'].unique()
             ]
 
-            # Step 3 – Assegna flank
-            for seq in all_sequences:
-                if not seq.empty:
-                    seq = seq.copy()
-                    seq["dominant_flank"] = transition_metrics.calculate_flank(seq['y'])
-
-            # Step 4 – Applica filtro multiplo
-            filter_key_map = {
-                "outcomes": "sequence_outcome_type",
-                "flanks": "dominant_flank",
-                "types": "type_of_initial_loss"
-            }
-
-            filtered_sequences = []
-            for seq in all_sequences:
-                if seq.empty:
-                    continue
-                match = True
-                if active_filter:
-                    for key, val in active_filter.items():
-                        col = filter_key_map.get(key)
-                        value = str(seq.iloc[-1].get(col)) if col else None
-                        if value != str(val):
-                            match = False
-                            break
-                if match:
-                    filtered_sequences.append(seq)
-
-            if not filtered_sequences:
-                filtered_sequences = all_sequences
+            # Step 3/4 – Apply filters strictly: no implicit fallback
+            filtered_sequences = (
+                filter_sequences_exact(
+                    all_sequences,
+                    active_filter,
+                    {
+                        "outcomes": (
+                            lambda seq:
+                            seq.iloc[-1].get(
+                                "sequence_outcome_type"
+                            )
+                        ),
+                        "flanks": (
+                            lambda seq:
+                            transition_metrics.calculate_flank(
+                                seq["y"]
+                            )
+                        ),
+                        "types": (
+                            lambda seq:
+                            seq.iloc[0].get(
+                                "type_of_initial_loss"
+                            )
+                        ),
+                    },
+                )
+            )
 
             # Step 5 – Ordina per qualità
             def get_quality_score(seq_df):
@@ -7798,10 +7930,9 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
                 dcc.Store(
                     id='def-transition-carousel-controller',
-                    data={
-                        'active_index': 0,
-                        'total_items': num_items,
-                    },
+                    data=make_carousel_controller(
+                        num_items
+                    ),
                 ),
 
                 # -------------------------------------------------
@@ -8032,6 +8163,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                                 id="def-transition-prev-button",
                                 className="match-carousel-button",
                                 size="sm",
+                                disabled=(num_items == 0),
                             ),
 
                             dash_html.Div(
@@ -8049,6 +8181,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                                 id="def-transition-next-button",
                                 className="match-carousel-button",
                                 size="sm",
+                                disabled=(num_items == 0),
                             ),
 
                         ], className="match-carousel-controls"),
@@ -8194,35 +8327,59 @@ def update_def_transition_plot(controller_data, active_filter, stored_data):
         team_color = stored_data.get("team_color", "#007BFF")
         is_away = stored_data.get("is_away", False)
 
-        all_sequences = [pd.read_json(seq, orient="split") for seq in sequences_json]
+        all_sequences = [
+            pd.read_json(
+                seq,
+                orient="split",
+            )
+            for seq in sequences_json
+        ]
 
-        filtered_sequences = []
-        for seq in all_sequences:
-            if seq.empty:
-                continue
-            match = True
-            if active_filter:
-                for key, value in active_filter.items():
-                    if key == "outcomes":
-                        if str(seq.iloc[-1].get("sequence_outcome_type")) != str(value):
-                            match = False
-                    elif key == "flanks":
-                        if transition_metrics.calculate_flank(seq['y']) != value:
-                            match = False
-                    elif key == "types":
-                        if str(seq.iloc[0].get("type_of_initial_loss")) != str(value):
-                            match = False
-            if match:
-                filtered_sequences.append(seq)
+        filtered_sequences = (
+            filter_sequences_exact(
+                all_sequences,
+                active_filter,
+                {
+                    "outcomes": (
+                        lambda seq:
+                        seq.iloc[-1].get(
+                            "sequence_outcome_type"
+                        )
+                    ),
+                    "flanks": (
+                        lambda seq:
+                        transition_metrics.calculate_flank(
+                            seq["y"]
+                        )
+                    ),
+                    "types": (
+                        lambda seq:
+                        seq.iloc[0].get(
+                            "type_of_initial_loss"
+                        )
+                    ),
+                },
+            )
+        )
 
-        if not filtered_sequences:
-            filtered_sequences = all_sequences
+        total_sequences = len(
+            filtered_sequences
+        )
 
-        total_sequences = len(filtered_sequences)
+        if total_sequences == 0:
+            return (
+                sequence_filter_zero_state(
+                    "defensive transitions"
+                ),
+                "0 sequences",
+            )
+
         if active_index >= total_sequences:
             active_index = 0
 
-        selected_seq = filtered_sequences[active_index]
+        selected_seq = filtered_sequences[
+            active_index
+        ]
 
         fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
             selected_seq,
@@ -8303,21 +8460,37 @@ def update_def_transition_summary_cards(active_filter, stored_data):
     is_away = stored_data.get("is_away", False)
     all_sequences = [pd.read_json(io.StringIO(seq), orient="split") for seq in sequences_json]
 
-    filtered_sequences = []
-    for seq in all_sequences:
-        if seq.empty:
-            continue
-        match = True
-        if active_filter:
-            for key, val in active_filter.items():
-                if key == "outcomes" and str(seq.iloc[-1].get("sequence_outcome_type")) != str(val):
-                    match = False
-                elif key == "flanks" and transition_metrics.calculate_flank(seq['y']) != val:
-                    match = False
-                elif key == "types" and str(seq.iloc[0].get("type_of_initial_loss")) != str(val):
-                    match = False
-        if match:
-            filtered_sequences.append(seq)
+    filtered_sequences = (
+        filter_sequences_exact(
+            all_sequences,
+            active_filter,
+            {
+                "outcomes": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "sequence_outcome_type"
+                    )
+                ),
+                "flanks": (
+                    lambda seq:
+                    transition_metrics.calculate_flank(
+                        seq["y"]
+                    )
+                ),
+                "types": (
+                    lambda seq:
+                    seq.iloc[0].get(
+                        "type_of_initial_loss"
+                    )
+                ),
+            },
+        )
+    )
+
+    if not filtered_sequences:
+        return sequence_filter_zero_state(
+            "defensive transitions"
+        )
 
     stats = transition_metrics.calculate_def_transition_stats(filtered_sequences, is_away)
     # transition_profile_table = stats.get("transition_profile_table", pd.DataFrame())
@@ -8392,11 +8565,25 @@ def show_filter_state(data):
     prevent_initial_call=True
 )
 def def_transition_next_slide(n_clicks, controller_data):
-    if n_clicks and controller_data:
-        new_index = (controller_data['active_index'] + 1) % controller_data['total_items']
-        controller_data['active_index'] = new_index
-        return controller_data
-    return dash.no_update
+    if (
+        not n_clicks
+        or not controller_data
+    ):
+        return dash.no_update
+
+    if int(
+        controller_data.get(
+            "total_items",
+            0,
+        )
+        or 0
+    ) <= 0:
+        return dash.no_update
+
+    return step_carousel(
+        controller_data,
+        1,
+    )
 
 @app.callback(
     Output('def-transition-carousel-controller', 'data'),
@@ -8405,11 +8592,25 @@ def def_transition_next_slide(n_clicks, controller_data):
     prevent_initial_call=True
 )
 def def_transition_prev_slide(n_clicks, controller_data):
-    if n_clicks and controller_data:
-        new_index = (controller_data['active_index'] - 1 + controller_data['total_items']) % controller_data['total_items']
-        controller_data['active_index'] = new_index
-        return controller_data
-    return dash.no_update
+    if (
+        not n_clicks
+        or not controller_data
+    ):
+        return dash.no_update
+
+    if int(
+        controller_data.get(
+            "total_items",
+            0,
+        )
+        or 0
+    ) <= 0:
+        return dash.no_update
+
+    return step_carousel(
+        controller_data,
+        -1,
+    )
 
 @app.callback(
     Output("loss-heatmap-graph", "figure"),
@@ -8433,21 +8634,32 @@ def update_loss_heatmap(active_filter, stored_data):
 
     all_sequences = [pd.read_json(seq, orient="split") for seq in sequences_json]
 
-    filtered_sequences = []
-    for seq in all_sequences:
-        if seq.empty:
-            continue
-        match = True
-        if active_filter:
-            for key, value in active_filter.items():
-                if key == "outcomes" and str(seq.iloc[-1].get("sequence_outcome_type")) != str(value):
-                    match = False
-                elif (key == "flanks" and transition_metrics.calculate_flank(seq["y"]) != value):
-                    match = False
-                elif key == "types" and str(seq.iloc[0].get("type_of_initial_loss")) != str(value):
-                    match = False
-        if match:
-            filtered_sequences.append(seq)
+    filtered_sequences = (
+        filter_sequences_exact(
+            all_sequences,
+            active_filter,
+            {
+                "outcomes": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "sequence_outcome_type"
+                    )
+                ),
+                "flanks": (
+                    lambda seq:
+                    transition_metrics.calculate_flank(
+                        seq["y"]
+                    )
+                ),
+                "types": (
+                    lambda seq:
+                    seq.iloc[0].get(
+                        "type_of_initial_loss"
+                    )
+                ),
+            },
+        )
+    )
 
     return (
         defensive_transitions_plotly
@@ -8628,32 +8840,33 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
         # Raggruppamento e ordinamento (logica identica)
         all_sequences = [df_transitions[df_transitions['loss_sequence_id'] == seq_id] for seq_id in df_transitions['loss_sequence_id'].unique()]
 
-        # Step 4 – Applica filtro multiplo
-        filter_key_map = {
-            "outcomes": "sequence_outcome_type",
-            "flanks": "dominant_flank",
-            "types": "type_of_initial_loss"
-        }
-
-        filtered_sequences = []
-        for seq in all_sequences:
-            if seq.empty:
-                continue
-            match = True
-            if active_filter:
-                for key, val in active_filter.items():
-                    col = filter_key_map.get(key)
-                    value = str(seq.iloc[-1].get(col)) if col else None
-                    if value != str(val):
-                        match = False
-                        break
-            if match:
-                filtered_sequences.append(seq)
-
-        if not filtered_sequences:
-            filtered_sequences = all_sequences
-
-        # filtered_sequences = all_sequences # Per ora, mostriamo tutte
+        # Step 4 – Apply filters strictly: no implicit fallback
+        filtered_sequences = (
+            filter_sequences_exact(
+                all_sequences,
+                active_filter,
+                {
+                    "outcomes": (
+                        lambda seq:
+                        seq.iloc[-1].get(
+                            "sequence_outcome_type"
+                        )
+                    ),
+                    "flanks": (
+                        lambda seq:
+                        transition_metrics.calculate_flank(
+                            seq["y"]
+                        )
+                    ),
+                    "types": (
+                        lambda seq:
+                        seq.iloc[0].get(
+                            "type_of_initial_loss"
+                        )
+                    ),
+                },
+            )
+        )
 
         def get_quality_score(seq_df):
             if seq_df.empty: return 99
@@ -8683,10 +8896,9 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
 
             dcc.Store(
                 id='off-transition-carousel-controller',
-                data={
-                    'active_index': 0,
-                    'total_items': num_items,
-                },
+                data=make_carousel_controller(
+                    num_items
+                ),
             ),
 
             off_transition_comparison_panel,
@@ -8897,6 +9109,7 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
                             id="off-transition-prev-button",
                             className="match-carousel-button",
                             size="sm",
+                            disabled=(num_items == 0),
                         ),
 
                         dash_html.Div(
@@ -8914,6 +9127,7 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
                             id="off-transition-next-button",
                             className="match-carousel-button",
                             size="sm",
+                            disabled=(num_items == 0),
                         ),
 
                     ], className="match-carousel-controls"),
@@ -8943,9 +9157,53 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         return no_update, no_update
 
     try:
-        # --- 1. Estrai i dati necessari ---
-        active_index = controller_data['active_index']
-        seq_df = pd.read_json(io.StringIO(stored_data['sequences'][active_index]), orient='split')
+        sequences_json = (
+            stored_data.get(
+                "sequences",
+                [],
+            )
+        )
+
+        total_items = int(
+            controller_data.get(
+                "total_items",
+                len(sequences_json),
+            )
+            or 0
+        )
+
+        if (
+            total_items <= 0
+            or not sequences_json
+        ):
+            return (
+                sequence_filter_zero_state(
+                    "offensive transitions"
+                ),
+                "0 sequences",
+            )
+
+        active_index = int(
+            controller_data.get(
+                "active_index",
+                0,
+            )
+            or 0
+        )
+
+        if active_index >= len(
+            sequences_json
+        ):
+            active_index = 0
+
+        seq_df = pd.read_json(
+            io.StringIO(
+                sequences_json[
+                    active_index
+                ]
+            ),
+            orient='split',
+        )
 
         if seq_df.empty:
             return dbc.Alert("Sequenza vuota, impossibile generare il plot."), "N/A"
@@ -8983,7 +9241,10 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         )
 
         graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "550px"})
-        indicator = f"Sequence {active_index + 1} of {controller_data['total_items']}"
+        indicator = (
+            f"Sequence {active_index + 1} "
+            f"of {total_items}"
+        )
 
         return graph, indicator
 
@@ -8996,9 +9257,43 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
 
 # Callback per i pulsanti del carosello
 @app.callback(Output('off-transition-carousel-controller', 'data', allow_duplicate=True), Input('off-transition-next-button', 'n_clicks'), State('off-transition-carousel-controller', 'data'), prevent_initial_call=True)
-def off_next(n, data): return {'active_index': (data['active_index'] + 1) % data['total_items'], 'total_items': data['total_items']}
+def off_next(n, data):
+    if (
+        not n
+        or not data
+        or int(
+            data.get(
+                "total_items",
+                0,
+            )
+            or 0
+        ) <= 0
+    ):
+        return no_update
+
+    return step_carousel(
+        data,
+        1,
+    )
 @app.callback(Output('off-transition-carousel-controller', 'data'), Input('off-transition-prev-button', 'n_clicks'), State('off-transition-carousel-controller', 'data'), prevent_initial_call=True)
-def off_prev(n, data): return {'active_index': (data['active_index'] - 1 + data['total_items']) % data['total_items'], 'total_items': data['total_items']}
+def off_prev(n, data):
+    if (
+        not n
+        or not data
+        or int(
+            data.get(
+                "total_items",
+                0,
+            )
+            or 0
+        ) <= 0
+    ):
+        return no_update
+
+    return step_carousel(
+        data,
+        -1,
+    )
 
 # Callback per le summary cards e la heatmap
 @app.callback(
@@ -9014,21 +9309,40 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
     all_sequences = [pd.read_json(io.StringIO(seq), orient="split") for seq in stored_data['sequences']]
     is_away = stored_data.get("is_away", False)
 
-    filtered_sequences = []
-    for seq in all_sequences:
-        if seq.empty:
-            continue
-        match = True
-        if active_filter:
-            for key, val in active_filter.items():
-                if key == "outcomes" and str(seq.iloc[-1].get("sequence_outcome_type")) != str(val):
-                    match = False
-                elif key == "flanks" and transition_metrics.calculate_flank(seq['y']) != val:
-                    match = False
-                elif key == "types" and str(seq.iloc[0].get("type_of_initial_loss")) != str(val):
-                    match = False
-        if match:
-            filtered_sequences.append(seq)
+    filtered_sequences = (
+        filter_sequences_exact(
+            all_sequences,
+            active_filter,
+            {
+                "outcomes": (
+                    lambda seq:
+                    seq.iloc[-1].get(
+                        "sequence_outcome_type"
+                    )
+                ),
+                "flanks": (
+                    lambda seq:
+                    transition_metrics.calculate_flank(
+                        seq["y"]
+                    )
+                ),
+                "types": (
+                    lambda seq:
+                    seq.iloc[0].get(
+                        "type_of_initial_loss"
+                    )
+                ),
+            },
+        )
+    )
+
+    if not filtered_sequences:
+        return (
+            sequence_filter_zero_state(
+                "offensive transitions"
+            ),
+            go.Figure(),
+        )
 
     stats = transition_metrics.calculate_off_transition_stats(filtered_sequences)
     cards = transition_metrics.create_off_transition_summary_cards(stats, active_filter)
