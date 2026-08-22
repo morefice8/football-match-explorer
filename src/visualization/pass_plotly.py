@@ -757,7 +757,7 @@ def plot_final_third_entries_plotly(
     Plot all final-third entries for one team.
 
     Pass entries are shown with solid lines.
-    Carry entries are shown with dashed lines.
+    High-confidence inferred carry entries are shown with dashed lines.
     Zone 14 and the half-spaces remain contextual destination zones,
     rather than defining the metric itself.
     """
@@ -944,7 +944,7 @@ def plot_final_third_entries_plotly(
 
                 hover_text = (
                     f"<b>{row.get('playerName', 'Unknown')}</b>"
-                    f"<br>Carry entry"
+                    f"<br>High-confidence inferred carry entry"
                     f"<br>Distance: {distance_label}"
                     f"<br>Channel: "
                     f"{row.get('final_third_channel', 'Unknown')}"
@@ -967,7 +967,10 @@ def plot_final_third_entries_plotly(
                     width=2.5,
                     dash='dash',
                 ),
-                name=f"Carry entries ({len(carry_entries)})",
+                name=(
+                    "Inferred carry entries "
+                    f"({len(carry_entries)})"
+                ),
                 hoverinfo='text',
                 hovertext=hover_texts,
             ))
@@ -1079,7 +1082,7 @@ def plot_final_third_entries_plotly(
         subtitle=(
             f"{stats.get('total_final_third', 0)} total · "
             f"{stats.get('pass_entries', 0)} pass · "
-            f"{stats.get('carry_entries', 0)} carry"
+            f"{stats.get('carry_entries', 0)} inferred carry"
         ),
         dark=True,
     )

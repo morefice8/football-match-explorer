@@ -71,6 +71,8 @@ class FinalThirdEntryTests(unittest.TestCase):
                 'y': 30,
                 'end_x': 72,
                 'end_y': 28,
+                'carry_confidence': 'high',
+                'carry_is_inferred': True,
                 'carry_is_reliable': True,
             }
         ])
@@ -83,6 +85,8 @@ class FinalThirdEntryTests(unittest.TestCase):
         self.assertEqual(stats['total_final_third'], 2)
         self.assertEqual(stats['pass_entries'], 1)
         self.assertEqual(stats['carry_entries'], 1)
+        self.assertEqual(stats['carry_entry_candidates'], 1)
+        self.assertEqual(stats['carry_entries_excluded_total'], 0)
 
     def test_excludes_unreliable_carry(self):
         carries = pd.DataFrame([
@@ -102,6 +106,67 @@ class FinalThirdEntryTests(unittest.TestCase):
 
         self.assertTrue(entries.empty)
         self.assertEqual(stats['carry_entries'], 0)
+
+    def test_excludes_medium_confidence_carry_from_primary_kpi(self):
+        carries = pd.DataFrame([{
+            'x': 60,
+            'y': 50,
+            'end_x': 72,
+            'end_y': 50,
+            'carry_confidence': 'medium',
+            'carry_is_inferred': True,
+            'carry_is_reliable': True,
+        }])
+
+        entries, stats = analyze_final_third_entries(
+            pd.DataFrame(),
+            carries,
+        )
+
+        self.assertTrue(entries.empty)
+        self.assertEqual(stats['carry_entry_candidates'], 1)
+        self.assertEqual(
+            stats['carry_entries_excluded_confidence'],
+            1,
+        )
+        self.assertEqual(stats['carry_entries_excluded_total'], 1)
+
+    def test_excludes_borderline_inferred_carry_near_boundary(self):
+        carries = pd.DataFrame([{
+            'x': 66.0,
+            'y': 50,
+            'end_x': 68.0,
+            'end_y': 50,
+            'carry_confidence': 'high',
+            'carry_is_inferred': True,
+            'carry_is_reliable': True,
+        }])
+
+        entries, stats = analyze_final_third_entries(
+            pd.DataFrame(),
+            carries,
+        )
+
+        self.assertTrue(entries.empty)
+        self.assertEqual(stats['carry_entry_candidates'], 1)
+        self.assertEqual(
+            stats['carry_entries_excluded_boundary'],
+            1,
+        )
+        self.assertEqual(stats['carry_entries_excluded_total'], 1)
+
+    def test_pass_crossing_is_not_affected_by_carry_buffer(self):
+        passes = pd.DataFrame([{
+            'x': 66.5,
+            'y': 50,
+            'end_x': 66.8,
+            'end_y': 50,
+        }])
+
+        entries, stats = analyze_final_third_entries(passes)
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(stats['pass_entries'], 1)
 
     def test_classifies_zone14_entry(self):
         passes = pd.DataFrame([

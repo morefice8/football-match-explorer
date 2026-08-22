@@ -834,9 +834,16 @@ def analyze_final_third_passes(passes_df_team_successful):
     return df_zone14, df_lhs, df_rhs, stats
 
 
-def analyze_final_third_entries(successful_passes_df, carries_df=None):
+def analyze_final_third_entries(
+    successful_passes_df,
+    carries_df=None,
+    *,
+    high_confidence_carries_only=True,
+    carry_boundary_buffer=1.0,
+    min_carry_x_progress=3.0,
+):
     """
-    Identify all reliable entries into the attacking final third.
+    Identify entries into the attacking final third.
 
     An entry occurs when the ball crosses the final-third boundary:
         start_x < 66.67
@@ -844,7 +851,17 @@ def analyze_final_third_entries(successful_passes_df, carries_df=None):
 
     Supported entry types:
         - Pass: completed passes
-        - Carry: reliably inferred carries
+        - Carry: high-confidence inferred carries with a robust boundary cross
+
+    Pass coordinates are provider observations and use the exact 66.67 line.
+    Carry coordinates are reconstructed between consecutive events, so the
+    primary KPI applies two additional safeguards by default:
+
+        - the carry must start at least ``carry_boundary_buffer`` Opta points
+          before the line and end the same distance beyond it;
+        - longitudinal progress must be at least ``min_carry_x_progress``.
+
+    Rejected carry candidates remain visible in the returned diagnostics.
 
     Each entry is classified by:
         - entry_type: Pass / Carry
@@ -865,6 +882,10 @@ def analyze_final_third_entries(successful_passes_df, carries_df=None):
         'total_final_third': 0,
         'pass_entries': 0,
         'carry_entries': 0,
+        'carry_entry_candidates': 0,
+        'carry_entries_excluded_confidence': 0,
+        'carry_entries_excluded_boundary': 0,
+        'carry_entries_excluded_total': 0,
 
         'channel_left': 0,
         'channel_central': 0,
@@ -918,21 +939,85 @@ def analyze_final_third_entries(successful_passes_df, carries_df=None):
 
             carries = carries.dropna(subset=required_cols)
 
-            # Only reliable inferred carries.
+            # First keep only candidates whose event continuity passed the
+            # inference checks. This does not yet make them KPI-eligible.
             if 'carry_is_reliable' in carries.columns:
                 carries = carries[
                     carries['carry_is_reliable'].fillna(False).astype(bool)
                 ]
 
-            carry_entry_mask = (
+            raw_crossing_mask = (
                 (carries['x'] < final_third_x) &
                 (carries['end_x'] >= final_third_x)
             )
+            carry_candidates = carries[raw_crossing_mask].copy()
+            stats_default['carry_entry_candidates'] = int(
+                len(carry_candidates)
+            )
 
-            carry_entries = carries[carry_entry_mask].copy()
+            if not carry_candidates.empty:
+                if high_confidence_carries_only:
+                    if 'carry_confidence' in carry_candidates.columns:
+                        confidence_mask = (
+                            carry_candidates['carry_confidence']
+                            .fillna('unknown')
+                            .astype(str)
+                            .str.lower()
+                            .eq('high')
+                        )
+                    else:
+                        confidence_mask = pd.Series(
+                            False,
+                            index=carry_candidates.index,
+                        )
+                else:
+                    confidence_mask = pd.Series(
+                        True,
+                        index=carry_candidates.index,
+                    )
+
+                stats_default[
+                    'carry_entries_excluded_confidence'
+                ] = int((~confidence_mask).sum())
+
+                confidence_eligible = carry_candidates[
+                    confidence_mask
+                ].copy()
+
+                robust_crossing_mask = (
+                    (
+                        confidence_eligible['x']
+                        <= final_third_x - carry_boundary_buffer
+                    )
+                    & (
+                        confidence_eligible['end_x']
+                        >= final_third_x + carry_boundary_buffer
+                    )
+                    & (
+                        confidence_eligible['end_x']
+                        - confidence_eligible['x']
+                        >= min_carry_x_progress
+                    )
+                )
+
+                stats_default[
+                    'carry_entries_excluded_boundary'
+                ] = int((~robust_crossing_mask).sum())
+
+                carry_entries = confidence_eligible[
+                    robust_crossing_mask
+                ].copy()
+            else:
+                carry_entries = pd.DataFrame()
+
+            stats_default['carry_entries_excluded_total'] = int(
+                stats_default['carry_entries_excluded_confidence']
+                + stats_default['carry_entries_excluded_boundary']
+            )
 
             if not carry_entries.empty:
                 carry_entries['entry_type'] = 'Carry'
+                carry_entries['entry_method'] = 'Inferred carry'
                 entry_frames.append(carry_entries)
 
     if not entry_frames:
@@ -993,6 +1078,18 @@ def analyze_final_third_entries(successful_passes_df, carries_df=None):
 
         'pass_entries': int(type_counts.get('Pass', 0)),
         'carry_entries': int(type_counts.get('Carry', 0)),
+        'carry_entry_candidates': stats_default[
+            'carry_entry_candidates'
+        ],
+        'carry_entries_excluded_confidence': stats_default[
+            'carry_entries_excluded_confidence'
+        ],
+        'carry_entries_excluded_boundary': stats_default[
+            'carry_entries_excluded_boundary'
+        ],
+        'carry_entries_excluded_total': stats_default[
+            'carry_entries_excluded_total'
+        ],
 
         'channel_left': int(channel_counts.get('Left', 0)),
         'channel_central': int(channel_counts.get('Central', 0)),

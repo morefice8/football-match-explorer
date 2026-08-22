@@ -54,6 +54,12 @@ class CarryInferenceTests(unittest.TestCase):
         self.assertEqual(carry['playerName'], 'Player B')
         self.assertEqual(carry['x'], 64)
         self.assertEqual(carry['end_x'], 70)
+        self.assertEqual(
+            carry['carry_source_type'],
+            'pass_reception_gap',
+        )
+        self.assertEqual(carry['carry_confidence'], 'high')
+        self.assertTrue(carry['carry_is_inferred'])
         self.assertTrue(carry['carry_is_reliable'])
 
     def test_does_not_infer_carry_after_unsuccessful_pass(self):
@@ -130,6 +136,11 @@ class CarryInferenceTests(unittest.TestCase):
 
         self.assertEqual(len(carries), 1)
         self.assertEqual(carries.iloc[0]['playerId'], 20)
+        self.assertEqual(
+            carries.iloc[0]['carry_source_type'],
+            'same_player_event_gap',
+        )
+        self.assertTrue(carries.iloc[0]['carry_is_inferred'])
 
     def test_does_not_assign_non_pass_gap_to_different_teammate(self):
         df = pd.DataFrame([

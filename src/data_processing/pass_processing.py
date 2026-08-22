@@ -230,7 +230,9 @@ CARRY_RESULT_COLUMNS = [
     'carry_time_gap_seconds',
     'carry_source_event_id',
     'carry_end_event_id',
+    'carry_source_type',
     'carry_confidence',
+    'carry_is_inferred',
     'carry_is_reliable',
 ]
 
@@ -275,7 +277,9 @@ def infer_carries(
 
     The inferred carry belongs to the player performing the NEXT event, since
     that player moved the ball from the previous endpoint to their new action
-    location.
+    location. These rows are reconstructed from event continuity rather than
+    observed carry events, so ``carry_is_inferred`` and ``carry_source_type``
+    are retained as explicit provenance fields.
     """
 
     if df_processed is None or df_processed.empty:
@@ -411,6 +415,7 @@ def infer_carries(
                 continue
 
             confidence = receiver.get('receiver_confidence', 'medium')
+            carry_source_type = 'pass_reception_gap'
 
         else:
             # For other event types, require continuity of the same player.
@@ -418,6 +423,7 @@ def infer_carries(
                 continue
 
             confidence = 'high'
+            carry_source_type = 'same_player_event_gap'
 
         end_x = _numeric(candidate.get('x'))
         end_y = _numeric(candidate.get('y'))
@@ -454,7 +460,9 @@ def infer_carries(
                 candidate.get('id') or candidate.get('eventId')
             ),
 
+            'carry_source_type': carry_source_type,
             'carry_confidence': confidence,
+            'carry_is_inferred': True,
             'carry_is_reliable': True,
         })
 
