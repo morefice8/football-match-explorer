@@ -1,4 +1,7 @@
 # src/visualization/league_plots.py
+import logging
+logger = logging.getLogger(__name__)
+
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
@@ -323,7 +326,7 @@ def create_team_radar(df, team_names, template="plotly_dark"):
             if metric in inverted_metrics:
                 df_norm[metric] = 1 - df_norm[metric]
         else:
-            print(f"Warning: Metric '{metric}' not found in DataFrame for radar plot.")
+            logger.warning(f"Warning: Metric '{metric}' not found in DataFrame for radar plot.")
             df_norm[metric] = 0.5 # Assegna un valore neutro se la metrica manca
     
     fig = go.Figure()

@@ -3465,3 +3465,53 @@
   padding-top: 0.48rem;
   padding-bottom: 0.48rem;
 }
+
+/* --------------------------------------------------------------------------
+   FOUND-03 — shared Match Analysis graph shell
+   -------------------------------------------------------------------------- */
+
+.match-graph-shell {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.match-graph-panel-body {
+  align-items: stretch;
+}
+
+.match-graph-main-column,
+.match-graph-sidebar-column {
+  min-width: 0;
+}
+
+.match-graph-full-width {
+  min-width: 0;
+}
+
+.match-graph-empty-state {
+  min-height: 220px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  background: #f7fafc;
+  color: #708697;
+  text-align: center;
+}
+
+.match-graph-empty-state strong {
+  color: #17354d;
+  font-size: 1rem;
+}
+
+.match-graph-empty-icon {
+  margin-bottom: 0.15rem;
+  color: #1597c2;
+  font-size: 1.15rem;
+}
+
+.match-graph-sample-size {
+  white-space: nowrap;
+}

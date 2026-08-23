@@ -1,4 +1,7 @@
 # src/visualization/player_plots.py
+import logging
+logger = logging.getLogger(__name__)
+
 from dash import Dash, html as dash_html, dcc, Input, Output, dash_table, no_update
 from dash.dependencies import State
 import dash_bootstrap_components as dbc
@@ -41,11 +44,11 @@ LINE_COLOR = config.LINE_COLOR
 
 def plot_shot_sequence_bar(ax, player_stats_df, num_players=10, title="Shot Sequence Involvement"):
     """Plots a stacked bar chart for shot sequence involvement for top players."""
-    print(f"Plotting {title} bar chart...")
+    logger.debug(f"Plotting {title} bar chart...")
     # Ensure required columns exist
     req_cols = ['Shot Sequence Shots', 'Shot Sequence Assists', 'Shot Sequence Pre-Assists', 'Shot Sequence Involvements']
     if not all(col in player_stats_df.columns for col in req_cols):
-        print(f"Warning: Missing required columns for shot sequence plot. Skipping.")
+        logger.warning(f"Warning: Missing required columns for shot sequence plot. Skipping.")
         ax.text(0.5, 0.5, "Data Unavailable", ha='center', va='center', fontsize=12, color='red')
         return
 
@@ -445,10 +448,10 @@ def create_offensive_pass_contributions_table(
 
 def plot_defender_stats_bar(ax, player_stats_df, num_players=10, title="Top Defenders Stats"):
     """Plots a stacked bar chart for key defensive stats for top players."""
-    print(f"Plotting {title} bar chart...")
+    logger.debug(f"Plotting {title} bar chart...")
     req_cols = ['Tackles Won', 'Interceptions', 'Clearances', 'Defensive Actions Total']
     if not all(col in player_stats_df.columns for col in req_cols):
-        print(f"Warning: Missing required columns for defender stats plot. Skipping.")
+        logger.warning(f"Warning: Missing required columns for defender stats plot. Skipping.")
         ax.text(0.5, 0.5, "Data Unavailable", ha='center', va='center', fontsize=12, color='red')
         return
 
@@ -488,14 +491,14 @@ def plot_defender_stats_bar(ax, player_stats_df, num_players=10, title="Top Defe
 
 def plot_player_pass_map(ax, df_player_passes, player_name, team_color, is_away):
     """Plots a pass map for a single player."""
-    print(f"Plotting pass map for {player_name}...")
+    logger.debug(f"Plotting pass map for {player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, linewidth=2)
     pitch.draw(ax=ax)
     del is_away
     add_matplotlib_attacking_direction(ax, team_color)
 
     if df_player_passes.empty:
-        print(f"Warning: No pass data for {player_name}.")
+        logger.warning(f"Warning: No pass data for {player_name}.")
         ax.set_title(f"{player_name} Pass Map (No Data)", color=team_color, fontsize=18, fontweight='bold')
         return
 
@@ -543,7 +546,7 @@ def plot_player_pass_map(ax, df_player_passes, player_name, team_color, is_away)
 
 def plot_player_received_passes(ax, df_all_passes, target_player_name, team_color, is_away):
     """Plots passes received by a specific target player."""
-    print(f"Plotting passes received by {target_player_name}...")
+    logger.debug(f"Plotting passes received by {target_player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, linewidth=2)
     pitch.draw(ax=ax)
     del is_away
@@ -556,7 +559,7 @@ def plot_player_received_passes(ax, df_all_passes, target_player_name, team_colo
     filtered_rows = df_all_passes[received_filter].copy()
 
     if filtered_rows.empty:
-         print(f"Warning: No passes recorded as received by {target_player_name} (using shift logic).")
+         logger.warning(f"Warning: No passes recorded as received by {target_player_name} (using shift logic).")
          ax.set_title(f"{target_player_name} Passes Received (No Data)", color=team_color, fontsize=18, fontweight='bold')
          return
 
@@ -612,14 +615,14 @@ def plot_player_received_passes(ax, df_all_passes, target_player_name, team_colo
 
 def plot_player_defensive_actions(ax, df_player_def_actions, player_name, team_color, is_away):
     """Plots defensive actions for a single player with different markers."""
-    print(f"Plotting defensive actions for {player_name}...")
+    logger.debug(f"Plotting defensive actions for {player_name}...")
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=BG_COLOR, line_color=LINE_COLOR, line_zorder=1, linewidth=2)
     pitch.draw(ax=ax)
     del is_away
     add_matplotlib_attacking_direction(ax, team_color)
 
     if df_player_def_actions.empty:
-        print(f"Warning: No defensive actions for {player_name}.")
+        logger.warning(f"Warning: No defensive actions for {player_name}.")
         ax.set_title(f"{player_name} Def. Actions (No Data)", color=team_color, fontsize=18, fontweight='bold')
         return
 
@@ -806,7 +809,7 @@ def plot_player_defensive_actions_plotly(df_player_def_actions, player_name, tea
     distinguishing between successful and unsuccessful outcomes.
     Includes visual enhancements and fixes for layout and interaction.
     """
-    print(f"Plotting enhanced interactive defensive actions for {player_name}...")
+    logger.debug(f"Plotting enhanced interactive defensive actions for {player_name}...")
     
     fig = go.Figure()
     fig = draw_plotly_pitch(fig) # Your existing pitch drawing function is fine
@@ -964,7 +967,7 @@ def plot_defender_stats_bar_by_team(ax, player_stats_df, df_processed, home_team
     Plots a comprehensive and readable stacked bar chart for key defensive stats.
     This version dynamically plots only the available stat columns.
     """
-    print(f"Plotting improved and resilient {title} bar chart by team...")
+    logger.debug(f"Plotting improved and resilient {title} bar chart by team...")
     
     # --- FIX: Dynamically build the list of actions to plot ---
     # Define all possible actions and their desired colors

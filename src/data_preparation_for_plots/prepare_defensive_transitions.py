@@ -1,4 +1,7 @@
 # src/data_preparation_for_plots/prepare_opponent_buildup.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
@@ -16,14 +19,14 @@ def create_buildup_summary(df_sequences_for_summary: pd.DataFrame, team_that_los
         team_that_lost_possession_name (str): Name of the team that lost possession.
     """
     if df_sequences_for_summary.empty or 'loss_sequence_id' not in df_sequences_for_summary.columns:
-        print(f"Warning: No sequence data to create summary table for {team_that_lost_possession_name} losses.")
+        logger.warning(f"Warning: No sequence data to create summary table for {team_that_lost_possession_name} losses.")
         return None
 
     summary_df = df_sequences_for_summary.drop_duplicates(subset=['loss_sequence_id'], keep='last').copy()
     required_summary_cols = ['loss_zone', 'sequence_outcome_type', 'opponent_pass_count']
     for col in required_summary_cols:
         if col not in summary_df.columns:
-            print(f"Warning: Column '{col}' missing. Adding default.")
+            logger.warning(f"Warning: Column '{col}' missing. Adding default.")
             summary_df[col] = "Unknown" if col != 'opponent_pass_count' else np.nan
 
     summary_df['opponent_pass_count'] = pd.to_numeric(summary_df['opponent_pass_count'], errors='coerce')
@@ -39,9 +42,9 @@ def create_buildup_summary(df_sequences_for_summary: pd.DataFrame, team_that_los
     final_table = table_outcome_counts.merge(avg_passes, on=['loss_zone', 'sequence_outcome_type'], how='left')
     final_table = final_table.sort_values(by=['loss_zone', 'count'], ascending=[True, False])
 
-    print(f"\nDEBUG: Summary table for {team_that_lost_possession_name}:")
+    logger.debug(f"\nDEBUG: Summary table for {team_that_lost_possession_name}:")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-        print(final_table)
+        logger.debug("%s", final_table)
 
     return final_table
 
@@ -62,7 +65,7 @@ def enrich_with_receiver_info(df_processed: pd.DataFrame, passes_df: pd.DataFram
             how='left'
         )
     else:
-        print("Warning: passes_df or receiver info missing.")
+        logger.warning("Warning: passes_df or receiver info missing.")
         df['receiver'] = pd.NA
         df['receiver_jersey_number'] = pd.NA
     return df

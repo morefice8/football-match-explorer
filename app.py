@@ -1,4 +1,9 @@
 # --- START OF FILE app.py ---
+import logging
+from src.utils.logging_config import configure_logging
+configure_logging()
+logger = logging.getLogger(__name__)
+
 import matplotlib
 matplotlib.use('Agg')
 
@@ -40,6 +45,7 @@ from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFA
 from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, set_piece_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly
 from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
+from src.components.match_graph_shell import match_graph_panel, match_graph_shell
 from src import config
 from src.metrics import (
     pass_metrics,
@@ -141,7 +147,7 @@ def parse_upload_contents(contents, filename):
             return json.loads(decoded.decode('utf-8'))
         return None
     except Exception as e:
-        print(f"Error parsing file {filename}: {e}")
+        logger.warning(f"Error parsing file {filename}: {e}")
         return None
 
 def parse_match(filename):
@@ -1576,7 +1582,7 @@ def render_data_coverage_panel(items, *, note=None):
     Input("url", "search")
 )
 def render_page_content(pathname, search):
-    print(f"--- Router rendering for path: '{pathname}' ---")
+    logger.debug(f"--- Router rendering for path: '{pathname}' ---")
 
     # Decodifica l'intero percorso per gestire caratteri speciali ovunque
     decoded_pathname = unquote(pathname)
@@ -1642,7 +1648,7 @@ def render_page_content(pathname, search):
 )
 def handle_upload(contents, filename):
     if not contents: return no_update, no_update, no_update
-    print(f"--- Upload Handler: Processing '{filename}' ---")
+    logger.debug(f"--- Upload Handler: Processing '{filename}' ---")
     json_data = parse_upload_contents(contents, filename)
     if json_data is None: return no_update, no_update, dbc.Alert("Error parsing file. Please ensure it is a valid JSON.", color="danger", duration=4000)
 
@@ -1663,10 +1669,10 @@ def handle_upload(contents, filename):
         match_info['id'] = match_id
         data_to_store = {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}
         new_pathname = f"/match/{match_id}"
-        print(f"  Upload successful. Populating session store and redirecting to {new_pathname}")
+        logger.debug(f"  Upload successful. Populating session store and redirecting to {new_pathname}")
         return data_to_store, new_pathname, dbc.Alert(f"Successfully processed {filename}!", color="success", duration=3000)
     except Exception as e:
-        print(f"ERROR during processing: {traceback.format_exc()}")
+        logger.warning(f"ERROR during processing: {traceback.format_exc()}")
         return no_update, no_update, dbc.Alert(f"An error occurred: {e}", color="danger", duration=5000)
 
 @callback(
@@ -1677,23 +1683,23 @@ def handle_upload(contents, filename):
     prevent_initial_call=True
 )
 def populate_main_store(pathname, uploaded_data):
-    print(f"--- Main Data Loader triggered for path: {pathname} ---")
+    logger.debug(f"--- Main Data Loader triggered for path: {pathname} ---")
 
     # Se andiamo a una pagina che NON è di analisi, puliamo gli store per sicurezza
     if not (pathname and pathname.startswith('/match/')):
-        print("  Navigated to a non-match page. Clearing match-specific stores.")
+        logger.debug("  Navigated to a non-match page. Clearing match-specific stores.")
         return None, no_update
 
     # Caso Upload: i dati sono nello store di sessione
     if 'upload-' in pathname:
         if uploaded_data:
-            print(f"  Populating main store for {pathname} from session data.")
+            logger.debug(f"  Populating main store for {pathname} from session data.")
             return uploaded_data, None
         return no_update, no_update
 
     # Caso Database
     match_id = pathname.split('/')[-1]
-    print(f"  Attempting to load match {match_id} from DB.")
+    logger.debug(f"  Attempting to load match {match_id} from DB.")
     for league in database.get_leagues():
         for season in get_seasons(league):
             path = os.path.join("data", "matches", league, season, "partidos")
@@ -1716,12 +1722,12 @@ def populate_main_store(pathname, uploaded_data):
                         if parsed_info: match_info['roundNameFromFilename'] = parsed_info['round']
                         df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
                         if df is None or df.empty: return None, None
-                        print(f"  DB load successful for {match_id}")
+                        logger.debug(f"  DB load successful for {match_id}")
                         return {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}, None
                     except Exception:
-                        print(f"  Error processing DB file.")
+                        logger.warning(f"  Error processing DB file.")
                         return None, None
-    print(f"  Match ID {match_id} not found in DB. Clearing stores.")
+    logger.warning(f"  Match ID {match_id} not found in DB. Clearing stores.")
     return None, None
 
 # -----------------------------------------------------------------------------
@@ -1865,7 +1871,7 @@ def show_cards(league, season, team_filter, round_name_filter):
 
             matches_data_for_cards.append(match_details_for_card)
         except Exception as e:
-            print(f"Warning: Could not process card data for {m_filename}: {e}")
+            logger.warning(f"Warning: Could not process card data for {m_filename}: {e}")
             continue
 
     if not matches_data_for_cards:
@@ -1990,7 +1996,7 @@ def update_sidebar_header(stored_data_json, pathname):
 
     except Exception as e:
         tb_str = traceback.format_exc()
-        print(f"Error updating sidebar header: {e}\n{tb_str}")
+        logger.warning(f"Error updating sidebar header: {e}\n{tb_str}")
         return dash_html.Div([
             dash_html.H5(f"Match ID: {match_id_from_url}", className="mb-1"),
             dash_html.P("Error loading details.", className="small text-danger")
@@ -2005,8 +2011,8 @@ def render_match_tab_content(search_query, stored_data_json):
     if not stored_data_json:
             return dbc.Row(dbc.Col(dbc.Spinner(color="primary"), className="text-center mt-5"))
 
-    print(f"--- render_match_tab_content ---")
-    print(f"Search Query: {search_query}")
+    logger.debug(f"--- render_match_tab_content ---")
+    logger.debug(f"Search Query: {search_query}")
 
     active_tab = "overview" # Initialize with a default value HERE
 
@@ -2022,10 +2028,10 @@ def render_match_tab_content(search_query, stored_data_json):
                         query_params[key] = value
             active_tab = query_params.get("tab", "overview") # Get 'tab', default to 'overview' if not found
         except ValueError:
-            print(f"Warning: Could not parse query_params from '{search_query}'. Defaulting to overview.")
+            logger.warning(f"Warning: Could not parse query_params from '{search_query}'. Defaulting to overview.")
             active_tab = "overview" # Fallback in case of parsing error
 
-    print(f"Active Tab Determined: {active_tab}")
+    logger.debug(f"Active Tab Determined: {active_tab}")
 
     if not stored_data_json and active_tab not in ["overview", None]: # Allow overview to attempt render even if store is briefly None
         return dbc.Alert("Match data loading...", color="info")
@@ -3216,21 +3222,18 @@ def render_match_tab_content(search_query, stored_data_json):
                         dbc.Button("Save Comment", id="save-comment-pass-network", color="info", size="sm", className="me-2"),
                         dash_html.Div(id="save-status-pass-network", className="small d-inline-block") # For feedback
                     ]),
-                    dbc.Tab(label="Progressive Passes", tab_id="progressive_passes", children=[
-                        # REMOVE placeholder alert, content will be filled by callback
-                        dcc.Loading(type="circle", children=dash_html.Div(id="div-progressive-passes-content")),
-                        # ... (comment section for progressive passes) ...
-                        dash_html.Hr(),
-                        dash_html.H6("Comments for Progressive Passes:", className="mt-3 text-white"),
-                        dcc.Textarea(
-                            id="comment-progressive-passes",
-                            placeholder="Enter comments for Progressive Passes...",
-                            style={'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'},
-                            className="mb-2"
-                        ),
-                        dbc.Button("Save Comment", id="save-comment-progressive-passes", color="info", size="sm", className="me-2"),
-                        dash_html.Div(id="save-status-progressive-passes", className="small d-inline-block")
-                    ]),
+                    dbc.Tab(
+                        label="Progressive Passes",
+                        tab_id="progressive_passes",
+                        children=[
+                            dcc.Loading(
+                                type="circle",
+                                children=dash_html.Div(
+                                    id="div-progressive-passes-content"
+                                ),
+                            ),
+                        ],
+                    ),
                     dbc.Tab(
     label="Final Third Entries",
     tab_id="final_third_entries",
@@ -3269,7 +3272,7 @@ def render_match_tab_content(search_query, stored_data_json):
         return passes_content
 
     elif active_tab == "player_analysis":
-        print("--- render_match_tab_content: RENDERING NEW 'player_analysis' PRIMARY TAB STRUCTURE ---")
+        logger.debug("--- render_match_tab_content: RENDERING NEW 'player_analysis' PRIMARY TAB STRUCTURE ---")
         return dash_html.Div([
             match_section_header(
                 "Player analysis",
@@ -4101,7 +4104,7 @@ def show_pass_network_graph_plotly(stored_data_json):
     Input("store-df-match", "data"),
 )
 def show_pass_network_graph_content_callback(stored_data_json):
-    print("--- show_pass_network_graph_content_callback (Plotly) TRIGGERED ---")
+    logger.debug("--- show_pass_network_graph_content_callback (Plotly) TRIGGERED ---")
     return show_pass_network_graph_plotly(stored_data_json)
 
 
@@ -4113,7 +4116,7 @@ def get_comment_key(pathname, plot_identifier):
         match_id = path_parts[-1] if path_parts[-1] else path_parts[-2]
         if match_id: # Ensure match_id is not empty
             return f"comments_{match_id}_{plot_identifier}"
-    print(f"Warning: Could not generate comment key for pathname '{pathname}' and plot '{plot_identifier}'")
+    logger.warning(f"Warning: Could not generate comment key for pathname '{pathname}' and plot '{plot_identifier}'")
     return None # Return None if key cannot be formed
 
 @app.callback(
@@ -4158,21 +4161,21 @@ def load_pass_network_comment(stored_comments, pathname):
     return stored_comments.get(comment_storage_key, "") # Get comment for current match_id/plot
 
 def generate_progressive_passes_plot(stored_data_json):
-    print("--- Helper generate_progressive_passes_plot EXECUTING ---")
+    logger.debug("--- Helper generate_progressive_passes_plot EXECUTING ---")
     if not stored_data_json:
-        print("Helper generate_progressive_passes_plot: No stored_data_json.")
+        logger.debug("Helper generate_progressive_passes_plot: No stored_data_json.")
         return dash_html.P("⚠ No data in store for Progressive Passes plot.", style={"color": "orange"})
     try:
         df_json_str = stored_data_json.get('df')
         match_info_json_str = stored_data_json.get('match_info')
         if not df_json_str or not match_info_json_str:
-            print("Helper generate_progressive_passes_plot: DataFrame or match_info missing.")
+            logger.debug("Helper generate_progressive_passes_plot: DataFrame or match_info missing.")
             return dash_html.P("⚠ DataFrame or match_info missing.", style={"color": "orange"})
 
         df_processed = pd.read_json(io.StringIO(df_json_str), orient='split')
         match_info = json.loads(match_info_json_str)
         if df_processed.empty:
-            print("Helper generate_progressive_passes_plot: DataFrame is empty.")
+            logger.debug("Helper generate_progressive_passes_plot: DataFrame is empty.")
             return dash_html.P("⚠ DataFrame is empty for Progressive Passes.", style={"color": "orange"})
 
         HTEAM_NAME = match_info.get('hteamName', 'Home')
@@ -4232,7 +4235,7 @@ def generate_progressive_passes_plot(stored_data_json):
             away_prog_passes = away_prog_passes_all_zones # Use the already filtered df
             away_prog_zone_stats = calculate_team_prog_zone_stats_inline(away_prog_passes)
         else:
-            print("Helper generate_progressive_passes_plot: No progressive passes found after analysis.")
+            logger.info("Helper generate_progressive_passes_plot: No progressive passes found after analysis.")
 
 
         # --- Plotting ---
@@ -4261,15 +4264,15 @@ def generate_progressive_passes_plot(stored_data_json):
         img_src = f"data:image/png;base64,{encoded_img}"
         plt.close(fig_prog)
 
-        print("Helper generate_progressive_passes_plot: Successfully created Img.")
+        logger.info("Helper generate_progressive_passes_plot: Successfully created Img.")
         return dash_html.Img(src=img_src, style={"width": "100%", "maxWidth": "1200px", "display":"block", "margin":"auto"})
 
     except KeyError as ke:
-        print(f"Helper generate_progressive_passes_plot: KeyError: {ke}")
+        logger.warning(f"Helper generate_progressive_passes_plot: KeyError: {ke}")
         return dash_html.P(f"❌ Error (KeyError) generating Progressive Passes plot: {ke}", style={"color": "red"})
     except Exception as e:
         tb_str = traceback.format_exc()
-        print(f"Helper generate_progressive_passes_plot: Exception: {e}\n{tb_str}")
+        logger.warning(f"Helper generate_progressive_passes_plot: Exception: {e}\n{tb_str}")
         return dash_html.P(f"❌ Error generating Progressive Passes plot: {e}", style={"color": "red"})
 
 
@@ -4503,46 +4506,51 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
                 ], className='progressive-sidebar-section'),
             ], className='progressive-sidebar')
 
-            return dash_html.Section([
-                dash_html.Div([
-                    dash_html.Div([
-                        dash_html.Span(
-                            'HOME TEAM' if not is_away else 'AWAY TEAM',
-                            className='match-panel-eyebrow',
-                        ),
-                        dash_html.H4(team_name,className="match-team-name"),
-                    ]),
-                    dash_html.Div([
+            empty_message = (
+                "No open-play progressive pass attempts for this team."
+                if summary["attempted"] == 0
+                else None
+            )
 
-                        dash_html.Span(
-                            f"n = {summary['attempted']} attempts",
-                            className="progressive-sample-size",
-                        ),
-
-                    ], className="progressive-panel-meta"),
-                ], className='match-panel-header'),
-                dbc.Row([
-                    dbc.Col(graph_component, lg=8),
-                    dbc.Col(sidebar, lg=4),
-                ], className='g-0'),
-            ], className='match-panel progressive-team-panel')
+            return match_graph_panel(
+                team_name=team_name,
+                is_away=is_away,
+                sample_size=(
+                    f"n = {summary['attempted']} attempts"
+                ),
+                graph=graph_component,
+                sidebar=sidebar,
+                empty_message=empty_message,
+            )
 
         home_layout = create_prog_pass_layout_for_team(HTEAM_NAME, HCOL, is_away=False)
         away_layout = create_prog_pass_layout_for_team(ATEAM_NAME, ACOL, is_away=True)
 
-        return dash_html.Div([
-            dash_html.Div([
-                dash_html.I(className='fas fa-info-circle'),
-                dash_html.Span(
-                    'Open-play only. A pass is progressive when it reduces the '
-                    'distance to the centre of goal by at least 30 m in the own '
-                    'half, 15 m across halfway or 10 m in the opposition half. '
-                    'Crosses and restarts are excluded.'
+        return match_graph_shell(
+            methodology=(
+                "Open-play only. A pass is progressive when it reduces the "
+                "distance to the centre of goal by at least 30 m in the own "
+                "half, 15 m across halfway or 10 m in the opposition half. "
+                "Crosses and restarts are excluded."
+            ),
+            panels=[
+                home_layout,
+                away_layout,
+            ],
+            analyst_notes={
+                "textarea_id": "comment-progressive-passes",
+                "save_button_id": "save-comment-progressive-passes",
+                "status_id": "save-status-progressive-passes",
+                "description": (
+                    "Summarise the most meaningful progressive-passing "
+                    "patterns in the match."
                 ),
-            ], className='match-analysis-note progressive-definition-note'),
-            home_layout,
-            away_layout
-        ], className='progressive-analysis')
+                "placeholder": (
+                    "Write your Progressive Passes analysis..."
+                ),
+            },
+            class_name="progressive-analysis",
+        )
 
     except Exception as e:
         tb_str = traceback.format_exc()
@@ -4601,7 +4609,7 @@ def toggle_prog_away_table(n, is_open):
 
 # --- HELPER FUNCTION TO GENERATE FINAL THIRD PLOT ---
 def generate_final_third_plot(stored_data_json):
-    print("--- Helper generate_final_third_plot EXECUTING ---")
+    logger.debug("--- Helper generate_final_third_plot EXECUTING ---")
     if not stored_data_json:
         return dash_html.P("⚠ No data for Final Third plot.", style={"color": "orange"})
     try:
@@ -4678,7 +4686,7 @@ def generate_final_third_plot(stored_data_json):
         img_src = f"data:image/png;base64,{encoded_img}"
         plt.close(fig)
 
-        print("Helper generate_final_third_plot: Successfully created Img.")
+        logger.info("Helper generate_final_third_plot: Successfully created Img.")
         return dash_html.Img(src=img_src, style={"width": "100%", "maxWidth": "100%", "display":"block", "objectFit": "contain"})
 
     except KeyError as ke:
@@ -5392,7 +5400,7 @@ def load_final_third_comment(stored_data, pathname):
 
 # --- HELPER FUNCTION TO GENERATE PASS DENSITY PLOTS ---
 def generate_pass_density_plots(stored_data_json):
-    print("--- Helper generate_pass_density_plots EXECUTING ---")
+    logger.debug("--- Helper generate_pass_density_plots EXECUTING ---")
     # ... (Similar structure to other plot generators: get df, match_info, team names, colors)
     if not stored_data_json: return dash_html.P("⚠ No data for Pass Density.", style={"color": "orange"})
     try:
@@ -5435,7 +5443,7 @@ def generate_pass_density_plots(stored_data_json):
 
 # --- HELPER FUNCTION TO GENERATE PASS HEATMAP PLOTS ---
 def generate_pass_heatmap_plots(stored_data_json):
-    print("--- Helper generate_pass_heatmap_plots EXECUTING ---")
+    logger.debug("--- Helper generate_pass_heatmap_plots EXECUTING ---")
     # ... (Similar structure: get df, match_info, team names, cmaps) ...
     if not stored_data_json: return dash_html.P("⚠ No data for Pass Heatmap.", style={"color": "orange"})
     try:
@@ -6323,7 +6331,7 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
     common_comment_area_style = {"flex": "0 0 20%", "paddingTop": "15px", "overflowY": "auto"}
 
     if active_tab == "pa_defender_stats":
-        print("  Rendering content for 'pa_defender_stats' (Simple Static Plot)")
+        logger.debug("  Rendering content for 'pa_defender_stats' (Simple Static Plot)")
         if not player_stats_df_json:
             return dash_html.P("Player stats data not available.", style={"color": "orange"})
 
@@ -6414,13 +6422,13 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
     Input("url", "search")
 )
 def calculate_and_store_player_stats(stored_data_json, search_query):
-    print(f"--- calculate_and_store_player_stats TRIGGERED --- Search: {search_query}")
+    logger.debug(f"--- calculate_and_store_player_stats TRIGGERED --- Search: {search_query}")
     current_main_tab = "overview"
     if search_query and isinstance(search_query, str) and search_query.startswith("?tab="):
         current_main_tab = search_query.split("?tab=")[1].split("&")[0]
 
     if current_main_tab == "player_analysis" and stored_data_json:
-        print("  Player Analysis main tab active, calculating player stats for store...")
+        logger.debug("  Player Analysis main tab active, calculating player stats for store...")
         try:
             df_json_str = stored_data_json.get('df')
             if not df_json_str: return None # Important to return None to clear/indicate no data
@@ -6436,16 +6444,16 @@ def calculate_and_store_player_stats(stored_data_json, search_query):
                 prog_pass_exclusions=prog_pass_exclusions
             )
             if not player_stats_df.empty:
-                print("  Player stats calculated and being stored.")
+                logger.info("  Player stats calculated and being stored.")
                 return player_stats_df.to_json(orient='split')
             else:
-                print("  Player stats calculation resulted in empty DataFrame.")
+                logger.debug("  Player stats calculation resulted in empty DataFrame.")
                 return None
         except Exception as e:
-            print(f"Error in calculate_and_store_player_stats: {e}")
+            logger.warning(f"Error in calculate_and_store_player_stats: {e}")
             return None
 
-    print(f"  Not Player Analysis main tab ({current_main_tab}), or no base data. No update to player_stats_df.")
+    logger.debug(f"  Not Player Analysis main tab ({current_main_tab}), or no base data. No update to player_stats_df.")
     return no_update # Or None if you want to clear it when not on player_analysis tab
 
 # Helper generate_top_passer_stats_plot now ONLY generates the image
@@ -6454,7 +6462,7 @@ def calculate_and_store_player_stats(stored_data_json, search_query):
 # For now, let's assume render_player_analysis_nested_content passes the necessary data
 
 def generate_top_passer_stats_plot(player_stats_df_json_for_plot):
-    print("--- Helper generate_top_passer_stats_plot (using pre-calculated stats) EXECUTING ---")
+    logger.info("--- Helper generate_top_passer_stats_plot (using pre-calculated stats) EXECUTING ---")
     if not player_stats_df_json_for_plot:
         return dash_html.P("⚠ Player stats data missing for bar chart.", style={"color": "orange"})
     try:
@@ -6506,7 +6514,7 @@ def generate_top_passer_stats_plot(player_stats_df_json_for_plot):
 
 # --- HELPER: Generate Individual Player Pass Map ---
 def generate_player_pass_map_plot(stored_data_json, target_player_name, is_target_away_team):
-    print(f"--- Helper generate_player_pass_map_plot for {target_player_name} EXECUTING ---")
+    logger.debug(f"--- Helper generate_player_pass_map_plot for {target_player_name} EXECUTING ---")
     if not stored_data_json: return dash_html.P("⚠ No data for Player Pass Map.", style={"color": "orange"})
     if not target_player_name or target_player_name == "N/A": return dash_html.P("No player selected for pass map.", style={"color": "orange"})
 
@@ -6521,13 +6529,13 @@ def generate_player_pass_map_plot(stored_data_json, target_player_name, is_targe
 
         # --- *** START: Pre-calculate Flags on df_processed *** ---
         # This ensures flags are available before other metric/processing steps
-        print("Pre-calculating key pass/assist flags...")
+        logger.debug("Pre-calculating key pass/assist flags...")
         # *** IMPORTANT: Verify 'Assist' is the correct column name ***
         assist_qualifier_col='Assist' # ADJUST IF NEEDED
         key_pass_values=[13, 14, 15]; assist_values=[16] # Values from original code
 
         if assist_qualifier_col not in df_processed.columns:
-            print(f"Warning: Assist qualifier column '{assist_qualifier_col}' not found in df_processed. Key Pass/Assist flags cannot be determined.")
+            logger.warning(f"Warning: Assist qualifier column '{assist_qualifier_col}' not found in df_processed. Key Pass/Assist flags cannot be determined.")
             # Create empty/False columns so downstream code doesn't break, but results will be inaccurate
             df_processed['is_key_pass'] = False
             df_processed['is_assist'] = False
@@ -6535,15 +6543,15 @@ def generate_player_pass_map_plot(stored_data_json, target_player_name, is_targe
             assist_qual_numeric = pd.to_numeric(df_processed[assist_qualifier_col], errors='coerce')
             # Calculate and ensure flags are boolean
             if 'is_key_pass' not in df_processed.columns:
-                print("Info: Adding 'is_key_pass' flag to df_processed.")
+                logger.info("Info: Adding 'is_key_pass' flag to df_processed.")
                 df_processed['is_key_pass'] = assist_qual_numeric.isin(key_pass_values) & (df_processed['type_name'] == 'Pass')
             df_processed['is_key_pass'] = df_processed['is_key_pass'].fillna(False).astype(bool)
 
             if 'is_assist' not in df_processed.columns:
-                print("Info: Adding 'is_assist' flag to df_processed.")
+                logger.info("Info: Adding 'is_assist' flag to df_processed.")
                 df_processed['is_assist'] = assist_qual_numeric.isin(assist_values) & (df_processed['type_name'] == 'Pass')
             df_processed['is_assist'] = df_processed['is_assist'].fillna(False).astype(bool)
-        print("Flags pre-calculation complete.")
+        logger.info("Flags pre-calculation complete.")
         # --- *** END: Pre-calculate Flags *** ---
 
         # Get all passes first (includes outcome, is_key_pass, is_assist from preprocess)
@@ -6644,7 +6652,7 @@ def load_comment_away_pass_map(data, pn):
 
 def generate_shot_sequence_bar_plot(player_stats_df_json_for_plot):
     """Generates the shot sequence involvement bar chart."""
-    print("--- Helper generate_shot_sequence_bar_plot EXECUTING ---")
+    logger.debug("--- Helper generate_shot_sequence_bar_plot EXECUTING ---")
     if not player_stats_df_json_for_plot:
         return dash_html.P("⚠ Player stats data missing for shot sequence chart.", style={"color": "orange"})
     try:
@@ -6671,7 +6679,7 @@ def generate_shot_sequence_bar_plot(player_stats_df_json_for_plot):
 def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_df_json, is_for_home_team):
     """Finds the top shot contributor for a specific team and plots their received passes."""
     team_type = "Home" if is_for_home_team else "Away"
-    print(f"--- Helper generate_team_top_shot_contributor_map_plot for {team_type} Team EXECUTING ---")
+    logger.debug(f"--- Helper generate_team_top_shot_contributor_map_plot for {team_type} Team EXECUTING ---")
     if not stored_data_json or not player_stats_df_json:
         return dash_html.P("⚠ Data missing for Top Contributor Map.", style={"color": "orange"})
 
@@ -6687,13 +6695,13 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
 
         # --- *** START: Pre-calculate Flags on df_processed *** ---
         # This ensures flags are available before other metric/processing steps
-        print("Pre-calculating key pass/assist flags...")
+        logger.debug("Pre-calculating key pass/assist flags...")
         # *** IMPORTANT: Verify 'Assist' is the correct column name ***
         assist_qualifier_col='Assist' # ADJUST IF NEEDED
         key_pass_values=[13, 14, 15]; assist_values=[16] # Values from original code
 
         if assist_qualifier_col not in df_processed.columns:
-            print(f"Warning: Assist qualifier column '{assist_qualifier_col}' not found in df_processed. Key Pass/Assist flags cannot be determined.")
+            logger.warning(f"Warning: Assist qualifier column '{assist_qualifier_col}' not found in df_processed. Key Pass/Assist flags cannot be determined.")
             # Create empty/False columns so downstream code doesn't break, but results will be inaccurate
             df_processed['is_key_pass'] = False
             df_processed['is_assist'] = False
@@ -6701,15 +6709,15 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
             assist_qual_numeric = pd.to_numeric(df_processed[assist_qualifier_col], errors='coerce')
             # Calculate and ensure flags are boolean
             if 'is_key_pass' not in df_processed.columns:
-                print("Info: Adding 'is_key_pass' flag to df_processed.")
+                logger.info("Info: Adding 'is_key_pass' flag to df_processed.")
                 df_processed['is_key_pass'] = assist_qual_numeric.isin(key_pass_values) & (df_processed['type_name'] == 'Pass')
             df_processed['is_key_pass'] = df_processed['is_key_pass'].fillna(False).astype(bool)
 
             if 'is_assist' not in df_processed.columns:
-                print("Info: Adding 'is_assist' flag to df_processed.")
+                logger.info("Info: Adding 'is_assist' flag to df_processed.")
                 df_processed['is_assist'] = assist_qual_numeric.isin(assist_values) & (df_processed['type_name'] == 'Pass')
             df_processed['is_assist'] = df_processed['is_assist'].fillna(False).astype(bool)
-        print("Flags pre-calculation complete.")
+        logger.info("Flags pre-calculation complete.")
         # --- *** END: Pre-calculate Flags *** ---
 
         # 1. Identify the target team and its players
@@ -7011,7 +7019,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
     and success rate table, and returns them along with a list of the team's defenders.
     """
     team_type = "Home" if is_for_home_team else "Away"
-    print(f"--- Helper generate_team_top_defender_map_plot (Components) for {team_type} Team EXECUTING ---")
+    logger.debug(f"--- Helper generate_team_top_defender_map_plot (Components) for {team_type} Team EXECUTING ---")
 
     try:
         # --- 1. Data Loading (same as before) ---
@@ -7309,7 +7317,7 @@ def update_multi_filter(card_clicks, reset_click, current_filter):
 
         return current_filter if current_filter else None
     except Exception as e:
-        print(f"[Filtro multiplo] Errore nel parsing dell'ID: {triggered_id} → {e}")
+        logger.warning(f"[Filtro multiplo] Errore nel parsing dell'ID: {triggered_id} → {e}")
         return dash.no_update
 
 @app.callback(
@@ -9835,7 +9843,7 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         # Forniamo un messaggio di errore più utile in caso di problemi
         error_message = f"Errore durante la generazione del plot della transizione offensiva: {e}"
         tb_str = traceback.format_exc()
-        print(f"{error_message}\n{tb_str}")
+        logger.warning(f"{error_message}\n{tb_str}")
         return dbc.Alert(error_message, color="danger"), "Error"
 
 # Callback per i pulsanti del carosello
@@ -11133,7 +11141,7 @@ def reset_cross_filter_on_team_switch(active_tab):
     crosses tabs. Its only job is to reset the filter to ensure no old,
     stale filters are applied to the new view.
     """
-    print(f"Crosses team tab changed to '{active_tab}'. Resetting cross filter store.")
+    logger.debug(f"Crosses team tab changed to '{active_tab}'. Resetting cross filter store.")
     return None # Returning None effectively clears the store
 
 # Callback 3: Gestisce la selezione/deselezione del punto e aggiorna lo store
@@ -11488,7 +11496,7 @@ def download_csv(n_clicks, stored_data_json):
         filename = f"match_events_{hteam}_vs_{ateam}.csv"
         return dcc.send_data_frame(df.to_csv, filename=filename, index=False)
     except Exception as e:
-        print(f"Error during CSV download: {e}")
+        logger.warning(f"Error during CSV download: {e}")
         return no_update
 
 # -----------------------------------------------------------------------------

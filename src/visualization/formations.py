@@ -1,5 +1,8 @@
 # src/analysis/formation_analysis.py
 
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from mplsoccer import Pitch, FontManager
@@ -275,7 +278,7 @@ def create_substitutions_list(df_processed, team_name, player_data_map):
     else:
         # Se 'related_eventId' non è stato mappato, non possiamo fare il matching.
         # Stampiamo un avviso e torniamo.
-        print("WARNING: 'related_eventId' column not found. Cannot perform accurate substitution matching.")
+        logger.warning("WARNING: 'related_eventId' column not found. Cannot perform accurate substitution matching.")
         return dbc.ListGroupItem("Substitution data is incomplete (missing event links).")
 
 

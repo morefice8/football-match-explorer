@@ -1,4 +1,7 @@
 # src/visualization/buildup_dashboard.py
+import logging
+logger = logging.getLogger(__name__)
+
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import os
@@ -86,7 +89,7 @@ def plot_buildup_dashboard_with_sequences_multipage(
             filename = f"{team_name.replace(' ', '_')}_buildups_page_{page_idx + 1}.png"
             filepath = os.path.join(save_path, filename)
             plt.savefig(filepath, dpi=300)
-            print(f"Saved: {filepath}")
+            logger.info(f"Saved: {filepath}")
         else:
             plt.show()
 

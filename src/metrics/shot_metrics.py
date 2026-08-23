@@ -1,4 +1,7 @@
 # src/metrics/shot_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 
@@ -9,13 +12,13 @@ def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, ax
     ASSUMES Opta coordinates in df_processed are normalized so ALL shots target X=100.
     Calculates distance to the goal at X=100, Y=50 for all shots.
     """
-    print("Calculating shot statistics (assuming all shots target X=100)...")
+    logger.debug("Calculating shot statistics (assuming all shots target X=100)...")
     shot_types = ['Miss', 'Attempt Saved', 'Post', 'Goal']
     # Ensure we work with a copy
     shots_df = df_processed[df_processed['type_name'].isin(shot_types)].copy()
 
     if shots_df.empty:
-        print("No shot events found.")
+        logger.debug("No shot events found.")
         return pd.DataFrame(), {}, {}
 
     # --- Define SINGLE Target Goal Center (Opta Coords) ---
@@ -25,7 +28,7 @@ def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, ax
     # --- Calculate Distance to the TARGET Goal (X=100) in METERS ---
     distances_m = []
     if 'x' not in shots_df.columns or 'y' not in shots_df.columns:
-        print("Warning: Shot coordinate columns ('x', 'y') not found. Cannot calculate distance.")
+        logger.warning("Warning: Shot coordinate columns ('x', 'y') not found. Cannot calculate distance.")
         shots_df['shot_distance_m'] = np.nan
     else:
         # Vectorized calculation is much faster than iteration
@@ -42,7 +45,7 @@ def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, ax
 
         # Assign the calculated meter distance as a new column
         shots_df['shot_distance_m'] = dist_meters
-        print(f"  Calculated shot distances in meters (to X=100 goal).")
+        logger.info(f"  Calculated shot distances in meters (to X=100 goal).")
 
     # --- Aggregate Stats Per Team ---
     # (Aggregation logic remains the same, using the new 'shot_distance_m')
@@ -67,5 +70,5 @@ def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, ax
         'xg_per_shot': axG / len(away_shots) if len(away_shots) > 0 and axG is not None else 0.0
     }
 
-    print("Finished calculating shot statistics.")
+    logger.info("Finished calculating shot statistics.")
     return shots_df, home_stats, away_stats

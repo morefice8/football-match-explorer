@@ -1,4 +1,7 @@
 # src/metrics/transition_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 from src.utils.derived_cache import cache_derived_result
 from src.metrics.data_quality import attach_sequence_coverage
@@ -227,7 +230,7 @@ def find_recovery_to_first_pass(df_processed,
                       'first_pass_x', 'first_pass_y', 'first_pass_end_x', 'first_pass_end_y'.
                       Returns empty DataFrame if errors or no such sequences.
     """
-    print("Identifying recoveries and subsequent first passes...")
+    logger.debug("Identifying recoveries and subsequent first passes...")
 
     # Ensure necessary columns exist
     required_cols = ['eventId', 'typeId', 'team_name', 'playerName', 'x', 'y',
@@ -235,7 +238,7 @@ def find_recovery_to_first_pass(df_processed,
     # Check for 'Out of play' if filtering tackles (assuming it's a renamed qualifier)
     OUT_OF_PLAY_COL = 'Out of play'
     if OUT_OF_PLAY_COL not in df_processed.columns:
-        print(f"Warning: Column '{OUT_OF_PLAY_COL}' not found. Tackles won't be filtered for staying in play.")
+        logger.warning(f"Warning: Column '{OUT_OF_PLAY_COL}' not found. Tackles won't be filtered for staying in play.")
         # Decide if this is critical. For now, proceed without it.
 
     if not all(col in df_processed.columns for col in required_cols):
@@ -244,7 +247,7 @@ def find_recovery_to_first_pass(df_processed,
         if OUT_OF_PLAY_COL not in df_processed.columns and OUT_OF_PLAY_COL in missing:
             missing.remove(OUT_OF_PLAY_COL)
         if missing:
-            print(f"Error: Missing required columns for recovery analysis: {missing}")
+            logger.warning(f"Error: Missing required columns for recovery analysis: {missing}")
             return pd.DataFrame()
 
     # Sort by eventId to reliably use shift(-1) for next event
@@ -273,10 +276,10 @@ def find_recovery_to_first_pass(df_processed,
     df_recoveries = df[recovery_event_filter].copy()
 
     if df_recoveries.empty:
-        print("No recovery events (tackles in play / ball recoveries) found.")
+        logger.debug("No recovery events (tackles in play / ball recoveries) found.")
         return pd.DataFrame()
 
-    print(f"Found {len(df_recoveries)} potential recovery events.")
+    logger.info(f"Found {len(df_recoveries)} potential recovery events.")
 
     # --- Find the Immediate Next Successful Pass by the Same Team ---
     recovery_first_pass_data = []
@@ -318,11 +321,11 @@ def find_recovery_to_first_pass(df_processed,
             })
 
     if not recovery_first_pass_data:
-        print("No recoveries were immediately followed by a successful pass by the same team.")
+        logger.debug("No recoveries were immediately followed by a successful pass by the same team.")
         return pd.DataFrame()
 
     df_final = pd.DataFrame(recovery_first_pass_data)
-    print(f"Found {len(df_final)} recovery-to-first-pass sequences.")
+    logger.info(f"Found {len(df_final)} recovery-to-first-pass sequences.")
     return df_final
 
 # --- Function: Find Opponent Buildup After Specific Team's Loss ---
@@ -376,7 +379,7 @@ def find_buildup_after_possession_loss(df_processed,
     # Check base requirements
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns: {missing}");
+        logger.warning(f"Error: Missing required columns: {missing}");
         return pd.DataFrame()
 
     # Build list of columns to actually select
@@ -1411,7 +1414,7 @@ def calculate_transition_success_by_zone(df_processed, team_name,
         pd.DataFrame: Columns: ['recovery_zone', 'successful_transitions',
                                 'failed_transitions', 'neutral_transitions', 'total_transitions']
     """
-    print(f"Calculating transition success rates by zone for {team_name}...")
+    logger.debug(f"Calculating transition success rates by zone for {team_name}...")
     if recovery_event_types is None: recovery_event_types = ['Ball recovery', 'Interception']
     if possession_loss_types_opponent is None: possession_loss_types_opponent = ['Pass', 'Take On', 'Error']
 
@@ -1468,7 +1471,7 @@ def calculate_transition_success_by_zone(df_processed, team_name,
         })
 
     df_zone_summary = pd.DataFrame(summary_list)
-    print(f"Transition success summary for {team_name}:\n{df_zone_summary}")
+    logger.debug(f"Transition success summary for {team_name}:\n{df_zone_summary}")
     return df_zone_summary
 
 

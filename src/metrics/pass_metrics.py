@@ -1,4 +1,7 @@
 # src/metrics/pass_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import numpy as np
 import pandas as pd
 
@@ -18,12 +21,12 @@ def calculate_pass_network_data(passes_df, team_name):
             - pd.DataFrame: Average location and pass count for each player.
             Returns (empty DataFrame, empty DataFrame) if no passes for the team.
     """
-    print(f"Calculating pass network data for {team_name}...")
+    logger.debug(f"Calculating pass network data for {team_name}...")
     # Filter the passes DataFrame for the specified team
     team_passes_df = passes_df[passes_df['team_name'] == team_name].copy()
 
     if team_passes_df.empty:
-        print(f"Warning: No passes found for team {team_name}.")
+        logger.warning(f"Warning: No passes found for team {team_name}.")
         return pd.DataFrame(), pd.DataFrame()
 
     # --- Calculate average locations and counts per player ---
@@ -37,14 +40,14 @@ def calculate_pass_network_data(passes_df, team_name):
     )
     # Reset index to make 'playerName' a column again
     average_locs_and_count_df = player_agg.reset_index()
-    print(f"Calculated average locations for {len(average_locs_and_count_df)} players.")
+    logger.info(f"Calculated average locations for {len(average_locs_and_count_df)} players.")
 
 
     # --- Calculate passes between player pairs ---
     # Select relevant columns for pairing
     # Ensure 'receiver' column exists and handle potential NaN values before processing
     if 'receiver' not in team_passes_df.columns:
-         print("Error: 'receiver' column not found in passes data. Cannot calculate pairs.")
+         logger.warning("Error: 'receiver' column not found in passes data. Cannot calculate pairs.")
          return pd.DataFrame(), average_locs_and_count_df # Return what we have so far
 
     # Only receiver attributions that passed the temporal, team and spatial
@@ -97,7 +100,7 @@ def calculate_pass_network_data(passes_df, team_name):
     # Rename columns for clarity if needed (e.g., pass_avg_x_end)
     # The suffixes already handle this: 'pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end'
 
-    print(f"Calculated {len(passes_between_df)} links between players.")
+    logger.info(f"Calculated {len(passes_between_df)} links between players.")
 
     # Return both the pair data and the individual player average locations
     return passes_between_df, average_locs_and_count_df
@@ -135,7 +138,7 @@ def _legacy_analyze_progressive_passes(df_input,
                     {'total': count, 'left': count, 'mid': count, 'right': count}.
             Returns (empty DataFrame, empty dict) if analysis fails or no passes found.
     """
-    print("Analyzing progressive passes...")
+    logger.debug("Analyzing progressive passes...")
 
     if df_input.empty:
         return (pd.DataFrame(), {}) if not return_ids_only else []
@@ -540,7 +543,7 @@ def analyze_progressive_passes(
     return_ids_only=False,
 ):
     """Backward-compatible access to completed progressive passes."""
-    print('Analyzing progressive passes...')
+    logger.debug('Analyzing progressive passes...')
     classified = classify_progressive_passes(
         df_input,
         pitch_length_meters=pitch_length_meters,
@@ -716,7 +719,7 @@ def analyze_final_third_passes(passes_df_team_successful):
 
     if not all(col in passes_df_team_successful.columns for col in required_cols):
         missing = set(required_cols) - set(passes_df_team_successful.columns)
-        print(f"Error: Missing required columns for final third analysis: {missing}")
+        logger.warning(f"Error: Missing required columns for final third analysis: {missing}")
         return empty_df, empty_df, empty_df, default_counts
 
     df = passes_df_team_successful.copy()
@@ -822,14 +825,12 @@ def analyze_final_third_passes(passes_df_team_successful):
         'total_final_third': int(len(entries)),
     }
 
-    print(
-        "Final Third Entries via pass: "
+    logger.debug("Final Third Entries via pass: "
         f"Total={stats['total_final_third']}, "
         f"Zone14={stats['zone14']}, "
         f"LHS={stats['hs_left']}, "
         f"RHS={stats['hs_right']}, "
-        f"Other={stats['wide_other']}"
-    )
+        f"Other={stats['wide_other']}")
 
     return df_zone14, df_lhs, df_rhs, stats
 
@@ -1134,18 +1135,18 @@ def analyze_chance_creation(df_processed, hteamName, ateamName,
             - pd.DataFrame: DataFrame of away team chance-creating passes with flags.
             Returns (empty DF, empty DF) if analysis fails or no passes found.
     """
-    print("Analyzing chance creation passes...")
+    logger.debug("Analyzing chance creation passes...")
 
     # --- Check required columns ---
     required_cols = ['team_name', 'type_name', 'outcome', 'x', 'y', 'end_x', 'end_y']
     if assist_qualifier_col not in df_processed.columns:
-        print(f"Error: Assist qualifier column '{assist_qualifier_col}' not found. Cannot analyze chances.")
+        logger.warning(f"Error: Assist qualifier column '{assist_qualifier_col}' not found. Cannot analyze chances.")
         return pd.DataFrame(), pd.DataFrame()
     required_cols.append(assist_qualifier_col) # Add it for the main check
 
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns for chance creation analysis: {missing}")
+        logger.warning(f"Error: Missing required columns for chance creation analysis: {missing}")
         return pd.DataFrame(), pd.DataFrame()
 
     # --- Filter for successful passes first ---
@@ -1162,7 +1163,7 @@ def analyze_chance_creation(df_processed, hteamName, ateamName,
     ].copy()
 
     if df_succ_passes.empty:
-         print("No successful passes with valid end coordinates found.")
+         logger.debug("No successful passes with valid end coordinates found.")
          return pd.DataFrame(), pd.DataFrame()
 
     # --- Identify Key Passes and Assists ---
@@ -1180,7 +1181,7 @@ def analyze_chance_creation(df_processed, hteamName, ateamName,
     df_chances = df_succ_passes[chance_creation_filter].copy()
 
     if df_chances.empty:
-         print("No passes matched the Key Pass or Assist criteria.")
+         logger.debug("No passes matched the Key Pass or Assist criteria.")
          return pd.DataFrame(), pd.DataFrame()
 
     # --- Add boolean flags for easier plotting distinction ---
@@ -1188,12 +1189,12 @@ def analyze_chance_creation(df_processed, hteamName, ateamName,
     df_chances['is_key_pass'] = key_pass_filter.reindex(df_chances.index).fillna(False)
     df_chances['is_assist'] = assist_filter.reindex(df_chances.index).fillna(False)
 
-    print(f"Found {len(df_chances)} chance-creating passes.")
+    logger.info(f"Found {len(df_chances)} chance-creating passes.")
 
     # --- Split by team ---
     df_chances_home = df_chances[df_chances['team_name'] == hteamName].copy()
     df_chances_away = df_chances[df_chances['team_name'] == ateamName].copy()
 
-    print(f"  Home Chances: {len(df_chances_home)}, Away Chances: {len(df_chances_away)}")
+    logger.debug(f"  Home Chances: {len(df_chances_home)}, Away Chances: {len(df_chances_away)}")
 
     return df_chances_home, df_chances_away

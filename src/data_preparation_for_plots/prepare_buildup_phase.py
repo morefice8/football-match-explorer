@@ -1,4 +1,7 @@
 # src/data_preparation_for_plots/prepare_buildup_phase.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
@@ -19,14 +22,14 @@ def create_buildup_phase_summary(df_sequences: pd.DataFrame, team_building_up: s
         Optional[pd.DataFrame]: Summary DataFrame with counts and average opponent passes before regain, or None if input is invalid.
     """
     if df_sequences.empty or 'trigger_sequence_id' not in df_sequences.columns:
-        print(f"Warning: No sequences found for {team_building_up}.")
+        logger.warning(f"Warning: No sequences found for {team_building_up}.")
         return None
 
     summary_df = df_sequences.drop_duplicates(subset=['trigger_sequence_id'], keep='last').copy()
     required_cols = ['trigger_zone', 'sequence_outcome_type', 'buildup_pass_count']
     for col in required_cols:
         if col not in summary_df.columns:
-            print(f"Warning: Column '{col}' missing. Adding default.")
+            logger.warning(f"Warning: Column '{col}' missing. Adding default.")
             summary_df[col] = "Unknown" if col != 'buildup_pass_count' else np.nan
 
     summary_df['buildup_pass_count'] = pd.to_numeric(summary_df['buildup_pass_count'], errors='coerce')
@@ -42,11 +45,11 @@ def create_buildup_phase_summary(df_sequences: pd.DataFrame, team_building_up: s
     final_table = table_outcome_counts.merge(avg_passes, on=['trigger_zone', 'sequence_outcome_type'], how='left')
     final_table = final_table.sort_values(by=['trigger_zone', 'count'], ascending=[True, False])
 
-    print(f"\nDEBUG: Offensive transition summary for {team_building_up}:")
+    logger.debug(f"\nDEBUG: Offensive transition summary for {team_building_up}:")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-        print(final_table)
+        logger.debug("%s", final_table)
     
-    print(f"Michele : {final_table}")
+    logger.debug(f"Michele : {final_table}")
 
     return final_table
 
@@ -60,7 +63,7 @@ def enrich_with_receiver_info(df_processed: pd.DataFrame, passes_df: pd.DataFram
             on='eventId', how='left'
         )
     else:
-        print("Warning: passes_df or receiver info missing.")
+        logger.warning("Warning: passes_df or receiver info missing.")
         df['receiver'] = pd.NA
         df['receiver_jersey_number'] = pd.NA
     return df
@@ -72,7 +75,7 @@ def prepare_offensive_buildups_data(df_processed: pd.DataFrame, HTEAM_NAME: str,
     """
     passes_df = get_passes_df(df_processed)
     df_with_receiver_info = enrich_with_receiver_info(df_processed, passes_df)
-    print(f"Michele : Looking for {TRIGGER_TYPES_FOR_BUILDUPS}")
+    logger.debug(f"Michele : Looking for {TRIGGER_TYPES_FOR_BUILDUPS}")
 
     df_home = find_buildup_sequences(
         df_with_receiver_info, HTEAM_NAME, ATEAM_NAME, metric_to_analyze, triggers_buildups=TRIGGER_TYPES_FOR_BUILDUPS
@@ -85,7 +88,7 @@ def prepare_offensive_buildups_data(df_processed: pd.DataFrame, HTEAM_NAME: str,
     summary_home = create_buildup_phase_summary(df_home, ATEAM_NAME)
     summary_away = create_buildup_phase_summary(df_away, HTEAM_NAME)
 
-    print(f"Michele df_home_buildups: {df_home}")
+    logger.debug(f"Michele df_home_buildups: {df_home}")
 
     return {
         'df_home_buildups': df_home,

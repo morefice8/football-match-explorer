@@ -1,4 +1,7 @@
 # src/metrics/transition_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 from src.utils.derived_cache import cache_derived_result
 from src.metrics.data_quality import attach_sequence_coverage
@@ -258,7 +261,7 @@ def _find_first_phase_buildup_sequences(
     ]
     missing = [col for col in required_cols if col not in df_processed.columns]
     if missing:
-        print(f"Error: Missing required columns: {set(missing)}")
+        logger.warning(f"Error: Missing required columns: {set(missing)}")
         return pd.DataFrame()
 
     optional_cols = [
@@ -584,10 +587,8 @@ def _find_first_phase_buildup_sequences(
         )
 
     result = pd.DataFrame(all_rows)
-    print(
-        f"Constructed {result['trigger_sequence_id'].nunique()} "
-        "canonical first-phase buildup sequences."
-    )
+    logger.info(f"Constructed {result['trigger_sequence_id'].nunique()} "
+        "canonical first-phase buildup sequences.")
     return attach_sequence_coverage(
         result,
         candidates=coverage_candidate_count,
@@ -618,7 +619,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
         pd.DataFrame: DataFrame of buildup sequences by the team that gained possession,
                       with 'trigger_sequence_id' and 'trigger_zone' (where possession was lost).
     """
-    print(f"Identifying buildup sequences for {attacking_team} starting in its Defending Third")
+    logger.debug(f"Identifying buildup sequences for {attacking_team} starting in its Defending Third")
 
     # --- Define Base and Optional Columns to Select ---
     # Required columns always needed
@@ -631,7 +632,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
     # Check base requirements
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns: {missing}");
+        logger.warning(f"Error: Missing required columns: {missing}");
         return pd.DataFrame()
 
     # Build list of columns to actually select
@@ -644,7 +645,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
 
     # Use set to ensure unique columns if any overlap, then convert back to list
     cols_to_select = list(set(cols_to_select))
-    print(f"  Including optional columns found: {found_optional}")
+    logger.info(f"  Including optional columns found: {found_optional}")
 
     df = df_processed[cols_to_select].copy()
     df = df.reset_index(drop=True)
@@ -664,7 +665,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
     if 'Corner Awarded' in triggers_buildups: triggers_filter |= ((df['type_name'] == 'Corner Awarded') & (df['team_name'] == defending_team) & (df['outcome'] == 'Unsuccessful')) # | ((df['team_name'] == attacking_team) & (df['outcome'] == 'Successful'))))
 
     df_triggers_raw = df[triggers_filter].copy()
-    if df_triggers_raw.empty: print(f"No triggers events for {attacking_team}."); return pd.DataFrame()
+    if df_triggers_raw.empty: logger.debug(f"No triggers events for {attacking_team}."); return pd.DataFrame()
 
     if metric_to_analyze == 'buildup_phase':
         own_half_filter = (
@@ -685,15 +686,15 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
             )
         )
         df_triggers_own_half = df_triggers_raw.loc[own_half_filter].copy()
-        if df_triggers_own_half.empty: print(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
+        if df_triggers_own_half.empty: logger.debug(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
 
         # df_triggers = df_triggers_raw.drop_duplicates(subset=['id'], keep='first').copy()
         # if df_triggers_raw.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
         # print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
         df_triggers = df_triggers_own_half.drop_duplicates(subset=['id'], keep='first').copy()
-        if df_triggers.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
-        print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
+        if df_triggers.empty: logger.debug(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
+        logger.info(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
     elif metric_to_analyze == 'set_piece':
         opponent_half_filter = (
@@ -714,11 +715,11 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
             )
         )
         df_triggers_own_half = df_triggers_raw.loc[opponent_half_filter].copy()
-        if df_triggers_own_half.empty: print(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
+        if df_triggers_own_half.empty: logger.debug(f"No triggers events for {attacking_team} in its own half"); return pd.DataFrame()
 
         df_triggers = df_triggers_own_half.drop_duplicates(subset=['id'], keep='first').copy()
-        if df_triggers.empty: print(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
-        print(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
+        if df_triggers.empty: logger.debug(f"No unique trigger events after deduplication by 'id' for {defending_team}."); return pd.DataFrame()
+        logger.info(f"Found {len(df_triggers)} unique possession trigger events by {defending_team}. Tracing...")
 
 
     # --- Trace Subsequent Sequences ---
@@ -906,7 +907,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
 
     if not all_buildup_events_with_trigger_info: return pd.DataFrame()
     df_all_sequences = pd.DataFrame(all_buildup_events_with_trigger_info)
-    print(f"Constructed {df_all_sequences['trigger_sequence_id'].nunique()} opponent buildup sequences (incl. terminating event).")
+    logger.info(f"Constructed {df_all_sequences['trigger_sequence_id'].nunique()} opponent buildup sequences (incl. terminating event).")
     return df_all_sequences
 
 
@@ -1004,7 +1005,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     Returns:
         dict: Containing processed DataFrames and summary data for crosses.
     """
-    print("  Preparing cross analysis data...")
+    logger.debug("  Preparing cross analysis data...")
     results = {
         'home_crosses_df': pd.DataFrame(), 'home_cross_summary_data': [], 'home_total_crosses': 0,
         'away_crosses_df': pd.DataFrame(), 'away_cross_summary_data': [], 'away_total_crosses': 0,
@@ -1018,7 +1019,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
         if col in temp_df.columns:
             temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce')
         else:
-            print(f"    Warning: Flag column '{col}' not found. Cross analysis might be incomplete.")
+            logger.warning(f"    Warning: Flag column '{col}' not found. Cross analysis might be incomplete.")
             temp_df[col] = 0 # Add as 0 if missing to avoid errors
 
     # Filter for all crosses first
@@ -1028,7 +1029,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     ].copy()
 
     if all_crosses_df.empty:
-        print("    No cross events (type_name='Pass' & cross=1) found in the dataset.")
+        logger.info("    No cross events (type_name='Pass' & cross=1) found in the dataset.")
         return results
 
     # Determine Swinger Type from existing columns
@@ -1052,7 +1053,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     summary, total = calculate_team_cross_stats(home_df_plottable, home_team_name)
     results['home_cross_summary_data'] = summary
     results['home_total_crosses'] = total
-    print(f"    Home team ({home_team_name}) - {total} plottable crosses found.")
+    logger.debug(f"    Home team ({home_team_name}) - {total} plottable crosses found.")
 
     # Away Team
     away_df = all_crosses_df[all_crosses_df['team_name'] == away_team_name].copy()
@@ -1061,7 +1062,7 @@ def prepare_cross_analysis_data(df_events, home_team_name, away_team_name):
     summary, total = calculate_team_cross_stats(away_df_plottable, away_team_name)
     results['away_cross_summary_data'] = summary
     results['away_total_crosses'] = total
-    print(f"    Away team ({away_team_name}) - {total} plottable crosses found.")
+    logger.debug(f"    Away team ({away_team_name}) - {total} plottable crosses found.")
 
     return results
 

@@ -1,4 +1,7 @@
 # In un nuovo file, es: src/visualization/formation_plotly.py
+import logging
+logger = logging.getLogger(__name__)
+
 import plotly.graph_objects as go
 import pandas as pd
 
@@ -188,7 +191,7 @@ def create_frames_from_timeline(timeline, team_color="#1f77b4"):
 
         formation_id = int(formation_id)  # 👈 cast for dict key matching
         if formation_id not in FORMATION_COORDINATES:
-            print(f"[DEBUG] Formation ID {formation_id} not found in FORMATION_COORDINATES.")
+            logger.warning(f"[DEBUG] Formation ID {formation_id} not found in FORMATION_COORDINATES.")
             continue
 
         coords = FORMATION_COORDINATES[formation_id]
@@ -223,7 +226,7 @@ def create_frames_from_timeline(timeline, team_color="#1f77b4"):
         )
         frames.append(frame)
 
-    print(f"[DEBUG] Created {len(frames)} frames from timeline with {len(timeline)} snapshots.")
+    logger.info(f"[DEBUG] Created {len(frames)} frames from timeline with {len(timeline)} snapshots.")
     return frames
 
 
@@ -423,10 +426,10 @@ def plot_formation_interactive_with_timeline(timeline, team_color="#1f77b4"):
     # Frame iniziale
     initial_frame = None
     for snapshot in timeline:
-        print(f"[DEBUG] Processing snapshot: {snapshot}")
+        logger.debug(f"[DEBUG] Processing snapshot: {snapshot}")
         formation_id = snapshot.get("formation_id")
         players = snapshot.get("players", {})
-        print(f"[DEBUG] Formation ID: {formation_id}, Players: {players}")
+        logger.debug(f"[DEBUG] Formation ID: {formation_id}, Players: {players}")
         if not formation_id or formation_id not in FORMATION_COORDINATES:
             continue
         coords = FORMATION_COORDINATES[formation_id]

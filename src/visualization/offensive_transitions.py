@@ -1,4 +1,7 @@
 # src/visualization/offensive_transitions.py
+import logging
+logger = logging.getLogger(__name__)
+
 import os
 import numpy as np
 import pandas as pd
@@ -26,7 +29,7 @@ def plot_offensive_transitions_with_summary(df_sequences, df_summary, gaining_te
         if len(unique_seq_ids_in_zone) == 0:
             continue
 
-        print(f"  Plotting {len(unique_seq_ids_in_zone)} offensive transitions by {gaining_team_name} in {zone}...")
+        logger.debug(f"  Plotting {len(unique_seq_ids_in_zone)} offensive transitions by {gaining_team_name} in {zone}...")
 
         PLOTS_PER_FIGURE = 6
         COLS_PER_FIGURE = 3
@@ -193,5 +196,5 @@ def plot_offensive_transitions_with_summary(df_sequences, df_summary, gaining_te
             if save_plots:
                 save_path = os.path.join(output_dir, f"{team_short_home}_{team_short_away}_{fig_prefix}_in_{zone.replace(' ', '')}_p{fig_num + 1}.png")
                 fig.savefig(save_path, dpi=150, bbox_inches='tight', facecolor=fig.get_facecolor())
-                print(f"Saved: {save_path}")
+                logger.info(f"Saved: {save_path}")
             plt.close(fig)

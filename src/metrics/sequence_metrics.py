@@ -1,4 +1,7 @@
 # src/metrics/sequence_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 from src.utils.derived_cache import cache_derived_result
 import numpy as np
@@ -14,7 +17,7 @@ def find_shot_sequences(df_processed,
     Identifies sequences ending in a shot using backward looping logic.
     Selects more columns to allow for detailed title information in plots.
     """
-    print("Identifying pass-to-shot sequences (backward loop, more detail)...")
+    logger.debug("Identifying pass-to-shot sequences (backward loop, more detail)...")
 
     # --- Define Base and Optional Columns to Select ---
     # Base columns always needed
@@ -54,7 +57,7 @@ def find_shot_sequences(df_processed,
     # Check base requirements
     if not all(col in df_processed.columns for col in base_required_cols):
         missing = set(base_required_cols) - set(df_processed.columns)
-        print(f"Error: Missing base required columns for sequence analysis: {missing}")
+        logger.warning(f"Error: Missing base required columns for sequence analysis: {missing}")
         return pd.DataFrame()
 
     # Build list of columns to actually select
@@ -75,8 +78,8 @@ def find_shot_sequences(df_processed,
     shots_filter = df['type_name'].isin(shot_types)
     shots_df = df[shots_filter].copy()
 
-    if shots_df.empty: print("No shot events found."); return pd.DataFrame()
-    print(f"Found {len(shots_df)} total shot events. Tracing sequences backward...")
+    if shots_df.empty: logger.debug("No shot events found."); return pd.DataFrame()
+    logger.info(f"Found {len(shots_df)} total shot events. Tracing sequences backward...")
 
     # --- Backward Loop Logic (Storing Indices) ---
     all_sequence_indices_with_id = []; sequence_id_counter = 0
@@ -92,7 +95,7 @@ def find_shot_sequences(df_processed,
                 current_sequence_indices.append(current_idx)
                 current_idx -= 1
             elif prev_action_series['type_name'] in ('Aerial', 'Ball touch', 'Clearance'): 
-                print(f"  Skipping {prev_action_series['type_name']} event at index {current_idx} in sequence {sequence_id_counter}.")
+                logger.debug(f"  Skipping {prev_action_series['type_name']} event at index {current_idx} in sequence {sequence_id_counter}.")
                 current_idx -= 1
                 continue; # Skip aerials and ball touches
             else: break # Break if not a pass or not same team
@@ -100,11 +103,11 @@ def find_shot_sequences(df_processed,
         sequence_id_counter += 1
 
     # --- Create Final DataFrame ---
-    if not all_sequence_indices_with_id: print("No sequences constructed."); return pd.DataFrame()
+    if not all_sequence_indices_with_id: logger.info("No sequences constructed."); return pd.DataFrame()
     indices_to_keep = [idx for idx, seq_id in all_sequence_indices_with_id]; sequence_ids = [seq_id for idx, seq_id in all_sequence_indices_with_id]
     df_all_sequences = df.iloc[indices_to_keep].copy()
     df_all_sequences['sequence_id'] = sequence_ids # Assign sequence_id
-    print(f"Constructed {df_all_sequences['sequence_id'].nunique()} shot sequences.")
+    logger.info(f"Constructed {df_all_sequences['sequence_id'].nunique()} shot sequences.")
 
     # --- Adjust Shot Coordinates ---
     shot_event_filter = df_all_sequences['type_name'].isin(shot_types)
@@ -166,9 +169,9 @@ def find_sequence_patterns(df_all_sequences, pattern_type='zone', n_last_events=
     Finds common patterns (player or zone sequences) in the last N events
     leading up to each shot.
     """
-    print(f"Finding common {pattern_type} patterns (last {n_last_events} events)...")
-    if df_all_sequences is None or df_all_sequences.empty: print("Warning: Input sequence DataFrame is empty."); return pd.Series(dtype=int)
-    if 'sequence_id' not in df_all_sequences.columns: print("Error: 'sequence_id' column missing."); return pd.Series(dtype=int)
+    logger.debug(f"Finding common {pattern_type} patterns (last {n_last_events} events)...")
+    if df_all_sequences is None or df_all_sequences.empty: logger.warning("Warning: Input sequence DataFrame is empty."); return pd.Series(dtype=int)
+    if 'sequence_id' not in df_all_sequences.columns: logger.warning("Error: 'sequence_id' column missing."); return pd.Series(dtype=int)
 
     patterns = []
     grouped_sequences = df_all_sequences.groupby('sequence_id')
@@ -192,17 +195,17 @@ def find_sequence_patterns(df_all_sequences, pattern_type='zone', n_last_events=
         elif pattern_type == 'role':
             required_cols = ['positional_role'] # Check for the new role column
             if not all(col in sequence_tail.columns for col in required_cols):
-                print(f"Warning: Missing 'positional_role' column for sequence {seq_id}. Skipping pattern.")
+                logger.warning(f"Warning: Missing 'positional_role' column for sequence {seq_id}. Skipping pattern.")
                 continue
             # Create tuple of roles, handling potential None/NaN from the mapping
             pattern = tuple(sequence_tail['positional_role'].fillna('Unknown'))
             patterns.append(pattern)
-        else: print(f"Error: Unknown pattern_type '{pattern_type}'. Use 'zone', 'player', or 'role'."); return pd.Series(dtype=int)
+        else: logger.warning(f"Error: Unknown pattern_type '{pattern_type}'. Use 'zone', 'player', or 'role'."); return pd.Series(dtype=int)
 
-    if not patterns: print("No patterns generated."); return pd.Series(dtype=int)
+    if not patterns: logger.debug("No patterns generated."); return pd.Series(dtype=int)
     pattern_counts = Counter(patterns)
     patterns_series = pd.Series(pattern_counts).sort_values(ascending=False)
-    print(f"Found {len(patterns_series)} unique {pattern_type} patterns.")
+    logger.info(f"Found {len(patterns_series)} unique {pattern_type} patterns.")
     return patterns_series
 
 # --- Helper function to define zones (e.g., 7x6 grid like chance creation) ---
@@ -240,15 +243,15 @@ def calculate_binned_sequence_stats(df_all_sequences, bins=(7, 6),
             - pd.DataFrame: Counts of shots originating from each bin (start_bin, shot_origin_count).
             Returns (empty DF, empty DF) if input is empty or error occurs.
     """
-    print(f"Calculating binned stats & dominant roles for shot sequences (Grid: {bins[0]}x{bins[1]})...")
+    logger.debug(f"Calculating binned stats & dominant roles for shot sequences (Grid: {bins[0]}x{bins[1]})...")
     if df_all_sequences is None or df_all_sequences.empty:
-        print("Warning: Input sequence DataFrame is empty."); return pd.DataFrame(columns=['start_bin', 'end_bin', 'total_transition_count', 'dominant_role', 'dominant_role_count']), pd.DataFrame(columns=['start_bin', 'shot_origin_count']) # Return empty DFs with expected columns
+        logger.warning("Warning: Input sequence DataFrame is empty."); return pd.DataFrame(columns=['start_bin', 'end_bin', 'total_transition_count', 'dominant_role', 'dominant_role_count']), pd.DataFrame(columns=['start_bin', 'shot_origin_count']) # Return empty DFs with expected columns
 
     # Ensure required columns exist, including positional_role
     required_cols = ['x', 'y', 'end_x', 'end_y', 'type_name', 'sequence_id', 'positional_role']
     if not all(col in df_all_sequences.columns for col in required_cols):
         missing = set(required_cols) - set(df_all_sequences.columns)
-        print(f"Error: Missing required columns for binned role analysis: {missing}")
+        logger.warning(f"Error: Missing required columns for binned role analysis: {missing}")
         return pd.DataFrame(columns=['start_bin', 'end_bin', 'total_transition_count', 'dominant_role', 'dominant_role_count']), pd.DataFrame(columns=['start_bin', 'shot_origin_count'])
 
     df_seq = df_all_sequences.copy()
@@ -284,7 +287,7 @@ def calculate_binned_sequence_stats(df_all_sequences, bins=(7, 6),
     df_bin_transitions_final = pd.DataFrame(columns=['start_bin', 'end_bin', 'total_transition_count', 'dominant_passer_role', 'dominant_receiver_role', 'dominant_pair_count'])
 
     if passes_in_seq.empty:
-        print("Warning: No valid pass transitions with known passer and receiver roles found.")
+        logger.warning("Warning: No valid pass transitions with known passer and receiver roles found.")
     else:
         # Count transitions for each specific role pair
         role_pair_transition_counts = passes_in_seq.groupby(
@@ -314,9 +317,9 @@ def calculate_binned_sequence_stats(df_all_sequences, bins=(7, 6),
                 on=['start_bin', 'end_bin'],
                 how='left'
             )
-            print(f"Found {len(df_bin_transitions_final)} unique bin transitions with dominant role pairs identified.")
+            logger.info(f"Found {len(df_bin_transitions_final)} unique bin transitions with dominant role pairs identified.")
         else:
-             print("Warning: Grouping by role pair yielded no results.")
+             logger.warning("Warning: Grouping by role pair yielded no results.")
 
 
     # --- Aggregate Shot Origins (Same as before) ---
@@ -329,10 +332,10 @@ def calculate_binned_sequence_stats(df_all_sequences, bins=(7, 6),
     df_shot_origins = pd.DataFrame(columns=['start_bin', 'shot_origin_count'])
 
     if shots_in_seq.empty:
-        print("Warning: No valid shot origins found within sequences.")
+        logger.warning("Warning: No valid shot origins found within sequences.")
     else:
         df_shot_origins = shots_in_seq.groupby('start_bin').size().reset_index(name='shot_origin_count')
-        print(f"Found {len(df_shot_origins)} unique shot origin bins.")
+        logger.info(f"Found {len(df_shot_origins)} unique shot origin bins.")
 
     return df_bin_transitions_final, df_shot_origins
 
@@ -519,7 +522,7 @@ def find_buildup_sequences(df_processed,
                       with a 'buildup_sequence_id' column.
                       Returns empty DataFrame if errors or no sequences found.
     """
-    print(f"Identifying buildup sequences (starting x <= {start_x_thresh_deep}, continuing x <= {buildup_max_x_thresh})...")
+    logger.debug(f"Identifying buildup sequences (starting x <= {start_x_thresh_deep}, continuing x <= {buildup_max_x_thresh})...")
 
     # --- Input Validation and Setup ---
     required_cols = ['id', 'eventId', 'team_name', 'type_name', 'outcome', 'x', 'y',
@@ -533,7 +536,7 @@ def find_buildup_sequences(df_processed,
 
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns for buildup sequence analysis: {missing}")
+        logger.warning(f"Error: Missing required columns for buildup sequence analysis: {missing}")
         return pd.DataFrame()
 
     # Work with a copy, sort by eventId, reset index for iloc
@@ -546,10 +549,10 @@ def find_buildup_sequences(df_processed,
     potential_start_passes_df = df[(df['x'] <= start_x_thresh_deep) & (df['type_name'] == 'Pass')].copy()
 
     if potential_start_passes_df.empty:
-        print("No deep starting passes found to initiate buildup sequences.")
+        logger.info("No deep starting passes found to initiate buildup sequences.")
         return pd.DataFrame()
 
-    print(f"Found {len(potential_start_passes_df)} potential deep starting passes. Tracing sequences forward...")
+    logger.info(f"Found {len(potential_start_passes_df)} potential deep starting passes. Tracing sequences forward...")
 
     # --- Trace Sequences Forward (Similar to Original Logic) ---
     all_buildup_sequences_data = [] # Stores event data dictionaries
@@ -616,7 +619,7 @@ def find_buildup_sequences(df_processed,
 
     # --- Create Final DataFrame ---
     if not all_buildup_sequences_data:
-        print("No buildup sequences constructed.")
+        logger.info("No buildup sequences constructed.")
         return pd.DataFrame()
     
     # # --- Flatten the list and create DataFrame ---
@@ -627,7 +630,7 @@ def find_buildup_sequences(df_processed,
     #     return pd.DataFrame()
 
     df_all_buildup_sequences = pd.DataFrame(all_buildup_sequences_data)
-    print(f"Constructed {df_all_buildup_sequences['buildup_sequence_id'].nunique()} buildup sequences.")
+    logger.info(f"Constructed {df_all_buildup_sequences['buildup_sequence_id'].nunique()} buildup sequences.")
 
     # if 'id' in df_all_buildup_sequences.columns and 'buildup_sequence_id' in df_all_buildup_sequences.columns:
     #     num_rows_before_drop = len(df_all_buildup_sequences)
@@ -645,7 +648,7 @@ def find_buildup_sequences(df_processed,
     # else:
     #     print("Warning: Cannot drop duplicates effectively without 'id' or 'eventId' and 'buildup_sequence_id'.")
 
-    print(df_all_buildup_sequences)
+    logger.debug("%s", df_all_buildup_sequences)
     return df_all_buildup_sequences
 
 # --- Get Detailed Play and Last Pass Description ---

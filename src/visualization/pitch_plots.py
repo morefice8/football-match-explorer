@@ -1,4 +1,7 @@
 # src/visualization/pitch_plots.py
+import logging
+logger = logging.getLogger(__name__)
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, to_rgba
 from mplsoccer import VerticalPitch, Pitch, FontManager
@@ -61,7 +64,7 @@ BC_SEMICIRCLE_RADIUS_SQUARED_STD = BC_SEMICIRCLE_RADIUS_STD**2
 # This function plots the Kernel Density Estimate (KDE) of pass start locations.
 def plot_pass_density(ax, passes_df, team_name, cmap='viridis', is_away_team=False): # Added is_away_team
     """Plots a Kernel Density Estimate (KDE) of pass start locations."""
-    print(f"Plotting pass density for {team_name}...")
+    logger.debug(f"Plotting pass density for {team_name}...")
     pitch = Pitch(pitch_type='opta', line_color='#000009', line_zorder=2, corner_arcs=True)
     pitch.draw(ax=ax)
     del is_away_team
@@ -73,7 +76,7 @@ def plot_pass_density(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
                       fill=True, levels=100, thresh=0, cut=4, cmap=cmap, zorder=1) # Lower zorder
 
     else:
-        print(f"Warning: No pass data or missing coordinates for density plot of {team_name}.")
+        logger.warning(f"Warning: No pass data or missing coordinates for density plot of {team_name}.")
 
     ax.set_title(f"Pass Density: {team_name}", fontsize=14, color='black')
 
@@ -81,7 +84,7 @@ def plot_pass_density(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
 # This function plots a positional heatmap of pass start locations, including scatter points.
 def plot_pass_heatmap(ax, passes_df, team_name, cmap='viridis', is_away_team=False):
     """Plots a positional heatmap of pass start locations, including scatter points."""
-    print(f"Plotting pass heatmap for {team_name}...")
+    logger.debug(f"Plotting pass heatmap for {team_name}...")
     pitch = Pitch(pitch_type='opta', line_zorder=3, pitch_color='#FAFAFA', line_color='black', corner_arcs=True)
     pitch.draw(ax=ax)
     del is_away_team
@@ -104,7 +107,7 @@ def plot_pass_heatmap(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
                               path_effects=PATH_EFFECTS_HEATMAP, zorder=4) # Ensure labels are on top
 
     else:
-        print(f"Warning: No pass data or missing coordinates for heatmap plot of {team_name}.")
+        logger.warning(f"Warning: No pass data or missing coordinates for heatmap plot of {team_name}.")
 
     ax.set_title(f"Pass Heatmap: {team_name}", fontsize=14, color='black')
 
@@ -114,7 +117,7 @@ def plot_pass_heatmap(ax, passes_df, team_name, cmap='viridis', is_away_team=Fal
 def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
                       team_color, team_name, sub_list=[], is_away_team=False):
     """Visualizes the pass network for a team."""
-    print(f"Plotting pass network for {team_name}...")
+    logger.debug(f"Plotting pass network for {team_name}...")
     # Constants
     MAX_LINE_WIDTH = 15
     MAX_MARKER_SIZE = 2000
@@ -130,7 +133,7 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
 
     # Exit function gracefully if no data to plot
     if passes_between_df.empty or average_locs_and_count_df.empty:
-        print(f"Warning: No pass network data to plot for {team_name}.")
+        logger.warning(f"Warning: No pass network data to plot for {team_name}.")
         ax.set_title(f"{team_name}\nPassing Network (No Data)", color='black', size=15, fontweight='bold')
         return
 
@@ -154,7 +157,7 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
     # Draw Pass Lines (using Opta coordinates for plotting)
     required_cols = ['pass_avg_x', 'pass_avg_y', 'pass_avg_x_end', 'pass_avg_y_end', 'width']
     if not all(col in passes_between_df.columns for col in required_cols):
-         print(f"Error: Missing required columns for drawing lines in pass network for {team_name}.")
+         logger.warning(f"Error: Missing required columns for drawing lines in pass network for {team_name}.")
          return
     pitch.lines(passes_between_df.pass_avg_x, passes_between_df.pass_avg_y,
                  passes_between_df.pass_avg_x_end, passes_between_df.pass_avg_y_end,
@@ -170,8 +173,8 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
 
     required_node_cols = ['playerName', 'pass_avg_x', 'pass_avg_y', 'marker_size', 'jersey_number']
     if not all(col in average_locs_and_count_df.columns for col in required_node_cols):
-        print(f"Error: Missing required columns for drawing nodes in pass network for {team_name}.")
-        print(f"Available columns: {average_locs_and_count_df.columns.tolist()}")
+        logger.warning(f"Error: Missing required columns for drawing nodes in pass network for {team_name}.")
+        logger.debug(f"Available columns: {average_locs_and_count_df.columns.tolist()}")
         return
 
     for index, row in average_locs_and_count_df.iterrows():
@@ -217,7 +220,7 @@ def plot_pass_network(ax, passes_between_df, average_locs_and_count_df,
                 f"{avg_position_meters:.1f}m", # Display the METERS value
                 fontsize=11, color='grey', ha=horizontal_alignment, va='center') # Adjust alignment/va if needed
     else:
-        print(f"Info: Could not calculate median pass x-position for {team_name}.")
+        logger.debug(f"Info: Could not calculate median pass x-position for {team_name}.")
 
     # Add main title
     ax.set_title(f"{team_name}\nPassing Network", color='black', size=18, fontweight='bold')    
@@ -234,7 +237,7 @@ def plot_progressive_passes(ax, df_prog_passes_team, zone_counts_team,
     Visualizes progressive passes for a specific team on a pitch map.
     ... (Args remain the same) ...
     """
-    print(f"Plotting progressive passes for {team_name}...")
+    logger.debug(f"Plotting progressive passes for {team_name}...")
     # Constants
     PITCH_COLOR = '#FAFAFA'
     LINE_COLOR = '#222222'
@@ -252,7 +255,7 @@ def plot_progressive_passes(ax, df_prog_passes_team, zone_counts_team,
     if total_team_prog_count > 0 and not df_prog_passes_team.empty:
         # ... (plotting pitch.lines and pitch.scatter remains the same) ...
         if not all(c in df_prog_passes_team for c in ['x', 'y', 'end_x', 'end_y']):
-            print(f"Error: Missing coordinate columns for progressive pass lines for {team_name}.")
+            logger.warning(f"Error: Missing coordinate columns for progressive pass lines for {team_name}.")
         else:
             pitch.lines(df_prog_passes_team.x, df_prog_passes_team.y,
                         df_prog_passes_team.end_x, df_prog_passes_team.end_y,
@@ -262,7 +265,7 @@ def plot_progressive_passes(ax, df_prog_passes_team, zone_counts_team,
                         s=40, edgecolor=team_color, linewidth=1, color=PITCH_COLOR,
                         zorder=2, ax=ax, alpha=0.8)
     else:
-        print(f"Info: No progressive passes to plot for {team_name}.")
+        logger.debug(f"Info: No progressive passes to plot for {team_name}.")
 
 
     # --- Add Zone Lines and Annotations ---
@@ -346,7 +349,7 @@ def plot_shot_map_and_stats(ax, shots_df, home_stats, away_stats,
         bg_color (str, optional): Background color. Defaults to '#FAFAFA'.
         line_color (str, optional): Pitch line color. Defaults to '#222222'.
     """
-    print("Plotting shot map and stats bar...")
+    logger.debug("Plotting shot map and stats bar...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=bg_color,
@@ -537,7 +540,7 @@ def plot_zone14_halfspace_map(ax, df_zone14, df_lhs, df_rhs, zone_stats_dict,
     shaded zones, and hexagon markers (in defensive half) with counts and names,
     inspired by the user's original draw_pass_map function.
     """
-    print(f"Plotting Zone 14 / Half-Space map for {team_name}...")
+    logger.debug(f"Plotting Zone 14 / Half-Space map for {team_name}...")
 
     # Set default halfspace color if not provided
     if halfspace_color is None: halfspace_color = team_color
@@ -649,7 +652,7 @@ def plot_high_turnovers(ax, home_high_to_df_opta, away_high_to_df_opta, # Input 
     Converts input Opta coordinates to meters for plotting.
     Draws circles indicating the turnover zone radius in meters.
     """
-    print(f"Plotting high turnovers (using {pitch_length_meters}x{pitch_width_meters}m pitch)...")
+    logger.debug(f"Plotting high turnovers (using {pitch_length_meters}x{pitch_width_meters}m pitch)...")
 
     # --- Setup Pitch with Meter Dimensions ---
     pitch = Pitch(pitch_type='custom', # Use 'custom' for specified dimensions
@@ -705,13 +708,13 @@ def plot_high_turnovers(ax, home_high_to_df_opta, away_high_to_df_opta, # Input 
         pitch.scatter(home_high_to_df_m.x_m, home_high_to_df_m.y_m,
                       c=hcol, edgecolor=line_color, ax=ax, **scatter_style)
     else:
-        print(f"Info: No home high turnovers to plot for {hteamName}.")
+        logger.debug(f"Info: No home high turnovers to plot for {hteamName}.")
 
     if not away_high_to_df_m.empty and 'x_m' in away_high_to_df_m.columns and 'y_m' in away_high_to_df_m.columns:
         pitch.scatter(away_high_to_df_m.x_m, away_high_to_df_m.y_m,
                       c=acol, edgecolor=line_color, ax=ax, **scatter_style)
     else:
-         print(f"Info: No away high turnovers to plot for {ateamName}.")
+         logger.debug(f"Info: No away high turnovers to plot for {ateamName}.")
 
     # --- Add Count Annotations (Position using Meter Coordinates) ---
     # Get pitch dimensions in meters from the pitch object for positioning
@@ -754,7 +757,7 @@ def plot_chance_creation(ax, df_chances_team, team_name, team_color, is_away_tea
         kp_color (str, optional): Color for key pass arrows. Defaults to VIOLET.
         assist_color (str, optional): Color for assist arrows. Defaults to GREEN.
     """
-    print(f"Plotting chance creation map for {team_name}...")
+    logger.debug(f"Plotting chance creation map for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', line_color=line_color, corner_arcs=True,
@@ -765,7 +768,7 @@ def plot_chance_creation(ax, df_chances_team, team_name, team_color, is_away_tea
 
     # Exit if no data
     if df_chances_team.empty:
-        print(f"Info: No chance creation data to plot for {team_name}.")
+        logger.debug(f"Info: No chance creation data to plot for {team_name}.")
         ax.set_title(f"{team_name}\nChance Creation Zones (No Data)",
                      color=line_color, fontsize=18, fontweight='bold')
         return
@@ -839,7 +842,7 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
         scatter_actions (bool, optional): Whether to plot individual actions as small
                                           markers. Defaults to True.
     """
-    print(f"Plotting defensive block for {team_name}...")
+    logger.debug(f"Plotting defensive block for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -850,7 +853,7 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
 
     # Exit if no aggregated player data
     if df_player_agg_team.empty:
-        print(f"Warning: No aggregated player data to plot defensive block for {team_name}.")
+        logger.warning(f"Warning: No aggregated player data to plot defensive block for {team_name}.")
         ax.set_title(f"{team_name}\nDefensive Block (No Player Data)", color=line_color, fontsize=18, fontweight='bold')
         return
 
@@ -866,9 +869,9 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
             pitch.scatter(df_defensive_actions_team.x, df_defensive_actions_team.y,
                           s=15, marker='o', color='yellow', edgecolors='black', linewidth=0.5, # Adjusted style
                           alpha=0.3, ax=ax, zorder=1) # zorder=1 (above heatmap)
-            print("  Included scatter plot of individual defensive actions.")
+            logger.debug("  Included scatter plot of individual defensive actions.")
     else:
-        print(f"Warning: No individual defensive actions to plot heatmap for {team_name}.")
+        logger.warning(f"Warning: No individual defensive actions to plot heatmap for {team_name}.")
 
 
     # --- Plot Player Nodes ---
@@ -919,7 +922,7 @@ def plot_defensive_block(ax, df_defensive_actions_team, df_player_agg_team,
                 f"Avg Line: {avg_def_line_meters:.1f}m",
                 fontsize=12, color='dimgray', ha=horizontal_alignment, va='center')
     else:
-        print(f"Info: Could not calculate average defensive line for {team_name}.")
+        logger.debug(f"Info: Could not calculate average defensive line for {team_name}.")
 
 
     # --- Titles and Annotations ---
@@ -948,7 +951,7 @@ def plot_defensive_hull(ax, df_player_agg_team,
         bg_color (str, optional): Background color. Defaults to '#FAFAFA'.
         line_color (str, optional): Pitch line color. Defaults to '#222222'.
     """
-    print(f"Plotting defensive hull for {team_name}...")
+    logger.debug(f"Plotting defensive hull for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -959,7 +962,7 @@ def plot_defensive_hull(ax, df_player_agg_team,
 
     # Exit if no player data
     if df_player_agg_team.empty or len(df_player_agg_team) < 3: # Need at least 3 points for a hull
-        print(f"Warning: Not enough player data ({len(df_player_agg_team)}) to plot hull for {team_name}.")
+        logger.warning(f"Warning: Not enough player data ({len(df_player_agg_team)}) to plot hull for {team_name}.")
         ax.set_title(f"{team_name}\nDefensive Shape (Hull - No Data)", color=line_color, fontsize=18, fontweight='bold')
         return
 
@@ -996,7 +999,7 @@ def plot_defensive_hull(ax, df_player_agg_team,
 
     except Exception as e:
         # Catch potential errors during hull calculation (e.g., collinear points)
-        print(f"Warning: Could not calculate or plot Convex Hull for {team_name}: {e}")
+        logger.warning(f"Warning: Could not calculate or plot Convex Hull for {team_name}: {e}")
 
 
     # --- Titles and Annotations ---
@@ -1015,7 +1018,7 @@ def plot_defensive_voronoi(ax, df_player_agg_team,
     Visualizes a team's defensive coverage using a Voronoi diagram based on
     average player defensive positions, plotted using scipy.spatial.voronoi_plot_2d.
     """
-    print(f"Plotting defensive Voronoi for {team_name}...")
+    logger.debug(f"Plotting defensive Voronoi for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -1026,7 +1029,7 @@ def plot_defensive_voronoi(ax, df_player_agg_team,
 
     # Exit if no player data
     if df_player_agg_team.empty or len(df_player_agg_team) < 3: # Voronoi often needs >= 3 points
-        print(f"Warning: Not enough player data ({len(df_player_agg_team)}) to plot Voronoi for {team_name}.")
+        logger.warning(f"Warning: Not enough player data ({len(df_player_agg_team)}) to plot Voronoi for {team_name}.")
         ax.set_title(f"{team_name}\nDefensive Coverage (Voronoi - No Data)", color=line_color, fontsize=18, fontweight='bold')
         return
 
@@ -1055,7 +1058,7 @@ def plot_defensive_voronoi(ax, df_player_agg_team,
         ax.set_ylim(pitch.dim.bottom, pitch.dim.top)
 
     except Exception as e:
-        print(f"Warning: Could not calculate or plot Voronoi diagram for {team_name}: {e}")
+        logger.warning(f"Warning: Could not calculate or plot Voronoi diagram for {team_name}: {e}")
         # Continue to plot points even if Voronoi fails
 
     # --- Plot Player Nodes ---
@@ -1106,7 +1109,7 @@ def plot_individual_shot_sequence(ax, sequence_data, team_name, team_color, sequ
     # --- *** End Setting Limits *** ---
 
     if sequence_data is None or sequence_data.empty:
-        print(f"Warning: No data for sequence {sequence_id}")
+        logger.warning(f"Warning: No data for sequence {sequence_id}")
         ax.set_title(f"Seq {sequence_id}\n(No Data)", color=line_color, fontsize=10) # Smaller font
         ax.xaxis.set_visible(False); ax.yaxis.set_visible(False)
         return
@@ -1143,7 +1146,7 @@ def plot_individual_shot_sequence(ax, sequence_data, team_name, team_color, sequ
         time_sec = shot_event.get('timeSec')
         if pd.notna(time_min) and pd.notna(time_sec):
             try: time_str = f"{int(time_min)}'{int(time_sec):02d}\""
-            except ValueError: print(f"Warning: Non-integer timeMin/Sec for seq {sequence_id}")
+            except ValueError: logger.warning(f"Warning: Non-integer timeMin/Sec for seq {sequence_id}")
 
         # Play Type of Shot (Check qualifiers on the SHOT event itself first)
         # Ensure qualifier columns are checked as strings '1' if that's how they are stored
@@ -1209,7 +1212,7 @@ def plot_individual_shot_sequence(ax, sequence_data, team_name, team_color, sequ
                           facecolor=team_color, edgecolor=line_color, linewidth=1.5, alpha=1, ax=ax, zorder=3)
             pitch.annotate(jersey_text, xy=(event_x, event_y), c='white', ha='center', va='center', size=9, weight='bold', ax=ax, zorder=4) # Smaller font size
     else:
-        print(f"Warning: Missing columns for node plotting in sequence {sequence_id}")
+        logger.warning(f"Warning: Missing columns for node plotting in sequence {sequence_id}")
 
     # Now plot lines (passes, carries, shot)
     for index, event in passes.iterrows():
@@ -1286,7 +1289,7 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
         shot_origin_cmap (str): Colormap for the shot origin heatmap.
         annotate_roles (bool): Whether to add dominant role text to arrows.
     """
-    print(f"Plotting binned sequence flow for {team_name}...")
+    logger.debug(f"Plotting binned sequence flow for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -1298,7 +1301,7 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
     has_origins = not df_shot_origins.empty
 
     if not has_transitions and not has_origins:
-        print(f"Warning: No transition or origin data to plot for {team_name}.")
+        logger.warning(f"Warning: No transition or origin data to plot for {team_name}.")
         ax.set_title(f"{team_name}\nShot Buildup Flow (No Data)", color=line_color, fontsize=16, fontweight='bold')
         return
 
@@ -1312,23 +1315,23 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
                 bin_idx = row['start_bin']; count = row['shot_origin_count']
                 if isinstance(bin_idx, tuple) and len(bin_idx) == 2 and pd.notna(bin_idx[0]) and pd.notna(bin_idx[1]):
                      heatmap_statistic[int(bin_idx[1]), int(bin_idx[0])] = count
-                else: print(f"Warning: Invalid bin index {bin_idx} in shot origins.")
+                else: logger.warning(f"Warning: Invalid bin index {bin_idx} in shot origins.")
         else:
-            print("Warning: 'start_bin' column missing in df_shot_origins.")
+            logger.warning("Warning: 'start_bin' column missing in df_shot_origins.")
 
         if np.sum(heatmap_statistic) > 0:
              x_bin_edges = np.linspace(pitch.dim.left, pitch.dim.right, bins[0] + 1)
              y_bin_edges = np.linspace(pitch.dim.bottom, pitch.dim.top, bins[1] + 1)
              heatmap_dict = {'statistic': heatmap_statistic, 'x_grid': x_bin_edges, 'y_grid': y_bin_edges}
              heatmap = pitch.heatmap(heatmap_dict, ax=ax, cmap=shot_origin_cmap, edgecolor=bg_color, alpha=0.6, zorder=0)
-        else: print("Info: No valid counts found for shot origin heatmap.")
+        else: logger.info("Info: No valid counts found for shot origin heatmap.")
 
 
     # --- Plot Transition Arrows and Annotate Roles ---
     if has_transitions:
         required_cols = ['start_bin', 'end_bin', 'total_transition_count', 'dominant_passer_role', 'dominant_receiver_role']
         if not all(col in df_bin_transitions.columns for col in required_cols):
-             print(f"Warning: Missing columns in transition DataFrame. Cannot plot roles.")
+             logger.warning(f"Warning: Missing columns in transition DataFrame. Cannot plot roles.")
              df_plot_transitions = df_bin_transitions[df_bin_transitions['total_transition_count'] >= min_transition_count].copy() # Plot arrows anyway if possible
              annotate_roles = False # Disable annotation
         else:
@@ -1336,7 +1339,7 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
             annotate_roles = True
 
         if not df_plot_transitions.empty:
-            print(f"Plotting {len(df_plot_transitions)} transitions (count >= {min_transition_count}) with role pairs...")
+            logger.debug(f"Plotting {len(df_plot_transitions)} transitions (count >= {min_transition_count}) with role pairs...")
             max_count = df_plot_transitions['total_transition_count'].max()
             base_lw = 0.5; max_extra_lw = 2.5 # Slightly thinner max arrow width
             node_base_size = 100; node_max_extra = 600 # Node size scales with count
@@ -1387,7 +1390,7 @@ def plot_binned_sequence_flow(ax, df_bin_transitions, df_shot_origins, # Use the
                                    va='center', ha='center', fontweight='bold', ax=ax, zorder=5)
             # --- End Loop ---
         else:
-            print(f"Info: No transitions meet the minimum count ({min_transition_count}) threshold.")
+            logger.debug(f"Info: No transitions meet the minimum count ({min_transition_count}) threshold.")
 
 
     # --- Title & Explanatory Text ---
@@ -1418,7 +1421,7 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
         line_color (str, optional): Pitch line color.
         annotate_role (bool): Whether to add positional role below the node.
     """
-    print(f"Plotting mean positions for {team_name}...")
+    logger.debug(f"Plotting mean positions for {team_name}...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -1429,7 +1432,7 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
 
     # Exit if no aggregated player data
     if df_player_loc_agg.empty:
-        print(f"Warning: No aggregated player data to plot mean positions for {team_name}.")
+        logger.warning(f"Warning: No aggregated player data to plot mean positions for {team_name}.")
         ax.set_title(f"{team_name}\nMean Positions (No Data)", color=line_color, fontsize=18, fontweight='bold')
         return
 
@@ -1441,14 +1444,14 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
                       fill=True, levels=100, # Adjust levels/thresh
                       thresh=0.02, cut=4, cmap=team_cmap_light, alpha=0.5, zorder=0) # Lower alpha
     else:
-        print(f"Warning: No individual touch data to plot heatmap for {team_name}.")
+        logger.warning(f"Warning: No individual touch data to plot heatmap for {team_name}.")
 
 
     # --- Plot Player Nodes (Median Position) ---
     node_size = 2000 # Fixed size as per original code
     required_node_cols = ['playerName', 'median_x', 'median_y', 'jersey_number', 'positional_role']
     if not all(col in df_player_loc_agg.columns for col in required_node_cols):
-        print(f"Warning: Missing columns in aggregated data for node plotting.")
+        logger.warning(f"Warning: Missing columns in aggregated data for node plotting.")
         # Attempt to plot with available columns
     else:
         for index, row in df_player_loc_agg.iterrows():
@@ -1491,7 +1494,7 @@ def plot_mean_positions(ax, df_player_loc_agg, df_all_touches_team, # Pass aggre
                 text_y_pos, f"Avg Line: {avg_line_meters:.1f}m",
                 fontsize=12, color='dimgray', ha=horizontal_alignment, va='center')
     else:
-        print(f"Info: Could not calculate average line height for {team_name}.")
+        logger.debug(f"Info: Could not calculate average line height for {team_name}.")
 
 
     # --- Titles and Annotations ---
@@ -1539,14 +1542,14 @@ def plot_ppda_actions(ax, df, team_name, team_color,
     actions_str = ', '.join(sorted(list(set(action_names))))
     # Update title to reflect PPDA context
     title = f"{team_name} - Def. Actions in Pressing Zone (x>={def_action_zone_thresh:.0f})\n({actions_str})"
-    print(f"Plotting '{plot_type}' map for {team_name} | Events: {actions_str} in Zone x>={def_action_zone_thresh:.0f}")
+    logger.debug(f"Plotting '{plot_type}' map for {team_name} | Events: {actions_str} in Zone x>={def_action_zone_thresh:.0f}")
     # --- End Title Generation ---
 
     # --- Input Validation ---
     required_cols = ['team_name', event_id_col, 'x', 'y']
     if not all(col in df.columns for col in required_cols):
         missing = [col for col in required_cols if col not in df.columns]
-        print(f"Warning [Pressure Plot]: DataFrame missing required columns: {missing}. Skipping plot.")
+        logger.warning(f"Warning [Pressure Plot]: DataFrame missing required columns: {missing}. Skipping plot.")
         ax.text(0.5, 0.5, "Data Missing", ha='center', va='center', fontsize=12, color='red', transform=ax.transAxes)
         ax.set_title(f"{team_name} - Pressure Events (Data Missing)", color=line_color)
         return
@@ -1556,7 +1559,7 @@ def plot_ppda_actions(ax, df, team_name, team_color,
     try:
         numeric_event_ids = pd.to_numeric(df[event_id_col], errors='coerce')
     except Exception as e:
-         print(f"Error converting event ID column '{event_id_col}' to numeric: {e}. Skipping plot.")
+         logger.warning(f"Error converting event ID column '{event_id_col}' to numeric: {e}. Skipping plot.")
          ax.set_title(title + " (Error)", color='red')
          return
 
@@ -1576,7 +1579,7 @@ def plot_ppda_actions(ax, df, team_name, team_color,
     add_matplotlib_attacking_direction(ax, team_color)
 
     if pressure_df.empty:
-        print(f"No pressure events found for {team_name} with IDs {action_ids_to_plot}.")
+        logger.info(f"No pressure events found for {team_name} with IDs {action_ids_to_plot}.")
         ax.set_title(f"{team_name} - Pressure Events (None Found)", color=line_color, fontsize=14)
         return
     
@@ -1600,7 +1603,7 @@ def plot_ppda_actions(ax, df, team_name, team_color,
                           fill=True, thresh=kde_thresh, cut=4,
                           alpha=kde_alpha, zorder=1)
         except Exception as e:
-            print(f"Could not generate KDE plot for {team_name}: {e}")
+            logger.warning(f"Could not generate KDE plot for {team_name}: {e}")
 
     if plot_type in ['scatter', 'both']:
          pitch.scatter(pressure_df['x'], pressure_df['y'], ax=ax,
@@ -1614,7 +1617,7 @@ def plot_ppda_actions(ax, df, team_name, team_color,
                           cmap=team_kde_cmap, gridsize=(12, 8), # Example gridsize
                           edgecolors=pitch_color, alpha=0.8, zorder=1) # Use pitch color for edges
          except Exception as e:
-            print(f"Could not generate Hexbin plot for {team_name}: {e}")
+            logger.warning(f"Could not generate Hexbin plot for {team_name}: {e}")
 
     # Add Title
     ax.set_title(title, color=line_color, fontsize=14) # Use generated title
@@ -1659,7 +1662,7 @@ def plot_buildup_sequence(ax, sequence_data, team_name, team_color, opponent_col
     # --- *** End Setting Limits *** ---
 
     if sequence_data is None or sequence_data.empty:
-        print(f"Warning: No data for buildup sequence {sequence_id}")
+        logger.warning(f"Warning: No data for buildup sequence {sequence_id}")
         ax.set_title(f"Buildup Seq {sequence_id}\n(No Data)", color=line_color, fontsize=10)
         ax.xaxis.set_visible(False); ax.yaxis.set_visible(False)
         return
@@ -1778,7 +1781,7 @@ def plot_formations_and_subs(ax, # Pass the figure object
         bg_color (str): Background color.
         line_color (str): Pitch line color.
     """
-    print(f"Plotting formation for {team_name} (Initial Formation ID: {team_starting_formation_id})...")
+    logger.debug(f"Plotting formation for {team_name} (Initial Formation ID: {team_starting_formation_id})...")
     if formation_changes is None: formation_changes = []
 
     # --- *** Get Formation Name *** ---
@@ -1823,8 +1826,8 @@ def plot_formations_and_subs(ax, # Pass the figure object
                         pitch.annotate(role, xy=(plot_x, plot_y + 7), color=line_color, ha='center', va='bottom', fontsize=6, weight='bold', ax=ax, zorder=3, path_effects=[path_effects.withStroke(linewidth=1.0, foreground=bg_color)])
                     else:
                         pitch.annotate(role, xy=(plot_x, plot_y - 5), color=line_color, ha='center', va='top', fontsize=6, weight='bold', ax=ax, zorder=3, path_effects=[path_effects.withStroke(linewidth=1.0, foreground=bg_color)])
-    elif team_starting_formation_id is None: print(f"Warning: No formation ID for {team_name}.")
-    elif df_starters_team.empty: print(f"Warning: No starter data for {team_name}.")
+    elif team_starting_formation_id is None: logger.warning(f"Warning: No formation ID for {team_name}.")
+    elif df_starters_team.empty: logger.warning(f"Warning: No starter data for {team_name}.")
 
 
     # --- Prepare Text Area Content ---
@@ -1863,7 +1866,7 @@ def plot_formations_and_subs(ax, # Pass the figure object
     used_on_indices = set() # To ensure a "player on" is used only once
 
     if not player_off_events.empty and not player_on_events.empty:
-        print(f"  Attempting to pair {len(player_off_events)} Player Off events with {len(player_on_events)} Player On events for {team_name}...")
+        logger.debug(f"  Attempting to pair {len(player_off_events)} Player Off events with {len(player_on_events)} Player On events for {team_name}...")
         for off_idx, off_event in player_off_events.iterrows():
             time_min_off = off_event.get('timeMin')
             time_sec_off = off_event.get('timeSec')
@@ -1951,7 +1954,7 @@ def plot_recovery_first_pass(ax, df_recovery_sequences, team_name, team_color,
         zone_name (str): Name of the zone being plotted (for title).
         # ... (other styling args) ...
     """
-    print(f"Plotting recovery-first-pass for {team_name} in {zone_name} ({len(df_recovery_sequences)} sequences)...")
+    logger.debug(f"Plotting recovery-first-pass for {team_name} in {zone_name} ({len(df_recovery_sequences)} sequences)...")
 
     # --- Setup Pitch ---
     pitch = Pitch(pitch_type='opta', pitch_color=bg_color, line_color=line_color,
@@ -1983,7 +1986,7 @@ def plot_recovery_first_pass(ax, df_recovery_sequences, team_name, team_color,
         df_plot_data[col] = pd.to_numeric(df_plot_data[col], errors='coerce')
     # Ensure 'first_pass_outcome' column exists (should be 'Successful' or 'Unsuccessful')
     if 'first_pass_outcome' not in df_plot_data.columns:
-        print(f"Warning: 'first_pass_outcome' column missing. Cannot color passes by outcome.")
+        logger.warning(f"Warning: 'first_pass_outcome' column missing. Cannot color passes by outcome.")
         df_plot_data['first_pass_outcome'] = 'Successful' # Default to successful for coloring
 
     # Filter out rows where essential coordinates for plotting are NaN
@@ -2096,7 +2099,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
         unsuccessful_pass_color (str, optional): Color for unsuccessful pass lines.
         metric_to_analyze (str): Metric to analyze for the buildup sequence.
     """
-    print(f"Plotting {team_building_up} buildup (seq {loss_sequence_id}) after {team_that_lost_possession} loss in {loss_zone}...")
+    logger.debug(f"Plotting {team_building_up} buildup (seq {loss_sequence_id}) after {team_that_lost_possession} loss in {loss_zone}...")
 
     pitch = Pitch(pitch_type='opta', corner_arcs=True, pitch_color=bg_color, line_color=line_color, linewidth=1.5,
                   pad_left=2, pad_right=2, pad_top=2, pad_bottom=2)
@@ -2165,7 +2168,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
             type_of_loss_str = first_event_in_seq.get('type_of_initial_loss', 'Unknown Loss')
         if pd.notna(time_min_loss) and pd.notna(time_sec_loss):
             try: time_str = f"{int(time_min_loss)}'{int(time_sec_loss):02d}\""
-            except (ValueError, TypeError): print(f"Warning: Non-integer time for loss in seq {loss_sequence_id}")
+            except (ValueError, TypeError): logger.warning(f"Warning: Non-integer time for loss in seq {loss_sequence_id}")
     # --- End Extract Time ---
 
     if sequence_data is None or sequence_data.empty:
@@ -2231,7 +2234,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
                         receiver_jersey = event_row.get('receiver_jersey_number', '')
                         try: receiver_text = str(int(receiver_jersey)) if pd.notna(receiver_jersey) and receiver_jersey != '' else ''
                         except: receiver_text = str(receiver_jersey) if pd.notna(receiver_jersey) else ''
-                        print(f"DEBUG MICHELE: last event: {event_row}")
+                        logger.debug(f"DEBUG MICHELE: last event: {event_row}")
                         # if event_row['team_name'] == team_that_lost_possession: # defending team regained possession                        
                         #     pitch.scatter(current_end_x, current_end_y, s=node_size, marker='s', facecolor='grey', edgecolor=unsuccessful_pass_color, linewidth=1.0, alpha=1, ax=ax, zorder=3)
                         #     outcome_text = f"Possession lost"
@@ -2293,7 +2296,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
                               color=shot_line_color, linewidth=2, ax=ax, zorder=2)
                 something_was_plotted = True
             else:
-                print(f"  Warning: Shot for sequence {loss_sequence_id} has no valid start coordinates.")
+                logger.warning(f"  Warning: Shot for sequence {loss_sequence_id} has no valid start coordinates.")
             
             if event_type == 'Goal':
                 if metric_to_analyze == 'defensive_actions':
@@ -2345,7 +2348,7 @@ def plot_opponent_buildup_after_loss(ax, sequence_data,
         ax.text(50, 50, "Unplotted Sequence Type",
                 ha='center', va='center', color='yellow', fontsize=12,
                 bbox=dict(facecolor='black', alpha=0.5))
-        print(f"Warning: Sequence {loss_sequence_id} had data but the plotting logic did not handle it.")
+        logger.warning(f"Warning: Sequence {loss_sequence_id} had data but the plotting logic did not handle it.")
 
 
     # --- Title ---
@@ -2443,8 +2446,8 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
         ax_table (matplotlib.axes.Axes): The axes pre-configured for the summary table.
         pitch_type (str): Type of pitch for mplsoccer (default 'opta').
     """
-    print(f"  Plotting cross heatmap for {attacking_team_name} on provided axes...")
-    print(f"  DEBUG: pitch_type received by plot_cross_heatmap_and_summary: {pitch_type}") # Check arg
+    logger.debug(f"  Plotting cross heatmap for {attacking_team_name} on provided axes...")
+    logger.debug(f"  DEBUG: pitch_type received by plot_cross_heatmap_and_summary: {pitch_type}") # Check arg
 
     pitch = Pitch(pitch_type=pitch_type, # Uses arg, defaults to 'opta'
                   pitch_length=100, # Explicitly for Opta-like 0-100 data
@@ -2462,24 +2465,24 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
     plot_df.dropna(subset=['x', 'y'], inplace=True) # Crucial: only plot valid coordinates
 
     if plot_df.empty:
-        print(f"  No valid cross coordinates for heatmap for {attacking_team_name}.")
+        logger.debug(f"  No valid cross coordinates for heatmap for {attacking_team_name}.")
         ax_pitch.text(0.5, 0.5, "No cross data for heatmap", ha='center', va='center',
                       fontsize=12, color=text_color, transform=ax_pitch.transAxes)
     else:
         current_bins_arg = (grid_bins_x, grid_bins_y)
-        print(f"  DEBUG: Type of pitch object: {type(pitch)}")
-        print(f"  DEBUG: Is pitch an mplsoccer.Pitch instance? {isinstance(pitch, Pitch)}")
-        print(f"  DEBUG: x data for bin_statistic (head): \n{plot_df['x'].head()}")
-        print(f"  DEBUG: y data for bin_statistic (head): \n{plot_df['y'].head()}")
-        print(f"  DEBUG: bins argument for bin_statistic: {current_bins_arg}")
-        print(f"  DEBUG: Values for x: min={plot_df['x'].min()}, max={plot_df['x'].max()}")
-        print(f"  DEBUG: Values for y: min={plot_df['y'].min()}, max={plot_df['y'].max()}")
-        print(f"  DEBUG: Pitch dimensions (check consistency with data): length={pitch.dim.pitch_length}, width={pitch.dim.pitch_width}")
+        logger.debug(f"  DEBUG: Type of pitch object: {type(pitch)}")
+        logger.debug(f"  DEBUG: Is pitch an mplsoccer.Pitch instance? {isinstance(pitch, Pitch)}")
+        logger.debug(f"  DEBUG: x data for bin_statistic (head): \n{plot_df['x'].head()}")
+        logger.debug(f"  DEBUG: y data for bin_statistic (head): \n{plot_df['y'].head()}")
+        logger.debug(f"  DEBUG: bins argument for bin_statistic: {current_bins_arg}")
+        logger.debug(f"  DEBUG: Values for x: min={plot_df['x'].min()}, max={plot_df['x'].max()}")
+        logger.debug(f"  DEBUG: Values for y: min={plot_df['y'].min()}, max={plot_df['y'].max()}")
+        logger.debug(f"  DEBUG: Pitch dimensions (check consistency with data): length={pitch.dim.pitch_length}, width={pitch.dim.pitch_width}")
 
 
         # Ensure you are calling the method from the Pitch class you expect
         # This should be mplsoccer.pitch.Pitch.bin_statistic
-        print(f"  DEBUG: pitch.bin_statistic method: {pitch.bin_statistic}")
+        logger.debug(f"  DEBUG: pitch.bin_statistic method: {pitch.bin_statistic}")
         stats = pitch.bin_statistic(
             plot_df['x'], plot_df['y'],
             values=None, statistic='count',
@@ -2487,7 +2490,7 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
         )
 
         # --- DEBUGGING: Print keys of stats ---
-        print("DEBUG: Keys in stats dictionary:", stats.keys())
+        logger.debug('%s %s', "DEBUG: Keys in stats dictionary:", stats.keys())
         # You can also print the whole dictionary if it's not too large:
         # print("DEBUG: Full stats dictionary:", stats)
         # --- END DEBUGGING ---
@@ -2506,7 +2509,7 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
 
         # --- START OF CORRECTED ANNOTATION LOGIC ---
         if 'x_bin_count' in stats and 'y_bin_count' in stats:
-            print("  DEBUG: Annotating using x_bin_count and y_bin_count (Standard Path).")
+            logger.debug("  DEBUG: Annotating using x_bin_count and y_bin_count (Standard Path).")
             for i in range(stats['x_bin_count']):
                 for j in range(stats['y_bin_count']):
                     if stats['statistic'][j, i] > 0: # Assuming statistic is (y_bins, x_bins)
@@ -2520,7 +2523,7 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
         elif 'cx' in stats and 'cy' in stats and \
              'statistic' in stats and isinstance(stats['statistic'], np.ndarray) and \
              stats['statistic'].ndim == 2:
-            print("  DEBUG: Annotating using 'cx' and 'cy' keys for centers (Workaround Path).")
+            logger.debug("  DEBUG: Annotating using 'cx' and 'cy' keys for centers (Workaround Path).")
             num_y_bins_observed, num_x_bins_observed = stats['statistic'].shape
             if stats['cx'].shape == stats['statistic'].shape and stats['cy'].shape == stats['statistic'].shape:
                 for j_idx in range(num_y_bins_observed):
@@ -2535,14 +2538,14 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
                                                va='center', ha='center', fontsize=8, weight='bold',
                                                path_effects=path_effects_to_use, zorder=2)
                             except IndexError:
-                                print(f"    DEBUG: IndexError accessing cx/cy at [{j_idx},{i_idx}] while annotating.")
+                                logger.warning(f"    DEBUG: IndexError accessing cx/cy at [{j_idx},{i_idx}] while annotating.")
                             except Exception as e_annotate:
-                                print(f"    DEBUG: Failed to annotate using cx/cy at [{j_idx},{i_idx}]: {e_annotate}")
+                                logger.warning(f"    DEBUG: Failed to annotate using cx/cy at [{j_idx},{i_idx}]: {e_annotate}")
             else:
-                print(f"  DEBUG: Shape mismatch for cx/cy and statistic. cx: {stats['cx'].shape}, cy: {stats['cy'].shape}, statistic: {stats['statistic'].shape}. Cannot annotate with cx/cy.")
+                logger.warning(f"  DEBUG: Shape mismatch for cx/cy and statistic. cx: {stats['cx'].shape}, cy: {stats['cy'].shape}, statistic: {stats['statistic'].shape}. Cannot annotate with cx/cy.")
 
         elif 'xr' in stats and 'yr' in stats: # Fallback for very old mplsoccer
-            print("  DEBUG: Annotating using 'xr' and 'yr' (Older mplsoccer Path).")
+            logger.debug("  DEBUG: Annotating using 'xr' and 'yr' (Older mplsoccer Path).")
             num_x_bins_old = stats['xr']
             num_y_bins_old = stats['yr']
             for i in range(num_x_bins_old):
@@ -2556,7 +2559,7 @@ def plot_cross_heatmap_and_summary(fig, ax_pitch, ax_table, # Added ax_table
                                        va='center', ha='center', fontsize=8, weight='bold',
                                        path_effects=path_effects_to_use, zorder=2)
         else:
-            print("  ERROR-DEBUG: Suitable keys for heatmap annotation NOT FOUND IN STATS. No annotation will be performed.")
+            logger.warning("  ERROR-DEBUG: Suitable keys for heatmap annotation NOT FOUND IN STATS. No annotation will be performed.")
         # --- END OF CORRECTED ANNOTATION LOGIC ---
 
         cbar = fig.colorbar(pcm, ax=ax_pitch, orientation='vertical', shrink=0.7, pad=0.02)

@@ -1,4 +1,7 @@
 # src/metrics/turnover_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 
@@ -28,27 +31,27 @@ def calculate_high_turnovers(df_processed, hteamName, ateamName,
             # Removed radius_opta return, as it's recalculated in plotting if needed
             # or meter radius is used directly
     """
-    print(f"Calculating high turnovers (radius: {radius_meters}m)...")
+    logger.debug(f"Calculating high turnovers (radius: {radius_meters}m)...")
 
     # --- Calculate Radius in Opta Units FOR FILTERING ---
     if pitch_length_meters <= 0:
-        print("Error: Pitch length must be positive.")
+        logger.warning("Error: Pitch length must be positive.")
         return pd.DataFrame(), pd.DataFrame(), 0, 0
     radius_opta = radius_meters * (100.0 / pitch_length_meters)
-    print(f"  Filtering radius in Opta units: {radius_opta:.2f}")
+    logger.debug(f"  Filtering radius in Opta units: {radius_opta:.2f}")
 
     # --- Filter for Recovery Events ---
     recovery_types = ['Ball recovery', 'Interception']
     required_cols = ['team_name', 'type_name', 'x', 'y']
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns for turnover analysis: {missing}")
+        logger.warning(f"Error: Missing required columns for turnover analysis: {missing}")
         return pd.DataFrame(), pd.DataFrame(), 0, 0
 
     recoveries_df = df_processed[df_processed['type_name'].isin(recovery_types)].copy()
 
     if recoveries_df.empty:
-        print("No recovery events found.")
+        logger.debug("No recovery events found.")
         return pd.DataFrame(), pd.DataFrame(), 0, 0
 
     # Define opponent goal centers in OPTA coordinates for filtering
@@ -83,8 +86,8 @@ def calculate_high_turnovers(df_processed, hteamName, ateamName,
         away_high_to_df = pd.DataFrame()
         ato_count = 0
 
-    print(f"  Found {hto_count} high turnovers for {hteamName}")
-    print(f"  Found {ato_count} high turnovers for {ateamName}")
+    logger.info(f"  Found {hto_count} high turnovers for {hteamName}")
+    logger.info(f"  Found {ato_count} high turnovers for {ateamName}")
 
     # Return the filtered DFs (still with Opta coords) and counts
     return home_high_to_df, away_high_to_df, hto_count, ato_count

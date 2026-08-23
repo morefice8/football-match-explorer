@@ -1,4 +1,7 @@
 # src/data_preparation_for_plots/prepare_offensive_transitions.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
@@ -13,14 +16,14 @@ def create_offensive_transition_summary(df_sequences: pd.DataFrame, team_that_re
     Create a summary table for offensive transition sequences after a team regains possession.
     """
     if df_sequences.empty or 'loss_sequence_id' not in df_sequences.columns:
-        print(f"Warning: No sequences found for {team_that_recovered_possession}.")
+        logger.warning(f"Warning: No sequences found for {team_that_recovered_possession}.")
         return None
 
     summary_df = df_sequences.drop_duplicates(subset=['loss_sequence_id'], keep='last').copy()
     required_cols = ['loss_zone', 'sequence_outcome_type', 'opponent_pass_count']
     for col in required_cols:
         if col not in summary_df.columns:
-            print(f"Warning: Column '{col}' missing. Adding default.")
+            logger.warning(f"Warning: Column '{col}' missing. Adding default.")
             summary_df[col] = "Unknown" if col != 'opponent_pass_count' else np.nan
 
     summary_df['opponent_pass_count'] = pd.to_numeric(summary_df['opponent_pass_count'], errors='coerce')
@@ -36,12 +39,12 @@ def create_offensive_transition_summary(df_sequences: pd.DataFrame, team_that_re
     final_table = table_outcome_counts.merge(avg_passes, on=['loss_zone', 'sequence_outcome_type'], how='left')
     final_table = final_table.sort_values(by=['loss_zone', 'count'], ascending=[True, False])
 
-    print(f"\nDEBUG: Offensive transition summary for {team_that_recovered_possession}:")
+    logger.debug(f"\nDEBUG: Offensive transition summary for {team_that_recovered_possession}:")
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-        print(final_table)
+        logger.debug("%s", final_table)
     
     final_table = final_table.rename(columns={'loss_zone': 'recovery_zone'})
-    print(f"Michele : {final_table}")
+    logger.debug(f"Michele : {final_table}")
 
     return final_table
 
@@ -55,7 +58,7 @@ def enrich_with_receiver_info(df_processed: pd.DataFrame, passes_df: pd.DataFram
             on='eventId', how='left'
         )
     else:
-        print("Warning: passes_df or receiver info missing.")
+        logger.warning("Warning: passes_df or receiver info missing.")
         df['receiver'] = pd.NA
         df['receiver_jersey_number'] = pd.NA
     return df

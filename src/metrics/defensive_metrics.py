@@ -1,4 +1,7 @@
 # src/metrics/defensive_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 
@@ -29,25 +32,25 @@ def get_defensive_actions(df_processed, defensive_action_types=None):
     Returns:
         pd.DataFrame: DataFrame containing only the selected defensive action events.
     """
-    print("Filtering for defensive actions...")
+    logger.debug("Filtering for defensive actions...")
 
     # --- Determine action types to use ---
     if defensive_action_types is None:
         types_to_use = DEFAULT_DEFENSIVE_TYPES
-        print(f"  Using default defensive types: {types_to_use}")
+        logger.debug(f"  Using default defensive types: {types_to_use}")
     else:
         types_to_use = defensive_action_types
-        print(f"  Using specified defensive types: {types_to_use}")
+        logger.debug(f"  Using specified defensive types: {types_to_use}")
 
     # --- Check required columns ---
     required_cols = ['team_name', 'type_name', 'x', 'y'] # Base requirements
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing base required columns for defensive action analysis: {missing}")
+        logger.warning(f"Error: Missing base required columns for defensive action analysis: {missing}")
         return pd.DataFrame()
     # Check if 'type_name' column actually exists before filtering
     if 'type_name' not in df_processed.columns:
-         print(f"Error: 'type_name' column missing, cannot filter actions.")
+         logger.warning(f"Error: 'type_name' column missing, cannot filter actions.")
          return pd.DataFrame()
 
 
@@ -60,11 +63,11 @@ def get_defensive_actions(df_processed, defensive_action_types=None):
     # Ensure 'x' exists before applying this filter
     if 'x' in df_processed.columns:
         aerial_filter = (df_processed['type_name'] == 'Aerial') & (df_processed['x'].fillna(101) <= 33.33)
-        print("  Including 'Aerial' actions occurring in defensive third (x <= 33.33).")
+        logger.debug("  Including 'Aerial' actions occurring in defensive third (x <= 33.33).")
         # Combine filters: must be one of the specified types OR a defensive third aerial
         final_filter = defensive_filter | aerial_filter
     else:
-        print("  Warning: 'x' column missing, cannot apply Aerial location filter.")
+        logger.warning("  Warning: 'x' column missing, cannot apply Aerial location filter.")
         final_filter = defensive_filter # Only use standard types if 'x' is missing
 
     # --- Select relevant columns ---
@@ -74,7 +77,7 @@ def get_defensive_actions(df_processed, defensive_action_types=None):
     existing_cols = [col for col in relevant_cols if col in df_processed.columns]
 
     df_defensive_actions = df_processed.loc[final_filter, existing_cols].copy()
-    print(f"Found {len(df_defensive_actions)} defensive actions matching criteria.")
+    logger.info(f"Found {len(df_defensive_actions)} defensive actions matching criteria.")
     return df_defensive_actions
 
 
@@ -90,18 +93,18 @@ def calculate_defensive_agg(df_defensive_actions, team_name):
         pd.DataFrame: DataFrame with player name, median x/y, action count, and jersey number.
                       Returns empty DataFrame if no actions for the team.
     """
-    print(f"Calculating aggregated defensive metrics for {team_name}...")
+    logger.debug(f"Calculating aggregated defensive metrics for {team_name}...")
     team_actions_df = df_defensive_actions[df_defensive_actions["team_name"] == team_name].copy()
 
     if team_actions_df.empty:
-        print(f"Warning: No defensive actions found for team {team_name}.")
+        logger.warning(f"Warning: No defensive actions found for team {team_name}.")
         return pd.DataFrame()
 
     # Check for required columns for aggregation
     required_agg_cols = ['playerName', 'x', 'y', 'id', 'Mapped Jersey Number']
     if not all(col in team_actions_df.columns for col in required_agg_cols):
         missing = set(required_agg_cols) - set(team_actions_df.columns)
-        print(f"Error: Missing columns needed for aggregation: {missing}")
+        logger.warning(f"Error: Missing columns needed for aggregation: {missing}")
         return pd.DataFrame()
 
     # Group by player and calculate median location and count
@@ -112,7 +115,7 @@ def calculate_defensive_agg(df_defensive_actions, team_name):
         jersey_number=('Mapped Jersey Number', 'first') # Get jersey number
     ).reset_index() # Make playerName a column again
 
-    print(f"Calculated metrics for {len(player_agg)} players.")
+    logger.info(f"Calculated metrics for {len(player_agg)} players.")
     return player_agg
 
 # --- PPDA Calculation Function ---
@@ -145,34 +148,34 @@ def calculate_ppda_opta(df, team_of_interest, opponent_team, def_action_ids, # O
                Returns np.inf if no defensive actions occurred in the zone.
                Returns None if input validation fails.
     """
-    print(f"Calculating PPDA for {team_of_interest} (vs {opponent_team})...")
+    logger.debug(f"Calculating PPDA for {team_of_interest} (vs {opponent_team})...")
 
     # --- Input Validation ---
     required_cols = ['team_name', event_id_col, 'x']
     if not all(col in df.columns for col in required_cols):
         missing = [col for col in required_cols if col not in df.columns]
-        print(f"Error [PPDA]: DataFrame missing required columns: {missing}")
+        logger.warning(f"Error [PPDA]: DataFrame missing required columns: {missing}")
         return None
     if team_of_interest not in df['team_name'].unique():
-        print(f"Error [PPDA]: Team '{team_of_interest}' not found.")
+        logger.warning(f"Error [PPDA]: Team '{team_of_interest}' not found.")
         return None
     if opponent_team not in df['team_name'].unique():
-        print(f"Error [PPDA]: Opponent '{opponent_team}' not found.")
+        logger.warning(f"Error [PPDA]: Opponent '{opponent_team}' not found.")
         return None
     # Ensure coordinate column is numeric
     if not pd.api.types.is_numeric_dtype(df['x']):
-         print(f"Error [PPDA]: Column 'x' must be numeric.")
+         logger.warning(f"Error [PPDA]: Column 'x' must be numeric.")
          return None
      # Ensure event id column is numeric (or convertible)
     try:
         df[event_id_col] = pd.to_numeric(df[event_id_col], errors='coerce')
         if df[event_id_col].isnull().any():
-             print(f"Warning [PPDA]: Column '{event_id_col}' contains non-numeric values.")
+             logger.warning(f"Warning [PPDA]: Column '{event_id_col}' contains non-numeric values.")
              # Decide whether to proceed by dropping NaNs or return None
              # df = df.dropna(subset=[event_id_col]) # Option to proceed
              # return None # Option to stop
     except Exception as e:
-         print(f"Error [PPDA]: Could not process event ID column '{event_id_col}': {e}")
+         logger.warning(f"Error [PPDA]: Could not process event ID column '{event_id_col}': {e}")
          return None
 
 
@@ -198,12 +201,12 @@ def calculate_ppda_opta(df, team_of_interest, opponent_team, def_action_ids, # O
     # --- Calculate PPDA ---
     if num_team_def_actions == 0:
         ppda = np.inf
-        print(f"  {team_of_interest}: 0 defensive actions in zone (x >= {def_action_zone_thresh}). PPDA = inf")
+        logger.debug(f"  {team_of_interest}: 0 defensive actions in zone (x >= {def_action_zone_thresh}). PPDA = inf")
     else:
         ppda = num_opponent_passes / num_team_def_actions
-        print(f"  {opponent_team} Passes (x < {pass_zone_thresh}): {num_opponent_passes}")
-        print(f"  {team_of_interest} Def Actions (x >= {def_action_zone_thresh}): {num_team_def_actions}")
-        print(f"  Calculated PPDA: {ppda:.2f}")
+        logger.debug(f"  {opponent_team} Passes (x < {pass_zone_thresh}): {num_opponent_passes}")
+        logger.debug(f"  {team_of_interest} Def Actions (x >= {def_action_zone_thresh}): {num_team_def_actions}")
+        logger.info(f"  Calculated PPDA: {ppda:.2f}")
 
     return ppda
 

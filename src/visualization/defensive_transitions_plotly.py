@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -41,7 +44,7 @@ def get_team_logo_src(team_name, default_logo_path="/assets/logos/_default_badge
         # Or, if you expect team names like "Wolverhampton Wanderers" and want "WOL"
         # you might need a more complex fallback logic.
         # For now, if not in map, use default.
-        print(f"Warning: Team name '{team_name}' not found in TEAM_NAME_TO_LOGO_CODE mapping. Using default logo.")
+        logger.warning(f"Warning: Team name '{team_name}' not found in TEAM_NAME_TO_LOGO_CODE mapping. Using default logo.")
         return default_logo_path
 
     logo_filename = f"{LOGO_PREFIX}{team_code}{LOGO_EXTENSION}" # e.g., ENG_BOU.png
@@ -611,7 +614,7 @@ def plot_defensive_hull_plotly(df_player_agg, team_color, is_away=False):
                 showlegend=False
             ))
         except Exception as e:
-            print(f"Could not compute Convex Hull: {e}")
+            logger.warning(f"Could not compute Convex Hull: {e}")
 
     # --- Disegna i nodi dei giocatori con colori e forme personalizzate ---
     if not df_player_agg.empty:

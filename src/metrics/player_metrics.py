@@ -1,4 +1,7 @@
 # src/metrics/player_metrics.py
+import logging
+logger = logging.getLogger(__name__)
+
 import pandas as pd
 import numpy as np
 from .pass_metrics import classify_progressive_passes
@@ -203,9 +206,9 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     """
     Calculates a variety of statistics aggregated per player.
     """
-    print("Calculating aggregated player statistics...")
+    logger.debug("Calculating aggregated player statistics...")
     if df_processed.empty:
-        print("Warning: Input DataFrame is empty.")
+        logger.warning("Warning: Input DataFrame is empty.")
         return pd.DataFrame()
 
     df_processed = df_processed.copy()
@@ -213,9 +216,9 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     # --- Pre-calculate Flags ---
     # (Keep the logic to ensure is_key_pass and is_assist flags exist)
     if 'is_key_pass' not in df_processed.columns or 'is_assist' not in df_processed.columns:
-        print("Info: 'is_key_pass'/'is_assist' flags not found, calculating them now...")
+        logger.warning("Info: 'is_key_pass'/'is_assist' flags not found, calculating them now...")
         if assist_qualifier_col not in df_processed.columns:
-            print(f"Error: Required qualifier column '{assist_qualifier_col}' not found.")
+            logger.warning(f"Error: Required qualifier column '{assist_qualifier_col}' not found.")
             return pd.DataFrame()
         assist_qual_numeric = pd.to_numeric(df_processed[assist_qualifier_col], errors='coerce')
         # Ensure flags are only True if it's also a Pass event
@@ -236,12 +239,12 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     grouped_player = df_processed.groupby('playerName')
 
     # --- Calculate Stats using apply or separate aggregations ---
-    print("  Aggregating player stats...")
+    logger.debug("  Aggregating player stats...")
     player_stats_list = []
 
     required_cols_check = ['type_name', 'outcome', 'x', 'y', 'end_x', 'end_y', 'is_key_pass', 'is_assist']
     if not all(col in df_processed.columns for col in required_cols_check):
-         print(f"Error: Missing one or more required columns for calculation: {set(required_cols_check) - set(df_processed.columns)}")
+         logger.warning(f"Error: Missing one or more required columns for calculation: {set(required_cols_check) - set(df_processed.columns)}")
          return pd.DataFrame()
 
     passing_event_sets = build_player_passing_event_sets(
@@ -296,12 +299,12 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     # Convert list of dicts to DataFrame
     player_stats = pd.DataFrame(player_stats_list)
     if player_stats.empty:
-        print("No player data after initial aggregation.")
+        logger.debug("No player data after initial aggregation.")
         return pd.DataFrame()
     player_stats.set_index('playerName', inplace=True) # Set index after creation
 
     # --- Canonical Shot Sequence Involvement (REL-08) ---
-    print("  Calculating canonical shot-sequence involvement...")
+    logger.debug("  Calculating canonical shot-sequence involvement...")
     shot_sequence_stats = calculate_shot_sequence_player_stats(
         df_processed,
         shot_types=shot_types,
@@ -370,7 +373,7 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     if all(col in player_stats.columns for col in defensive_cols):
         player_stats['Defensive Actions Total'] = player_stats[defensive_cols].sum(axis=1)
     else:
-        print("Warning: Could not calculate 'Defensive Actions Total'.")
+        logger.warning("Warning: Could not calculate 'Defensive Actions Total'.")
         player_stats['Defensive Actions Total'] = 0
 
 
@@ -379,8 +382,8 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     count_cols = player_stats.select_dtypes(include=np.number).columns
     player_stats[count_cols] = player_stats[count_cols].astype(int)
 
-    print(f"Finished calculating stats for {len(player_stats)} players.")
-    print("Final columns in player_stats_df:", player_stats.columns.tolist())
+    logger.info(f"Finished calculating stats for {len(player_stats)} players.")
+    logger.debug('%s %s', "Final columns in player_stats_df:", player_stats.columns.tolist())
     return player_stats
 
 # --- Calculate Median Touch Location ---
@@ -400,9 +403,9 @@ def calculate_median_touch_location(df_processed, exclude_event_types=None):
                       touch_count, jersey_number, and positional_role.
                       Returns empty DataFrame if errors or no relevant events.
     """
-    print("Calculating median player touch locations...")
+    logger.debug("Calculating median player touch locations...")
     if df_processed.empty:
-        print("Warning: Input DataFrame is empty.")
+        logger.warning("Warning: Input DataFrame is empty.")
         return pd.DataFrame()
 
     if exclude_event_types is None:
@@ -412,7 +415,7 @@ def calculate_median_touch_location(df_processed, exclude_event_types=None):
     required_cols = ['playerName', 'team_name', 'x', 'y', 'type_name', 'Mapped Jersey Number', 'positional_role', 'id']
     if not all(col in df_processed.columns for col in required_cols):
         missing = set(required_cols) - set(df_processed.columns)
-        print(f"Error: Missing required columns for median touch location: {missing}")
+        logger.warning(f"Error: Missing required columns for median touch location: {missing}")
         return pd.DataFrame()
 
     # Filter out excluded event types and events without valid coordinates
@@ -423,7 +426,7 @@ def calculate_median_touch_location(df_processed, exclude_event_types=None):
     ].copy()
 
     if df_touches.empty:
-        print("Warning: No valid touch events found after filtering.")
+        logger.warning("Warning: No valid touch events found after filtering.")
         return pd.DataFrame()
 
     # Group by player and calculate median location, count, and get first jersey/role
@@ -435,7 +438,7 @@ def calculate_median_touch_location(df_processed, exclude_event_types=None):
         positional_role=('positional_role', 'first') # Get representative role
     ).reset_index() # Make playerName a column
 
-    print(f"Calculated median locations for {len(player_loc_agg)} players.")
+    logger.info(f"Calculated median locations for {len(player_loc_agg)} players.")
     return player_loc_agg
 
 def calculate_defensive_action_rates(df_player_actions):

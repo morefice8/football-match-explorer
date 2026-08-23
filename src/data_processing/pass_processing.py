@@ -1,4 +1,7 @@
 # src/data_processing/pass_processing.py
+import logging
+logger = logging.getLogger(__name__)
+
 import math
 
 import numpy as np
@@ -508,14 +511,14 @@ def get_passes_df(df_processed):
     Versione 3: Corregge il calcolo dei passaggi progressivi e assicura che
     tutte le colonne booleane e temporali necessarie siano presenti.
     """
-    print("Extracting pass data in get_passes_df...")
+    logger.debug("Extracting pass data in get_passes_df...")
     if df_processed.empty:
-        print("  get_passes_df: Input df_processed is empty.")
+        logger.info("  get_passes_df: Input df_processed is empty.")
         return pd.DataFrame()
 
     pass_events_filter = df_processed['type_name'] == 'Pass'
     if not pass_events_filter.any():
-        print("  get_passes_df: No 'Pass' events found in df_processed.")
+        logger.info("  get_passes_df: No 'Pass' events found in df_processed.")
         return pd.DataFrame()
 
     # Lavora su una copia degli eventi di passaggio
@@ -581,12 +584,10 @@ def get_passes_df(df_processed):
     passes['receiver_is_reliable'] = passes['receiver_is_reliable'].fillna(False).astype(bool)
 
     coverage = receiver_coverage_summary(passes)
-    print(
-        "  get_passes_df: Reliable receiver inferred for "
+    logger.debug("  get_passes_df: Reliable receiver inferred for "
         f"{coverage['resolved']}/{coverage['eligible']} successful passes "
         f"({coverage['coverage_pct']:.1f}%; "
-        f"high={coverage['high']}, medium={coverage['medium']})."
-    )
+        f"high={coverage['high']}, medium={coverage['medium']}).")
 
     # 4. Ensure Key Pass / Assist flags exist and represent completed passes.
     for flag_col in ['is_key_pass', 'is_assist']:
@@ -598,10 +599,8 @@ def get_passes_df(df_processed):
                 & successful_pass
             )
         else:
-            print(
-                f"  get_passes_df: Flag column "
-                f"'{flag_col}' NOT found. Creating as all False."
-            )
+            logger.warning(f"  get_passes_df: Flag column "
+                f"'{flag_col}' NOT found. Creating as all False.")
             passes[flag_col] = False
 
     # --- Define final columns to select ---
@@ -626,7 +625,7 @@ def get_passes_df(df_processed):
     
     df_final_passes = passes[final_present_columns]
 
-    print(f"  get_passes_df: Extracted {len(df_final_passes)} pass events. Columns: {df_final_passes.columns.tolist()}")
+    logger.info(f"  get_passes_df: Extracted {len(df_final_passes)} pass events. Columns: {df_final_passes.columns.tolist()}")
     return df_final_passes
 
 
@@ -694,8 +693,8 @@ def get_sub_list(df_processed):
     if 'type_name' in df_processed.columns and 'playerName' in df_processed.columns:
         df_sub = df_processed[df_processed['type_name'] == 'Player on']
         sub_list = df_sub['playerName'].unique().tolist()
-        print(f"Identified substitutes: {sub_list}")
+        logger.info(f"Identified substitutes: {sub_list}")
         return sub_list
     else:
-        print("Warning: Cannot determine substitutes. 'type_name' or 'playerName' column missing.")
+        logger.warning("Warning: Cannot determine substitutes. 'type_name' or 'playerName' column missing.")
         return []
