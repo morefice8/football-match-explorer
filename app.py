@@ -3467,154 +3467,238 @@ def render_formation_content(active_tab, stored_data_json):
 
         # --- CASO 1: TIMELINE DELLE FORMAZIONI (la tua logica esistente) ---
         if active_tab == 'formation_timeline':
-            if not stored_data_json:
-                return dbc.Alert("Match data loading for formation...", color="info")
             try:
-                df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-                df_processed = df_processed.reset_index().rename(columns={'index': 'event_sequence_index'})
+                timeline_model = (
+                    formation_plotly.build_formation_timeline_model(
+                        df_processed,
+                        match_info,
+                    )
+                )
+                moments = timeline_model.get("moments", [])
 
-                match_info = json.loads(stored_data_json['match_info'])
+                if not moments:
+                    return dbc.Alert(
+                        "No valid formation timeline could be constructed "
+                        "for this match.",
+                        color="secondary",
+                    )
 
-                # --- 1. SETUP INIZIALE (ROBUSTO) ---
-
-                # Mappa dati giocatori
-                player_data_map = {}
-                if not df_processed.empty:
-                    df_players_unique = df_processed.dropna(subset=['playerId', 'Mapped Jersey Number']).drop_duplicates(subset=['playerId'])
-                    for _, player in df_players_unique.iterrows():
-                        player_id = player['playerId']
-                        jersey_num_raw = player['Mapped Jersey Number']
-                        try:
-                            jersey_num = int(jersey_num_raw)
-                        except (ValueError, TypeError):
-                            jersey_num = '?'
-                        player_data_map[player_id] = {'name': player.get('playerName', 'N/A'), 'jersey': str(jersey_num)}
-
-                # Recupero sicuro degli eventi di formazione iniziale
-                start_events = df_processed[df_processed['typeId'] == 34].sort_values('eventId')
-                if len(start_events) < 2:
-                    return dbc.Alert("Error: Could not find starting formation events for both teams.", color="danger")
-
-                home_team_name_from_info = match_info.get('hteamName')
-                event1, event2 = start_events.iloc[0], start_events.iloc[1]
-
-                if home_team_name_from_info and event1['team_name'] == home_team_name_from_info:
-                    home_start_event, away_start_event = event1, event2
-                elif home_team_name_from_info and event2['team_name'] == home_team_name_from_info:
-                    home_start_event, away_start_event = event2, event1
-                else:
-                    home_start_event, away_start_event = event1, event2
-
-                home_id, away_id = home_start_event['contestantId'], away_start_event['contestantId']
-                home_name, away_name = home_start_event['team_name'], away_start_event['team_name']
-
-                home_state = {'formation_id': int(home_start_event['Team formation']), 'players': formations._extract_player_positions(home_start_event)}
-                away_state = {'formation_id': int(away_start_event['Team formation']), 'players': formations._extract_player_positions(away_start_event)}
-
-                # --- 2. LOGICA DI COSTRUZIONE SINCRONA (AGGIORNATA) ---
-                home_plots, timeline_items, away_plots = [], [], []
-
-                # Stato iniziale (t=0)
-                title = f"0' | Starting XI"
-                home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, {}, player_data_map, HCOL, title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-                away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, {}, player_data_map, ACOL, title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-                timeline_items.append(
-                    dbc.ListGroupItem(
-                        [
-                            dash_html.Span("MATCH TIMELINE", className="match-panel-eyebrow"),
-                            dash_html.Strong("0' · Kick off"),
-                        ],
-                        className="formation-event-item formation-event-item--kickoff",
+                initial_moment = moments[0]
+                home_figure = (
+                    formation_plotly.plot_formation_timeline_state(
+                        initial_moment["home_state"],
+                        timeline_model["player_data"],
+                        is_away=False,
+                        highlighted_players=initial_moment.get(
+                            "home_highlights", []
+                        ),
+                    )
+                )
+                away_figure = (
+                    formation_plotly.plot_formation_timeline_state(
+                        initial_moment["away_state"],
+                        timeline_model["player_data"],
+                        is_away=True,
+                        highlighted_players=initial_moment.get(
+                            "away_highlights", []
+                        ),
                     )
                 )
 
-
-
-                # Prendi solo gli eventi di cambio formazione
-                formation_change_events = df_processed[df_processed['typeId'] == 40].sort_values('event_sequence_index')
-
-                for _, fc_event in formation_change_events.iterrows():
-                    time_str = f"{fc_event['timeMin']}'"
-                    previous_home_state, previous_away_state = home_state.copy(), away_state.copy()
-
-                    # Aggiorna lo stato della squadra che ha cambiato formazione
-                    if fc_event['contestantId'] == home_id:
-                        home_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
-                    else:
-                        away_state = {'formation_id': int(fc_event['Team formation']), 'players': formations._extract_player_positions(fc_event)}
-
-                    # Calcola lo score PRIMA di questo evento, per riflettere lo stato al momento del cambio
-                    goals_before = df_processed[(df_processed['typeId'] == 16) & (df_processed['event_sequence_index'] < fc_event['event_sequence_index'])]
-                    home_score = (goals_before['contestantId'] == home_id).sum()
-                    away_score = (goals_before['contestantId'] == away_id).sum()
-                    score_str = f"{home_score} - {away_score}"
-
-                    # Determina i colori per l'highlight
-                    home_player_colors = {pid: '#00FFFF' for pid, pos in home_state['players'].items() if previous_home_state['players'].get(pid) != pos}
-                    away_player_colors = {pid: '#00FFFF' for pid, pos in away_state['players'].items() if previous_away_state['players'].get(pid) != pos}
-
-                    # Costruisci i titoli per i plot
-                    event_team_name = home_name if fc_event['contestantId'] == home_id else away_name
-                    title = f"{time_str} | Formation Change: {event_team_name}"
-
-                    # Crea un titolo per lo score
-                    away_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
-                    home_title = f"{time_str} | Formation Change: {event_team_name} | Score: {score_str}"
-
-                    home_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(home_state, home_player_colors, player_data_map, HCOL, home_title), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-                    away_plots.append(dash_html.Img(src=formations.plot_formation_snapshot(away_state, away_player_colors, player_data_map, ACOL, away_title, is_away=True), style={'width': '100%', 'height': 'auto', 'margin-bottom': '15px'}))
-
-                # Usa la timeline unificata solo per la colonna centrale
-                central_timeline_events = formations.create_unified_timeline(df_processed, home_id, away_id, player_data_map)
-                for event in central_timeline_events:
-                    timeline_items.append(
-                        dbc.ListGroupItem(
-                            [
-                                dash_html.Span(event['time_str'], className="formation-event-time"),
-                                dash_html.Div(event['description_component'], className="formation-event-description"),
-                            ],
-                            className="formation-event-item",
-                        )
+                slider_marks = (
+                    formation_plotly.build_formation_slider_marks(
+                        timeline_model
                     )
+                )
+                slider_times = sorted(
+                    int(value) for value in slider_marks
+                )
+                initial_time = slider_times[0] if slider_times else 0
+                slider_max = max(
+                    int(
+                        timeline_model.get(
+                            "match_end_seconds", 1
+                        ) or 1
+                    ),
+                    slider_times[-1] if slider_times else 1,
+                    1,
+                )
 
-                # --- 3. COSTRUZIONE LAYOUT FINALE ---
-                final_layout = dash_html.Div([
+                return dash_html.Div([
+                    dcc.Store(
+                        id="formation-timeline-model",
+                        data=timeline_model,
+                    ),
+
                     dash_html.Div([
-                        dash_html.I(className="fa-solid fa-circle-info"),
-                        dash_html.Span("Cyan highlights identify players whose formation slot changed at that moment."),
-                    ], className="match-analysis-note"),
-                    dash_html.Div([
-                        dash_html.Section([
-                            dash_html.Div([
-                                dash_html.Span("HOME TEAM", className="match-panel-eyebrow"),
-                                dash_html.H3(home_name, className="match-panel-title"),
-                                dash_html.P("Shape snapshots throughout the match.", className="match-panel-description"),
-                            ], className="match-panel-header"),
-                            dash_html.Div(home_plots, className="formation-snapshot-stack"),
-                        ], className="match-panel formation-team-panel"),
-                        dash_html.Section([
-                            dash_html.Div([
-                                dash_html.Span("MATCH FLOW", className="match-panel-eyebrow"),
-                                dash_html.H3("Key events", className="match-panel-title"),
-                                dash_html.P("Goals, substitutions and structural changes.", className="match-panel-description"),
-                            ], className="match-panel-header"),
-                            dbc.ListGroup(timeline_items, flush=True, className="formation-event-list"),
-                        ], className="match-panel formation-timeline-panel"),
-                        dash_html.Section([
-                            dash_html.Div([
-                                dash_html.Span("AWAY TEAM", className="match-panel-eyebrow"),
-                                dash_html.H3(away_name, className="match-panel-title"),
-                                dash_html.P("Shape snapshots throughout the match.", className="match-panel-description"),
-                            ], className="match-panel-header"),
-                            dash_html.Div(away_plots, className="formation-snapshot-stack"),
-                        ], className="match-panel formation-team-panel"),
-                    ], className="formation-timeline-grid"),
+                        dash_html.I(
+                            className="fa-solid fa-circle-info"
+                        ),
+                        dash_html.Span(
+                            "Use one match-time control to inspect both "
+                            "shapes. Gold rings identify players whose "
+                            "formation slot changed or who entered at the "
+                            "selected moment. Both teams use the same "
+                            "left-to-right tactical orientation."
+                        ),
+                    ], className=(
+                        "match-analysis-note formation-timeline-note"
+                    )),
+
                     dash_html.Section([
                         dash_html.Div([
-                            dash_html.I(className="fa-regular fa-note-sticky"),
                             dash_html.Div([
-                                dash_html.H3("Analyst notes", className="match-panel-title"),
-                                dash_html.P("Summarise the most meaningful structural changes.", className="match-panel-description"),
+                                dash_html.Span(
+                                    "MATCH TIMELINE",
+                                    className="match-panel-eyebrow",
+                                ),
+                                dash_html.H3(
+                                    "Synchronized team shapes",
+                                    className="match-panel-title",
+                                ),
+                                dash_html.P(
+                                    "Starting XI, goals, substitutions, "
+                                    "shape changes and dismissals share "
+                                    "one chronological control.",
+                                    className="match-panel-description",
+                                ),
+                            ]),
+                            dash_html.Div([
+                                dash_html.Span(
+                                    "G · Goal",
+                                    className=(
+                                        "formation-timeline-key "
+                                        "formation-timeline-key--goal"
+                                    ),
+                                ),
+                                dash_html.Span(
+                                    "SUB · Substitution",
+                                    className=(
+                                        "formation-timeline-key "
+                                        "formation-timeline-key--sub"
+                                    ),
+                                ),
+                                dash_html.Span(
+                                    "FORM · Shape",
+                                    className=(
+                                        "formation-timeline-key "
+                                        "formation-timeline-key--formation"
+                                    ),
+                                ),
+                                dash_html.Span(
+                                    "RC · Dismissal",
+                                    className=(
+                                        "formation-timeline-key "
+                                        "formation-timeline-key--red"
+                                    ),
+                                ),
+                            ], className="formation-timeline-key-legend"),
+                        ], className=(
+                            "match-panel-header "
+                            "formation-timeline-control-header"
+                        )),
+
+                        dash_html.Div(
+                            dcc.Slider(
+                                id="formation-timeline-slider",
+                                min=0,
+                                max=slider_max,
+                                value=initial_time,
+                                marks=slider_marks,
+                                step=None,
+                                included=False,
+                                updatemode="drag",
+                                disabled=(len(slider_times) <= 1),
+                            ),
+                            className="formation-timeline-slider-wrap",
+                        ),
+
+                        dash_html.Div(
+                            formation_timeline_moment_component(
+                                initial_moment,
+                                timeline_model,
+                            ),
+                            id="formation-timeline-moment",
+                        ),
+                    ], className=(
+                        "match-panel formation-timeline-control-panel"
+                    )),
+
+                    dash_html.Div([
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span(
+                                    "HOME TEAM",
+                                    className="match-panel-eyebrow",
+                                ),
+                                dash_html.H3(
+                                    timeline_model["home_team"],
+                                    className="match-panel-title",
+                                ),
+                                dash_html.P(
+                                    "Team shape at the selected match moment.",
+                                    className="match-panel-description",
+                                ),
+                            ], className="match-panel-header"),
+                            dcc.Graph(
+                                id="formation-timeline-home-graph",
+                                figure=home_figure,
+                                config={
+                                    "displayModeBar": False,
+                                    "responsive": True,
+                                },
+                                className="formation-timeline-graph",
+                            ),
+                        ], className=(
+                            "match-panel formation-timeline-team-panel "
+                            "formation-timeline-team-panel--home"
+                        )),
+
+                        dash_html.Section([
+                            dash_html.Div([
+                                dash_html.Span(
+                                    "AWAY TEAM",
+                                    className="match-panel-eyebrow",
+                                ),
+                                dash_html.H3(
+                                    timeline_model["away_team"],
+                                    className="match-panel-title",
+                                ),
+                                dash_html.P(
+                                    "Team shape at the same selected moment.",
+                                    className="match-panel-description",
+                                ),
+                            ], className="match-panel-header"),
+                            dcc.Graph(
+                                id="formation-timeline-away-graph",
+                                figure=away_figure,
+                                config={
+                                    "displayModeBar": False,
+                                    "responsive": True,
+                                },
+                                className="formation-timeline-graph",
+                            ),
+                        ], className=(
+                            "match-panel formation-timeline-team-panel "
+                            "formation-timeline-team-panel--away"
+                        )),
+                    ], className="formation-timeline-pitches"),
+
+                    dash_html.Section([
+                        dash_html.Div([
+                            dash_html.I(
+                                className="fa-regular fa-note-sticky"
+                            ),
+                            dash_html.Div([
+                                dash_html.H3(
+                                    "Analyst notes",
+                                    className="match-panel-title",
+                                ),
+                                dash_html.P(
+                                    "Summarise the most meaningful "
+                                    "structural changes.",
+                                    className="match-panel-description",
+                                ),
                             ]),
                         ], className="match-comment-heading"),
                         dcc.Textarea(
@@ -3624,21 +3708,41 @@ def render_formation_content(active_tab, stored_data_json):
                         ),
                         dash_html.Div([
                             dbc.Button(
-                                [dash_html.I(className="fa-solid fa-floppy-disk me-2"), "Save note"],
+                                [
+                                    dash_html.I(
+                                        className=(
+                                            "fa-solid fa-floppy-disk me-2"
+                                        )
+                                    ),
+                                    "Save note",
+                                ],
                                 id="save-comment-formation",
                                 className="match-action-button",
                                 size="sm",
                             ),
-                            dash_html.Div(id="save-status-formation", className="small"),
+                            dash_html.Div(
+                                id="save-status-formation",
+                                className="small",
+                            ),
                         ], className="match-comment-actions"),
-                    ], className="match-panel match-comment-panel"),
-                ], className="match-tab-body")
-                return final_layout
+                    ], className=(
+                        "match-panel match-comment-panel"
+                    )),
+                ], className=(
+                    "match-tab-body formation-timeline-interactive"
+                ))
+
             except Exception as e:
                 tb_str = traceback.format_exc()
-                return dbc.Alert(f"Error generating formation analysis: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+                return dbc.Alert(
+                    (
+                        "Error generating interactive formation timeline: "
+                        f"{e}\n{tb_str}"
+                    ),
+                    color="danger",
+                    style={"whiteSpace": "pre-wrap"},
+                )
 
-        # --- CASO 2: POSIZIONI MEDIE (la nuova logica) ---
         elif active_tab == 'mean_positions':
             # Prepara i dati usando la nuova funzione
             df_home_touches, df_home_agg = player_metrics.get_mean_positions_data(df_processed, HTEAM_NAME)
@@ -3691,6 +3795,134 @@ def render_formation_content(active_tab, stored_data_json):
     return dash_html.P("Select a sub-tab.")
 
 
+
+def formation_timeline_moment_component(moment, model):
+    """Compact current-moment readout for the shared formation slider."""
+    if not moment:
+        return dash_html.Div(
+            "No formation moment available.",
+            className="formation-moment-empty",
+        )
+
+    event_label_map = {
+        "starting_xi": "Starting XI",
+        "goal": "Goal",
+        "substitution": "Substitution",
+        "formation_change": "Shape change",
+        "dismissal": "Dismissal",
+    }
+
+    event_rows = []
+    for event in moment.get("events", []) or []:
+        kind = event.get("kind", "event")
+        event_rows.append(
+            dash_html.Div([
+                dash_html.Span(
+                    event.get(
+                        "event_time_label",
+                        "",
+                    ),
+                    className=(
+                        "formation-moment-event-time"
+                    ),
+                ),
+                dash_html.Span(
+                    event_label_map.get(kind, "Event"),
+                    className=(
+                        "formation-moment-kind "
+                        f"formation-moment-kind--{kind}"
+                    ),
+                ),
+                dash_html.Span(
+                    event.get("description", ""),
+                    className="formation-moment-description",
+                ),
+            ], className="formation-moment-event")
+        )
+
+    return dash_html.Div([
+        dash_html.Div([
+            dash_html.Div([
+                dash_html.Span(
+                    moment.get("time_label", "0′"),
+                    className="formation-moment-time",
+                ),
+                dash_html.Strong(
+                    moment.get("score", "0 – 0"),
+                    className="formation-moment-score",
+                ),
+            ], className="formation-moment-clock"),
+            dash_html.Div([
+                dash_html.Span(
+                    (
+                        f"{model.get('home_team', 'Home')} · "
+                        f"{moment.get('home_formation_name', '—')}"
+                    ),
+                    className=(
+                        "formation-shape-chip "
+                        "formation-shape-chip--home"
+                    ),
+                ),
+                dash_html.Span(
+                    (
+                        f"{model.get('away_team', 'Away')} · "
+                        f"{moment.get('away_formation_name', '—')}"
+                    ),
+                    className=(
+                        "formation-shape-chip "
+                        "formation-shape-chip--away"
+                    ),
+                ),
+            ], className="formation-moment-shapes"),
+        ], className="formation-moment-summary"),
+        dash_html.Div(
+            event_rows,
+            className="formation-moment-events",
+        ),
+    ], className="formation-current-moment")
+
+
+@app.callback(
+    Output("formation-timeline-home-graph", "figure"),
+    Output("formation-timeline-away-graph", "figure"),
+    Output("formation-timeline-moment", "children"),
+    Input("formation-timeline-slider", "value"),
+    State("formation-timeline-model", "data"),
+)
+def update_formation_timeline(selected_time, timeline_model):
+    if not timeline_model:
+        return no_update, no_update, no_update
+
+    moment = formation_plotly.get_formation_timeline_moment(
+        timeline_model,
+        selected_time,
+    )
+    if not moment:
+        return no_update, no_update, no_update
+
+    player_data = timeline_model.get("player_data", {})
+
+    home_figure = formation_plotly.plot_formation_timeline_state(
+        moment.get("home_state", {}),
+        player_data,
+        is_away=False,
+        highlighted_players=moment.get("home_highlights", []),
+    )
+    away_figure = formation_plotly.plot_formation_timeline_state(
+        moment.get("away_state", {}),
+        player_data,
+        is_away=True,
+        highlighted_players=moment.get("away_highlights", []),
+    )
+
+    return (
+        home_figure,
+        away_figure,
+        formation_timeline_moment_component(
+            moment,
+            timeline_model,
+        ),
+    )
 
 # --- CALLBACKS FOR FORMATION COMMENTS ---
 @app.callback(

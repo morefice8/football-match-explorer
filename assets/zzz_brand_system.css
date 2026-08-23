@@ -3962,3 +3962,362 @@ td.cell--selected {
 .Select-arrow-zone {
   color: #8295a3 !important;
 }
+
+/* PLOT-02 — interactive formation timeline */
+
+.formation-timeline-interactive {
+    display: grid;
+    gap: 16px;
+}
+
+.formation-timeline-control-panel {
+    overflow: visible;
+}
+
+.formation-timeline-control-header {
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.formation-timeline-key-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+    max-width: 420px;
+}
+
+.formation-timeline-key {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 9px;
+    border: 1px solid rgba(23, 53, 77, 0.12);
+    border-radius: 999px;
+    background: #f7fafc;
+    color: #536d80;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.formation-timeline-key--goal {
+    border-color: rgba(74, 143, 94, 0.25);
+}
+
+.formation-timeline-key--sub {
+    border-color: rgba(21, 151, 194, 0.26);
+}
+
+.formation-timeline-key--formation {
+    border-color: rgba(215, 155, 53, 0.32);
+}
+
+.formation-timeline-key--red {
+    border-color: rgba(194, 65, 65, 0.28);
+}
+
+.formation-timeline-slider-wrap {
+    padding: 22px 26px 38px;
+    border-top: 1px solid rgba(23, 53, 77, 0.08);
+    border-bottom: 1px solid rgba(23, 53, 77, 0.08);
+    background: #fbfcfd;
+}
+
+.formation-timeline-slider-wrap .rc-slider-rail {
+    height: 5px;
+    background: #dce5eb;
+}
+
+.formation-timeline-slider-wrap .rc-slider-track {
+    height: 5px;
+    background: #8da4b4;
+}
+
+.formation-timeline-slider-wrap .rc-slider-dot {
+    width: 10px;
+    height: 10px;
+    margin-top: -3px;
+    border: 2px solid #ffffff;
+    background: #8da4b4;
+    box-shadow: 0 0 0 1px rgba(23, 53, 77, 0.16);
+}
+
+.formation-timeline-slider-wrap .rc-slider-dot-active {
+    border-color: #ffffff;
+}
+
+.formation-timeline-slider-wrap .rc-slider-handle {
+    width: 18px;
+    height: 18px;
+    margin-top: -7px;
+    border: 3px solid #ffffff;
+    background: #17354d;
+    box-shadow: 0 0 0 2px rgba(23, 53, 77, 0.18);
+    opacity: 1;
+}
+
+.formation-timeline-slider-wrap .rc-slider-handle:focus,
+.formation-timeline-slider-wrap .rc-slider-handle:hover,
+.formation-timeline-slider-wrap .rc-slider-handle:active {
+    border-color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(23, 53, 77, 0.2);
+}
+
+.formation-timeline-slider-wrap .rc-slider-mark {
+    top: 20px;
+}
+
+.formation-timeline-slider-wrap .rc-slider-mark-text {
+    color: #647c8e;
+    font-size: 0.68rem;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.formation-current-moment {
+    padding: 16px 18px 18px;
+}
+
+.formation-moment-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.formation-moment-clock {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex: 0 0 auto;
+}
+
+.formation-moment-time {
+    color: #17354d;
+    font-size: 1.25rem;
+    font-weight: 750;
+    letter-spacing: -0.02em;
+}
+
+.formation-moment-score {
+    color: #17354d;
+    font-size: 1.05rem;
+    font-weight: 750;
+}
+
+.formation-moment-shapes {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.formation-shape-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 9px;
+    border-radius: 7px;
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.formation-shape-chip--home {
+    color: #b64e36;
+    background: rgba(233, 106, 74, 0.1);
+}
+
+.formation-shape-chip--away {
+    color: #117d9f;
+    background: rgba(21, 151, 194, 0.1);
+}
+
+.formation-moment-events {
+    display: grid;
+    gap: 8px;
+    margin-top: 13px;
+}
+
+.formation-moment-event {
+    display: grid;
+    grid-template-columns: minmax(88px, auto) 1fr;
+    align-items: center;
+    gap: 10px;
+}
+
+.formation-moment-kind {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 25px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #eef3f6;
+    color: #536d80;
+    font-size: 0.67rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.formation-moment-kind--goal {
+    background: rgba(74, 143, 94, 0.11);
+    color: #39744b;
+}
+
+.formation-moment-kind--substitution {
+    background: rgba(21, 151, 194, 0.1);
+    color: #117d9f;
+}
+
+.formation-moment-kind--formation_change {
+    background: rgba(215, 155, 53, 0.12);
+    color: #8d651f;
+}
+
+.formation-moment-kind--dismissal {
+    background: rgba(194, 65, 65, 0.1);
+    color: #a13d3d;
+}
+
+.formation-moment-description {
+    min-width: 0;
+    color: #405d72;
+    font-size: 0.84rem;
+    line-height: 1.42;
+}
+
+.formation-timeline-pitches {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+
+.formation-timeline-team-panel {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.formation-timeline-team-panel .match-panel-header {
+    min-height: 122px;
+}
+
+.formation-timeline-graph {
+    width: 100%;
+    min-height: 0;
+}
+
+.formation-timeline-graph .js-plotly-plot,
+.formation-timeline-graph .plot-container,
+.formation-timeline-graph .svg-container {
+    width: 100% !important;
+}
+
+@media (max-width: 1100px) {
+    .formation-timeline-control-header,
+    .formation-moment-summary {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .formation-timeline-key-legend,
+    .formation-moment-shapes {
+        justify-content: flex-start;
+        max-width: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .formation-timeline-pitches {
+        grid-template-columns: 1fr;
+    }
+
+    .formation-timeline-team-panel .match-panel-header {
+        min-height: 0;
+    }
+}
+
+@media (max-width: 620px) {
+    .formation-timeline-slider-wrap {
+        padding-left: 18px;
+        padding-right: 18px;
+        overflow-x: auto;
+    }
+
+    .formation-moment-event {
+        grid-template-columns: 1fr;
+        gap: 5px;
+    }
+
+    .formation-moment-kind {
+        justify-self: flex-start;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-02A — formation timeline slider readability
+   -------------------------------------------------------------------------- */
+
+.formation-timeline-slider-wrap {
+    padding-top: 24px;
+    padding-bottom: 46px;
+}
+
+.formation-timeline-slider-wrap .rc-slider-mark-text:empty {
+    display: none;
+}
+
+.formation-timeline-slider-wrap .rc-slider-dot {
+    width: 9px;
+    height: 9px;
+    margin-top: -2px;
+    background: #a8bac6;
+    box-shadow:
+        0 0 0 1px rgba(23, 53, 77, 0.12);
+}
+
+.formation-timeline-slider-wrap .rc-slider-dot-active {
+    background: #7894a6;
+}
+
+.formation-timeline-slider-wrap .rc-slider-mark-text {
+    top: 2px;
+    color: #536d80;
+    font-size: 0.66rem;
+    font-weight: 700;
+}
+
+.formation-timeline-slider-wrap .rc-slider-handle {
+    z-index: 4;
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-02B — formation timeline minute grouping + readable event rows
+   -------------------------------------------------------------------------- */
+
+.formation-moment-event {
+    grid-template-columns:
+        64px
+        minmax(88px, auto)
+        minmax(0, 1fr);
+}
+
+.formation-moment-event-time {
+    color: #718899;
+    font-size: 0.72rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+    .formation-moment-event {
+        grid-template-columns: auto 1fr;
+    }
+
+    .formation-moment-description {
+        grid-column: 1 / -1;
+    }
+}
