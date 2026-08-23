@@ -1,5 +1,6 @@
 # src/metrics/transition_metrics.py
 import pandas as pd
+from src.metrics.data_quality import attach_sequence_coverage
 import numpy as np
 from src import config
 from src.metrics.transition_metrics import get_pitch_third
@@ -290,6 +291,10 @@ def _find_first_phase_buildup_sequences(
     if triggers.empty:
         return pd.DataFrame()
 
+    # REL-10B: detector candidate count is measured after
+    # canonical trigger eligibility and before UI filters.
+    coverage_candidate_count = int(len(triggers))
+
     all_rows = []
     consumed_event_ids = set()
     sequence_id = 0
@@ -571,14 +576,22 @@ def _find_first_phase_buildup_sequences(
         sequence_id += 1
 
     if not all_rows:
-        return pd.DataFrame()
+        return attach_sequence_coverage(
+            pd.DataFrame(),
+            candidates=coverage_candidate_count,
+            sequence_id_column="trigger_sequence_id",
+        )
 
     result = pd.DataFrame(all_rows)
     print(
         f"Constructed {result['trigger_sequence_id'].nunique()} "
         "canonical first-phase buildup sequences."
     )
-    return result
+    return attach_sequence_coverage(
+        result,
+        candidates=coverage_candidate_count,
+        sequence_id_column="trigger_sequence_id",
+    )
 
 
 def _find_legacy_buildup_sequences(df_processed, attacking_team,

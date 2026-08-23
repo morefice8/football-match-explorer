@@ -204,3 +204,31 @@ def extract_match_info(opta_data):
     if not info.get('competitionName'): info['competitionName'] = 'Competition'
 
     return info
+
+# --- REL-10 DATA COVERAGE THRESHOLDS ---
+# A metric only becomes a warning when a threshold is configured here.
+# Set a value to None to keep the metric informative/neutral.
+DATA_COVERAGE_THRESHOLDS = {
+    # Reliable receiver attribution among successful passes.
+    "receiver_coverage_pct": {"min": 70.0},
+
+    # Rows whose required coordinates are all finite.
+    "valid_coordinate_pct": {"min": 95.0},
+
+    # Rows/sequences whose outcome is not blank/Unknown.
+    "known_outcome_pct": {"min": 98.0},
+
+    # Deliberately neutral by default: conservative inference can reject
+    # many carry candidates without implying poor source data.
+    "carry_inclusion_pct": None,
+
+    # First-phase buildup triggers are expected to produce a valid sequence
+    # most of the time; unusually low retention is therefore worth flagging.
+    "buildup_sequence_retention_pct": {"min": 75.0},
+
+    # Transition losses are only candidates: many legitimately do not become
+    # transition sequences under the detector contract. Keep the metric
+    # visible, but neutral by default.
+    "transition_sequence_retention_pct": None,
+}
+# --- END REL-10 DATA COVERAGE THRESHOLDS ---

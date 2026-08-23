@@ -1,5 +1,6 @@
 # src/metrics/transition_metrics.py
 import pandas as pd
+from src.metrics.data_quality import attach_sequence_coverage
 import numpy as np
 import dash_bootstrap_components as dbc
 from collections import defaultdict
@@ -430,6 +431,10 @@ def find_buildup_after_possession_loss(df_processed,
 
     df_losses = df_losses_raw.drop_duplicates(subset=['id'], keep='first').copy()
     if df_losses.empty: return pd.DataFrame()
+
+    # REL-10B: detector candidate count is measured after
+    # canonical loss eligibility/deduplication and before UI filters.
+    coverage_candidate_count = int(len(df_losses))
 
     # indices_to_keep = []
     # last_trigger_time = -9999
@@ -1380,9 +1385,18 @@ def find_buildup_after_possession_loss(df_processed,
 
     # --- End Loop ---
 
-    if not all_buildup_events_with_loss_info: return pd.DataFrame()
+    if not all_buildup_events_with_loss_info:
+        return attach_sequence_coverage(
+            pd.DataFrame(),
+            candidates=coverage_candidate_count,
+            sequence_id_column="loss_sequence_id",
+        )
     df_all_sequences = pd.DataFrame(all_buildup_events_with_loss_info)
-    return df_all_sequences
+    return attach_sequence_coverage(
+        df_all_sequences,
+        candidates=coverage_candidate_count,
+        sequence_id_column="loss_sequence_id",
+    )
 
 def calculate_transition_success_by_zone(df_processed, team_name,
                                          recovery_event_types=None,

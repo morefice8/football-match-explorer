@@ -1,0 +1,131 @@
+/* REL-10 — Data coverage */
+.data-coverage-panel {
+    margin: 0 0 1rem;
+    border: 1px solid rgba(148, 219, 234, 0.16);
+    border-radius: 12px;
+    background: rgba(12, 20, 28, 0.58);
+    overflow: hidden;
+}
+
+.data-coverage-summary {
+    min-height: 48px;
+    padding: 0.72rem 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.data-coverage-summary::-webkit-details-marker {
+    display: none;
+}
+
+.data-coverage-summary-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.data-coverage-summary-main > i {
+    color: #94dbea;
+    font-size: 0.84rem;
+}
+
+.data-coverage-title {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.data-coverage-summary-status {
+    color: rgba(255, 255, 255, 0.52);
+    font-size: 0.74rem;
+    white-space: nowrap;
+}
+
+.data-coverage-summary-status.is-warning {
+    color: #f2bf62;
+    font-weight: 700;
+}
+
+.data-coverage-panel[open] .data-coverage-summary {
+    border-bottom: 1px solid rgba(148, 219, 234, 0.11);
+}
+
+.data-coverage-grid {
+    padding: 0.85rem 0.9rem 0.6rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.65rem;
+}
+
+.data-coverage-item {
+    min-width: 0;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.025);
+    display: flex;
+    flex-direction: column;
+    gap: 0.22rem;
+}
+
+.data-coverage-item.is-warning {
+    border-color: rgba(242, 191, 98, 0.42);
+    background: rgba(242, 191, 98, 0.055);
+}
+
+.data-coverage-label {
+    color: rgba(255, 255, 255, 0.54);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.data-coverage-value {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.data-coverage-item.is-warning .data-coverage-value {
+    color: #f2bf62;
+}
+
+.data-coverage-detail {
+    color: rgba(255, 255, 255, 0.48);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.data-coverage-note {
+    margin: 0;
+    padding: 0 0.9rem 0.9rem;
+    color: rgba(255, 255, 255, 0.43);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+@media (max-width: 575.98px) {
+    .data-coverage-summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .data-coverage-summary-status {
+        padding-left: 1.4rem;
+        white-space: normal;
+    }
+
+    .data-coverage-grid {
+        grid-template-columns: 1fr;
+    }
+}

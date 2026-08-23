@@ -52,6 +52,7 @@ from src.metrics import (
     cross_metrics,
     league_metrics,
     defensive_metrics,
+    data_quality,
 )
 
 # Define colors
@@ -1320,6 +1321,249 @@ def render_sequence_comparison_panel(
     ], className=(
         "match-panel "
         "sequence-comparison-panel"
+    ))
+
+# ---------------------------------------------------------------------------
+# REL-10B — shared Data Coverage UI helpers
+# ---------------------------------------------------------------------------
+
+def _data_coverage_thresholds():
+    return getattr(config, "DATA_COVERAGE_THRESHOLDS", {}) or {}
+
+
+def _receiver_coverage_item(passes_df, *, label="Receiver coverage"):
+    coverage = data_quality.receiver_coverage(passes_df)
+    if coverage["eligible"] <= 0:
+        return None
+
+    return data_quality.coverage_item(
+        key="receiver_coverage_pct",
+        label=label,
+        value=f"{coverage['resolved']} / {coverage['eligible']} reliable",
+        detail=(
+            f"{coverage['coverage_pct']:.1f}% · "
+            f"{coverage['high']} high · {coverage['medium']} medium"
+        ),
+        threshold_value=coverage["coverage_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def _coordinate_coverage_item(
+    df,
+    *,
+    label="Valid coordinates",
+    columns=("x", "y"),
+):
+    coverage = data_quality.coordinate_coverage(df, columns)
+    if coverage["total"] <= 0:
+        return None
+
+    return data_quality.coverage_item(
+        key="valid_coordinate_pct",
+        label=label,
+        value=f"{coverage['valid']} / {coverage['total']} valid",
+        detail=(
+            f"{coverage['coverage_pct']:.1f}% · "
+            f"{coverage['invalid']} invalid"
+        ),
+        threshold_value=coverage["coverage_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def _outcome_coverage_item(
+    df,
+    *,
+    label="Known outcomes",
+    column="outcome",
+):
+    coverage = data_quality.outcome_coverage(df, column=column)
+    if coverage["total"] <= 0:
+        return None
+
+    return data_quality.coverage_item(
+        key="known_outcome_pct",
+        label=label,
+        value=f"{coverage['unknown']} unknown",
+        detail=(
+            f"{coverage['known']} / {coverage['total']} known · "
+            f"{coverage['known_pct']:.1f}%"
+        ),
+        threshold_value=coverage["known_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def _sequence_outcome_coverage_item(
+    sequence_df,
+    *,
+    sequence_id_column,
+    label="Sequence outcomes",
+    outcome_column="sequence_outcome_type",
+):
+    coverage = data_quality.sequence_outcome_coverage(
+        sequence_df,
+        sequence_id_column=sequence_id_column,
+        outcome_column=outcome_column,
+    )
+    if coverage["total"] <= 0:
+        return None
+
+    return data_quality.coverage_item(
+        key="known_outcome_pct",
+        label=label,
+        value=f"{coverage['unknown']} unknown",
+        detail=(
+            f"{coverage['known']} / {coverage['total']} known · "
+            f"{coverage['known_pct']:.1f}%"
+        ),
+        threshold_value=coverage["known_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def _sequence_retention_coverage_item(
+    sequence_df,
+    *,
+    label="Sequence retention",
+    metric_key="sequence_retention_pct",
+):
+    if not isinstance(sequence_df, pd.DataFrame):
+        return None
+
+    metadata = (
+        getattr(sequence_df, "attrs", {})
+        .get("data_coverage", {})
+        or {}
+    )
+    if not metadata:
+        return None
+
+    candidates = int(metadata.get("sequence_candidates", 0) or 0)
+    built = int(metadata.get("sequence_built", 0) or 0)
+    if candidates <= 0:
+        return None
+
+    coverage = data_quality.sequence_retention(
+        candidates=candidates,
+        built=built,
+    )
+
+    return data_quality.coverage_item(
+        key=metric_key,
+        label=label,
+        value=f"{coverage['built']} / {coverage['candidates']} built",
+        detail=(
+            f"{coverage['discarded']} discarded · "
+            f"{coverage['retention_pct']:.1f}% retained"
+        ),
+        threshold_value=coverage["retention_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def _carry_coverage_item(stats, *, label="Carry candidates"):
+    coverage = data_quality.carry_candidate_coverage_from_stats(stats)
+    if coverage["candidates"] <= 0:
+        return None
+
+    return data_quality.coverage_item(
+        key="carry_inclusion_pct",
+        label=label,
+        value=f"{coverage['included']} / {coverage['candidates']} included",
+        detail=(
+            f"{coverage['excluded']} excluded · "
+            f"{coverage['inclusion_pct']:.1f}% included"
+        ),
+        threshold_value=coverage["inclusion_pct"],
+        thresholds=_data_coverage_thresholds(),
+    )
+
+
+def render_data_coverage_panel(items, *, note=None):
+    """
+    Small collapsed REL-10 panel.
+
+    Only configured threshold breaches receive warning styling.
+    Neutral metrics remain informative without being presented as failures.
+    """
+    items = [item for item in (items or []) if item]
+    if not items:
+        return None
+
+    warning_count = sum(
+        item.get("status") == "warning"
+        for item in items
+    )
+
+    if warning_count:
+        status_text = (
+            f"{warning_count} threshold warning"
+            f"{'s' if warning_count != 1 else ''}"
+        )
+        status_class = "data-coverage-summary-status is-warning"
+    else:
+        status_text = "No threshold warnings"
+        status_class = "data-coverage-summary-status"
+
+    metric_components = []
+
+    for item in items:
+        item_class = "data-coverage-item"
+        if item.get("status") == "warning":
+            item_class += " is-warning"
+
+        metric_components.append(
+            dash_html.Div([
+                dash_html.Span(
+                    item.get("label", ""),
+                    className="data-coverage-label",
+                ),
+                dash_html.Strong(
+                    item.get("value", "—"),
+                    className="data-coverage-value",
+                ),
+                dash_html.Small(
+                    item.get("detail", ""),
+                    className="data-coverage-detail",
+                ),
+            ], className=item_class)
+        )
+
+    return dash_html.Details([
+        dash_html.Summary([
+            dash_html.Span([
+                dash_html.I(
+                    className="fa-solid fa-shield-halved",
+                ),
+                dash_html.Span(
+                    "Data coverage",
+                    className="data-coverage-title",
+                ),
+            ], className="data-coverage-summary-main"),
+            dash_html.Span(
+                status_text,
+                className=status_class,
+            ),
+        ], className="data-coverage-summary"),
+
+        dash_html.Div(
+            metric_components,
+            className="data-coverage-grid",
+        ),
+
+        (
+            dash_html.P(
+                note,
+                className="data-coverage-note",
+            )
+            if note
+            else None
+        ),
+    ], className=(
+        "data-coverage-panel"
+        + (" has-warning" if warning_count else "")
     ))
 
 # -----------------------------------------------------------------------------
@@ -3692,34 +3936,39 @@ def show_pass_network_graph_plotly(stored_data_json):
 
 
         # Layout a due colonne per mostrare i grafici affiancati
+        pass_network_coverage_panel = render_data_coverage_panel(
+            [
+                _receiver_coverage_item(
+                    passes_df[
+                        passes_df["team_name"] == HTEAM_NAME
+                    ],
+                    label=f"{HTEAM_NAME} receiver coverage",
+                ),
+                _receiver_coverage_item(
+                    passes_df[
+                        passes_df["team_name"] == ATEAM_NAME
+                    ],
+                    label=f"{ATEAM_NAME} receiver coverage",
+                ),
+                _coordinate_coverage_item(
+                    passes_df,
+                    label="Pass coordinates",
+                    columns=("x", "y", "end_x", "end_y"),
+                ),
+                _outcome_coverage_item(
+                    passes_df,
+                    label="Pass outcomes",
+                ),
+            ],
+            note=(
+                "Network links use only reliable inferred receivers. "
+                "Unresolved successful passes stay outside the links."
+            ),
+        )
+
         return dash_html.Div([
 
-            # ---------------------------------------------------------
-            # RECEIVER QUALITY
-            # ---------------------------------------------------------
-            dash_html.Div([
-                dash_html.I(
-                    className="fa-solid fa-circle-check"
-                ),
-
-                dash_html.Span(
-                    (
-                        f"Reliable receiver attribution: "
-                        f"{HTEAM_NAME} "
-                        f"{home_receiver_coverage['resolved']}/"
-                        f"{home_receiver_coverage['eligible']} "
-                        f"({home_receiver_coverage['coverage_pct']:.1f}%)"
-                        f" · "
-                        f"{ATEAM_NAME} "
-                        f"{away_receiver_coverage['resolved']}/"
-                        f"{away_receiver_coverage['eligible']} "
-                        f"({away_receiver_coverage['coverage_pct']:.1f}%). "
-                        "Unresolved passes are excluded from "
-                        "network links."
-                    )
-                ),
-
-            ], className="match-analysis-note mb-3"),
+            pass_network_coverage_panel,
 
 
             # ---------------------------------------------------------
@@ -4968,6 +5217,61 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
             is_away=True,
         )
 
+        def _final_third_stats_for_coverage(team_name):
+            coverage_passes = successful_passes[
+                successful_passes["team_name"] == team_name
+            ].copy()
+
+            if (
+                carries_df is not None
+                and not carries_df.empty
+                and "team_name" in carries_df.columns
+            ):
+                coverage_carries = carries_df[
+                    carries_df["team_name"] == team_name
+                ].copy()
+            else:
+                coverage_carries = pd.DataFrame()
+
+            _, coverage_stats = pass_metrics.analyze_final_third_entries(
+                coverage_passes,
+                coverage_carries,
+            )
+            return coverage_stats
+
+        home_final_third_coverage_stats = (
+            _final_third_stats_for_coverage(HTEAM_NAME)
+        )
+        away_final_third_coverage_stats = (
+            _final_third_stats_for_coverage(ATEAM_NAME)
+        )
+
+        final_third_coverage_panel = render_data_coverage_panel(
+            [
+                _carry_coverage_item(
+                    home_final_third_coverage_stats,
+                    label=f"{HTEAM_NAME} carry candidates",
+                ),
+                _carry_coverage_item(
+                    away_final_third_coverage_stats,
+                    label=f"{ATEAM_NAME} carry candidates",
+                ),
+                _coordinate_coverage_item(
+                    passes_df,
+                    label="Pass coordinates",
+                    columns=("x", "y", "end_x", "end_y"),
+                ),
+                _outcome_coverage_item(
+                    passes_df,
+                    label="Pass outcomes",
+                ),
+            ],
+            note=(
+                "Carry inclusion is informative by default: a conservative "
+                "inference can legitimately exclude ambiguous candidates."
+            ),
+        )
+
         # -----------------------------------------------------
         # DEFINITION
         # -----------------------------------------------------
@@ -5044,6 +5348,7 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
 
         return dash_html.Div([
             definition_note,
+            final_third_coverage_panel,
             home_layout,
             away_layout,
             comment_panel,
@@ -5825,6 +6130,45 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
             df_processed = pd.read_json(io.StringIO(stored_match_data_json['df']), orient='split')
             match_info = json.loads(stored_match_data_json['match_info'])
             home_team_name = match_info.get('hteamName', '')
+            away_team_name = match_info.get('ateamName', '')
+
+            shot_sequence_passes = pass_processing.get_passes_df(
+                df_processed.copy()
+            )
+
+            shot_sequence_coverage_panel = render_data_coverage_panel(
+                [
+                    _receiver_coverage_item(
+                        shot_sequence_passes[
+                            shot_sequence_passes["team_name"]
+                            == home_team_name
+                        ],
+                        label=f"{home_team_name} receiver coverage",
+                    ),
+                    _receiver_coverage_item(
+                        shot_sequence_passes[
+                            shot_sequence_passes["team_name"]
+                            == away_team_name
+                        ],
+                        label=f"{away_team_name} receiver coverage",
+                    ),
+                    _coordinate_coverage_item(
+                        shot_sequence_passes,
+                        label="Pass coordinates",
+                        columns=("x", "y", "end_x", "end_y"),
+                    ),
+                    _outcome_coverage_item(
+                        shot_sequence_passes,
+                        label="Pass outcomes",
+                    ),
+                ],
+                note=(
+                    "Pre-Assist attribution uses only reliable inferred "
+                    "receivers; ambiguous receiver links are not promoted."
+                ),
+            )
+
+
 
             # **CHIAMATA ALLA NUOVA FUNZIONE PLOTLY**
             fig = player_plots.plot_shot_sequence_bar_plotly(
@@ -5838,6 +6182,7 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
 
             # Layout con il grafico interattivo e la sezione commenti
             return dash_html.Div([
+                shot_sequence_coverage_panel,
                 dbc.Row(
                     dbc.Col(dcc.Graph(figure=fig), width=12)
                 ),
@@ -7008,8 +7353,40 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
             triggers_buildups=triggers
         )
 
+        buildup_coverage_panel = render_data_coverage_panel(
+            [
+                _sequence_retention_coverage_item(
+                    df_buildups,
+                    label="Buildup candidates",
+                    metric_key="buildup_sequence_retention_pct",
+                ),
+                _coordinate_coverage_item(
+                    df_buildups,
+                    label="Sequence event coordinates",
+                    columns=("x", "y"),
+                ),
+                _sequence_outcome_coverage_item(
+                    df_buildups,
+                    sequence_id_column="trigger_sequence_id",
+                    label="Buildup outcomes",
+                ),
+            ],
+            note=(
+                "Discarded means an eligible detector candidate did not "
+                "produce a valid first-phase sequence. UI-filtered "
+                "sequences are not counted as discarded."
+            ),
+        )
+
         if df_buildups is None or df_buildups.empty:
-            return dbc.Alert(f"No valid buildup sequences found for {attacking_team}.", color="warning", className="mt-3")
+            return dash_html.Div([
+                buildup_coverage_panel,
+                dbc.Alert(
+                    f"No valid buildup sequences found for {attacking_team}.",
+                    color="warning",
+                    className="mt-3",
+                ),
+            ], className="match-tab-body")
 
         # ---------------------------------------------------------
         # HOME vs AWAY BUILDUP COMPARISON
@@ -7243,6 +7620,7 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
             ),
 
             buildup_comparison_panel,
+            buildup_coverage_panel,
 
             dash_html.Div([
                 dash_html.Div([
@@ -7999,6 +8377,31 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
             # Still show the comparison even if the selected
             # team has no defensive transitions.
+            def_transition_coverage_panel = render_data_coverage_panel(
+                [
+                    _sequence_retention_coverage_item(
+                        df_transitions,
+                        label="Transition candidates",
+                        metric_key="transition_sequence_retention_pct",
+                    ),
+                    _coordinate_coverage_item(
+                        df_transitions,
+                        label="Sequence event coordinates",
+                        columns=("x", "y"),
+                    ),
+                    _sequence_outcome_coverage_item(
+                        df_transitions,
+                        sequence_id_column="loss_sequence_id",
+                        label="Transition outcomes",
+                    ),
+                ],
+                note=(
+                    "Candidate retention is measured before explorer filters. "
+                    "Many eligible losses legitimately do not become transition sequences,"
+                    " so retention is informative rather than a warning by default."
+                ),
+            )
+
             if (
                 df_transitions is None
                 or df_transitions.empty
@@ -8006,6 +8409,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                 return dash_html.Div([
 
                     def_transition_comparison_panel,
+                def_transition_coverage_panel,
 
                     dbc.Alert(
                         (
@@ -8095,6 +8499,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                 # -------------------------------------------------
 
                 def_transition_comparison_panel,
+                def_transition_coverage_panel,
 
                 # -------------------------------------------------
                 # ACTIVE TEAM
@@ -8977,12 +9382,38 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
             )
         )
 
+        off_transition_coverage_panel = render_data_coverage_panel(
+            [
+                _sequence_retention_coverage_item(
+                    df_transitions,
+                    label="Transition candidates",
+                    metric_key="transition_sequence_retention_pct",
+                ),
+                _coordinate_coverage_item(
+                    df_transitions,
+                    label="Sequence event coordinates",
+                    columns=("x", "y"),
+                ),
+                _sequence_outcome_coverage_item(
+                    df_transitions,
+                    sequence_id_column="loss_sequence_id",
+                    label="Transition outcomes",
+                ),
+            ],
+            note=(
+                "Candidate retention is measured before explorer filters. "
+                "Many eligible losses legitimately do not become transition sequences,"
+                " so retention is informative rather than a warning by default."
+            ),
+        )
+
         if (
             df_transitions is None
             or df_transitions.empty
         ):
             return dash_html.Div([
                 off_transition_comparison_panel,
+            off_transition_coverage_panel,
 
                 dbc.Alert(
                     (
@@ -9058,6 +9489,7 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
             ),
 
             off_transition_comparison_panel,
+            off_transition_coverage_panel,
 
             # -----------------------------------------------------
             # ACTIVE TEAM
