@@ -4519,11 +4519,6 @@ def show_progressive_passes_content_callback(stored_data_json, active_nested_tab
                             className="progressive-sample-size",
                         ),
 
-                        dash_html.Span(
-                            "All teams attack left to right",
-                            className='match-panel-hint',
-                        ),
-
                     ], className="progressive-panel-meta"),
                 ], className='match-panel-header'),
                 dbc.Row([

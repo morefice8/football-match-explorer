@@ -9,6 +9,14 @@ from src.visualization.plotly_branding import (
     apply_dark_pitch_layout,
     add_attacking_direction,
 )
+from src.visualization.plotly_branding import (
+    MATCH_COMPARE_HEIGHT,
+    MATCH_WARNING,
+    add_attacking_direction,
+    add_zero_state,
+    apply_match_pitch_layout,
+    get_team_palette,
+)
 
 # def plot_pass_network_plotly(passes_between, avg_locs, team_name, team_color, sub_list, is_away=False):
 #     """
@@ -488,132 +496,257 @@ def plot_pass_network_plotly(
     return fig
 
 
-def plot_progressive_passes_plotly(df_prog_passes, team_name, team_color, is_away=False):
-    """Plot progressive attempts with completion status and clear direction."""
-    del is_away  # Opta coordinates already orient every team towards x=100.
-    fig = go.Figure()
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
-        "rgba(255,255,255,0.24)", "rgba(255,255,255,0.82)"
+def plot_progressive_passes_plotly(
+    df_prog_passes,
+    team_name,
+    team_color,
+    is_away=False,
+):
+    """
+    FOUND-02 demonstration plot.
+
+    Metric semantics are unchanged. Only presentation is migrated to the
+    shared Match Plot Design System.
+    """
+    del team_color
+
+    palette = get_team_palette(
+        is_away=is_away
     )
+
+    fig = go.Figure()
+
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.24)",
+        "rgba(255,255,255,0.82)",
+    )
+
     pitch_shapes.extend([
         dict(
-            type='line', x0=0, y0=100 / 3, x1=100, y1=100 / 3,
-            line=dict(color='rgba(255,255,255,0.18)', dash='dot', width=1),
+            type="line",
+            x0=0,
+            y0=100 / 3,
+            x1=100,
+            y1=100 / 3,
+            line=dict(
+                color="rgba(255,255,255,0.18)",
+                dash="dot",
+                width=1,
+            ),
         ),
         dict(
-            type='line', x0=0, y0=200 / 3, x1=100, y1=200 / 3,
-            line=dict(color='rgba(255,255,255,0.18)', dash='dot', width=1),
+            type="line",
+            x0=0,
+            y0=200 / 3,
+            x1=100,
+            y1=200 / 3,
+            line=dict(
+                color="rgba(255,255,255,0.18)",
+                dash="dot",
+                width=1,
+            ),
         ),
     ])
 
     df_plot = df_prog_passes.copy()
-    if 'is_progressive_attempt' in df_plot.columns:
+
+    if "is_progressive_attempt" in df_plot.columns:
         df_plot = df_plot[
-            df_plot['is_progressive_attempt'].fillna(False).astype(bool)
+            df_plot[
+                "is_progressive_attempt"
+            ]
+            .fillna(False)
+            .astype(bool)
         ].copy()
 
     outcomes = (
-        ('Completed', True, team_color, 'solid', 2.4, 'circle'),
-        ('Incomplete', False, '#f3b34c', 'dot', 1.45, 'x'),
+        (
+            "Completed",
+            True,
+            palette["primary"],
+            "solid",
+            2.4,
+            "circle",
+        ),
+        (
+            "Incomplete",
+            False,
+            MATCH_WARNING,
+            "dot",
+            1.45,
+            "x",
+        ),
     )
-    for label, completed, color, dash, width, marker_symbol in outcomes:
-        if df_plot.empty or 'is_progressive' not in df_plot.columns:
+
+    for (
+        label,
+        completed,
+        color,
+        dash,
+        width,
+        marker_symbol,
+    ) in outcomes:
+        if (
+            df_plot.empty
+            or "is_progressive"
+            not in df_plot.columns
+        ):
             subset = pd.DataFrame()
         else:
             subset = df_plot[
-                df_plot['is_progressive'].fillna(False).astype(bool).eq(completed)
+                df_plot[
+                    "is_progressive"
+                ]
+                .fillna(False)
+                .astype(bool)
+                .eq(completed)
             ]
+
         if subset.empty:
             continue
 
-        x_coords, y_coords, hover_texts = [], [], []
+        x_coords = []
+        y_coords = []
+        hover_texts = []
+
         for _, row in subset.iterrows():
-            minute = row.get('timeMin', '?')
-            gained = pd.to_numeric(row.get('progressive_distance_m'), errors='coerce')
-            threshold = pd.to_numeric(row.get('progressive_threshold_m'), errors='coerce')
-            gained_label = f"{gained:.1f} m" if pd.notna(gained) else 'N/A'
-            threshold_label = f"{threshold:.0f} m" if pd.notna(threshold) else 'N/A'
+            minute = row.get(
+                "timeMin",
+                "?",
+            )
+
+            gained = pd.to_numeric(
+                row.get(
+                    "progressive_distance_m"
+                ),
+                errors="coerce",
+            )
+
+            threshold = pd.to_numeric(
+                row.get(
+                    "progressive_threshold_m"
+                ),
+                errors="coerce",
+            )
+
+            gained_label = (
+                f"{gained:.1f} m"
+                if pd.notna(gained)
+                else "N/A"
+            )
+
+            threshold_label = (
+                f"{threshold:.0f} m"
+                if pd.notna(threshold)
+                else "N/A"
+            )
+
             hover = (
-                f"<b>{row.get('playerName', 'Unknown')}</b> · {label}"
+                f"<b>{row.get('playerName', 'Unknown')}</b>"
+                f"<br>{label} progressive pass"
                 f"<br>Minute: {minute}'"
                 f"<br>Progression towards goal: {gained_label}"
                 f"<br>Required threshold: {threshold_label}"
                 f"<br>Phase: {row.get('progressive_phase', 'N/A')}"
-                f"<br>Origin channel: {row.get('progressive_channel', 'N/A')}"
+                f"<br>Origin channel: "
+                f"{row.get('progressive_channel', 'N/A')}"
             )
-            x_coords.extend([row['x'], row['end_x'], None])
-            y_coords.extend([row['y'], row['end_y'], None])
-            hover_texts.extend([hover, hover, None])
 
-        fig.add_trace(go.Scattergl(
-            x=x_coords,
-            y=y_coords,
-            mode='lines',
-            line=dict(color=color, width=width, dash=dash),
-            opacity=0.82 if completed else 0.58,
-            name=f"{label} ({len(subset)})",
-            hoverinfo='text',
-            hovertext=hover_texts,
-        ))
-        fig.add_trace(go.Scattergl(
-            x=subset['end_x'],
-            y=subset['end_y'],
-            mode='markers',
-            marker=dict(
-                size=6 if completed else 7,
-                color=color,
-                symbol=marker_symbol,
-                line=dict(color='rgba(255,255,255,0.75)', width=0.7),
-            ),
-            showlegend=False,
-            hoverinfo='skip',
-        ))
+            x_coords.extend([
+                row["x"],
+                row["end_x"],
+                None,
+            ])
 
-    if df_plot.empty:
-        fig.add_annotation(
-            x=50, y=50, text='No open-play progressive attempts',
-            showarrow=False, font=dict(color='white', size=15),
+            y_coords.extend([
+                row["y"],
+                row["end_y"],
+                None,
+            ])
+
+            hover_texts.extend([
+                hover,
+                hover,
+                None,
+            ])
+
+        fig.add_trace(
+            go.Scattergl(
+                x=x_coords,
+                y=y_coords,
+                mode="lines",
+                line=dict(
+                    color=color,
+                    width=width,
+                    dash=dash,
+                ),
+                opacity=(
+                    0.82
+                    if completed
+                    else 0.58
+                ),
+                name=(
+                    f"{label} "
+                    f"({len(subset)})"
+                ),
+                hoverinfo="text",
+                hovertext=hover_texts,
+            )
         )
 
-    add_attacking_direction(fig, dark=True)
-    fig.update_layout(
+        fig.add_trace(
+            go.Scattergl(
+                x=subset["end_x"],
+                y=subset["end_y"],
+                mode="markers",
+                marker=dict(
+                    size=(
+                        6
+                        if completed
+                        else 7
+                    ),
+                    color=color,
+                    symbol=marker_symbol,
+                    line=dict(
+                        color=(
+                            "rgba(255,255,255,0.75)"
+                        ),
+                        width=0.7,
+                    ),
+                ),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+    if df_plot.empty:
+        add_zero_state(
+            fig,
+            "No open-play progressive attempts",
+            dark_pitch=True,
+        )
+
+    apply_match_pitch_layout(
+        fig,
+        pitch_shapes=pitch_shapes,
+        height=MATCH_COMPARE_HEIGHT,
         showlegend=True,
-        legend=dict(
-            orientation='h',
-            x=0.5,
-            xanchor='center',
-            y=1.045,
-            yanchor='bottom',
-            font=dict(
-                color='white',
-                size=11,
-            ),
-            bgcolor='rgba(0,0,0,0)',
-            traceorder='normal',
-        ),
-        shapes=pitch_shapes,
-        xaxis=dict(range=[-2, 102], visible=False, fixedrange=True),
-        yaxis=dict(range=[-5, 107], visible=False, fixedrange=True),
+        header=False,
+        x_range=(-2, 102),
+        y_range=(-5, 107),
     )
 
-    apply_dark_pitch_layout(
+    # The surrounding Dash card already owns team name, sample size and title.
+    # Keep the figure free of a second title.
+    add_attacking_direction(
         fig,
-        height=610,
-        top_margin=135,
-        showlegend=True,
-    )
-
-    add_plot_header(
-        fig,
-        title=f"{team_name} · Progressive passing",
-        subtitle=(
-            f"{len(df_plot)} attempts · "
-            f"{int(df_plot['is_progressive'].sum())} completed"
-            if not df_plot.empty
-            else "No qualifying attempts"
-        ),
         dark=True,
+        x=0.985,
+        y=0.025,
+        xanchor="right",
+        yanchor="bottom",
     )
+
     return fig
 
 def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_color, zone14_color='orange', is_away=False):

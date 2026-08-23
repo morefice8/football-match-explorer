@@ -1009,8 +1009,8 @@
 }
 
 .progressive-map-graph {
-  min-height: 610px;
-  background: #29343d;
+  min-height: 0;
+  background: transparent;
 }
 
 .progressive-sidebar {
@@ -1039,7 +1039,7 @@
 
 .progressive-kpi-label {
   color: #708697;
-  font-size: 0.61rem;
+  font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.025em;
   text-transform: uppercase;
@@ -1048,7 +1048,7 @@
 .progressive-kpi-value {
   overflow: hidden;
   color: #11314a;
-  font-size: 1.3rem;
+  font-size: 1.38rem;
   font-weight: 900;
   letter-spacing: -0.035em;
   line-height: 1.12;
@@ -1059,8 +1059,8 @@
 .progressive-kpi-detail {
   overflow: hidden;
   color: #8194a1;
-  font-size: 0.59rem;
-  line-height: 1.3;
+  font-size: 0.66rem;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3436,4 +3436,32 @@
       minmax(0, 1fr);
   }
 
+}
+
+/* FOUND-02 readability polish */
+.progressive-team-panel .progressive-sample-size {
+  font-size: 0.68rem;
+}
+
+.progressive-sidebar-section h6 {
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.progressive-channel-row {
+  font-size: 0.72rem;
+}
+
+.progressive-player-table {
+  font-size: 0.7rem;
+}
+
+.progressive-player-table th {
+  font-size: 0.64rem;
+}
+
+.progressive-player-table td,
+.progressive-player-table th {
+  padding-top: 0.48rem;
+  padding-bottom: 0.48rem;
 }
