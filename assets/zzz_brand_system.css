@@ -4321,3 +4321,274 @@ td.cell--selected {
         grid-column: 1 / -1;
     }
 }
+
+/* --------------------------------------------------------------------------
+   PLOT-03 — Mean Positions / territorial occupation
+   -------------------------------------------------------------------------- */
+
+.mean-positions-workspace {
+    display: grid;
+    gap: 16px;
+}
+
+.mean-positions-control-panel {
+    overflow: hidden;
+}
+
+.mean-positions-threshold-block {
+    display: grid;
+    justify-items: end;
+    align-content: center;
+    gap: 2px;
+}
+
+.mean-positions-control-label {
+    color: #7890a0;
+    font-size: 0.58rem;
+    font-weight: 850;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.mean-positions-threshold {
+    color: #17354d;
+    font-size: 0.95rem;
+    font-weight: 850;
+}
+
+.mean-positions-period-selector {
+    display: flex;
+    gap: 8px;
+    padding: 14px 16px 16px;
+    border-top: 1px solid rgba(23, 53, 77, 0.08);
+    background: #fbfcfd;
+}
+
+.mean-positions-period-selector .form-check {
+    padding: 0;
+    margin: 0;
+}
+
+.mean-positions-period-selector .form-check-input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mean-positions-period-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 6px 13px;
+    border: 1px solid #d7e4ea;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #536d80;
+    font-size: 0.72rem;
+    font-weight: 750;
+    cursor: pointer;
+    transition:
+        background 120ms ease,
+        border-color 120ms ease,
+        color 120ms ease;
+}
+
+.mean-positions-period-option:hover {
+    border-color: #a9c8d5;
+    color: #17354d;
+}
+
+.mean-positions-period-option--active {
+    border-color: #1597c2 !important;
+    background: #eaf7fb !important;
+    color: #117d9f !important;
+}
+
+.mean-positions-period-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 2px 2px 0;
+}
+
+.mean-positions-period-readout {
+    color: #17354d;
+    font-size: 0.82rem;
+    font-weight: 850;
+}
+
+.mean-positions-method-readout {
+    color: #6f8594;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    text-align: right;
+}
+
+.mean-positions-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 10px;
+}
+
+.mean-positions-team-panel {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.mean-positions-team-panel--home {
+    border-top: 4px solid #e96a4a;
+}
+
+.mean-positions-team-panel--away {
+    border-top: 4px solid #1597c2;
+}
+
+.mean-position-sample {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: 250px;
+}
+
+.mean-position-sample-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 27px;
+    padding: 4px 8px;
+    border: 1px solid #dce7ec;
+    border-radius: 999px;
+    background: #f8fbfc;
+    color: #60798a;
+    font-size: 0.65rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.mean-position-kpi-grid {
+    display: grid;
+    grid-template-columns:
+        repeat(4, minmax(0, 1fr));
+    border-top: 1px solid #e5edf1;
+    border-bottom: 1px solid #e5edf1;
+    background: #fbfcfd;
+}
+
+.mean-position-kpi {
+    display: grid;
+    align-content: start;
+    gap: 3px;
+    min-width: 0;
+    padding: 12px 11px;
+    border-right: 1px solid #e5edf1;
+}
+
+.mean-position-kpi:last-child {
+    border-right: 0;
+}
+
+.mean-position-kpi-label {
+    color: #748a99;
+    font-size: 0.56rem;
+    font-weight: 850;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.mean-position-kpi-value {
+    color: #17354d;
+    font-size: 1rem;
+    font-weight: 850;
+    line-height: 1.15;
+}
+
+.mean-position-kpi-detail {
+    color: #8a9ba7;
+    font-size: 0.56rem;
+    line-height: 1.25;
+}
+
+.mean-positions-graph {
+    width: 100%;
+}
+
+.mean-positions-graph .js-plotly-plot,
+.mean-positions-graph .plot-container,
+.mean-positions-graph .svg-container {
+    width: 100% !important;
+}
+
+@media (max-width: 1180px) {
+    .mean-position-kpi-grid {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+    .mean-position-kpi:nth-child(2) {
+        border-right: 0;
+    }
+
+    .mean-position-kpi:nth-child(-n + 2) {
+        border-bottom: 1px solid #e5edf1;
+    }
+}
+
+@media (max-width: 900px) {
+    .mean-positions-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mean-positions-period-summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .mean-positions-method-readout {
+        text-align: left;
+    }
+}
+
+@media (max-width: 620px) {
+    .mean-positions-period-selector {
+        flex-wrap: wrap;
+    }
+
+    .mean-position-kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .mean-position-kpi {
+        border-right: 0;
+        border-bottom: 1px solid #e5edf1;
+    }
+
+    .mean-position-kpi:last-child {
+        border-bottom: 0;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-03B — territorial profile readability polish
+   -------------------------------------------------------------------------- */
+
+.mean-position-kpi-detail {
+    color: #8094a2;
+}
+
+.mean-position-sample-pill {
+    background: #fbfdfe;
+}
+
+.mean-positions-team-panel .match-panel-header {
+    min-height: 112px;
+}
+
+@media (max-width: 1180px) {
+    .mean-positions-team-panel .match-panel-header {
+        min-height: 0;
+    }
+}

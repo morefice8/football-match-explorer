@@ -1528,7 +1528,9 @@ def plot_formation_timeline_state(
         info = (player_data_map or {}).get(player_id, {})
         name = str(info.get("name", "Unknown"))
         jersey = str(info.get("jersey", "?"))
-        surname = name.split()[-1] if name else "Unknown"
+        surname = _mean_positions_compact_name(
+            name
+        )
 
         player_ids.append(player_id)
         x_values.append(float(x))
@@ -1671,5 +1673,689 @@ def plot_formation_timeline_state(
         header=False,
     )
     add_attacking_direction(fig, dark=True)
+
+    return fig
+
+# PLOT-03 — median positions + spatial dispersion
+# ---------------------------------------------------------------------------
+
+MEAN_POSITIONS_PLOT_HEIGHT = 560
+
+
+
+_MEAN_POSITION_NAME_PARTICLES = {
+    "da",
+    "das",
+    "de",
+    "del",
+    "della",
+    "di",
+    "dos",
+    "du",
+    "la",
+    "le",
+    "van",
+    "von",
+    "der",
+    "den",
+}
+
+
+def _mean_positions_compact_name(
+    full_name,
+):
+    """
+    Keep surname particles in pitch labels.
+
+    Examples:
+      * Giovanni Di Lorenzo -> Di Lorenzo
+      * Kevin De Bruyne -> De Bruyne
+      * Donny van de Beek -> van de Beek
+    """
+    text = str(
+        full_name or ""
+    ).strip()
+
+    if not text:
+        return "Unknown"
+
+    parts = [
+        part
+        for part in text.split()
+        if part
+    ]
+
+    if len(parts) == 1:
+        return parts[0]
+
+    start = len(
+        parts
+    ) - 1
+
+    while (
+        start > 0
+        and parts[
+            start - 1
+        ].lower()
+        in _MEAN_POSITION_NAME_PARTICLES
+    ):
+        start -= 1
+
+    return " ".join(
+        parts[
+            start:
+        ]
+    )
+
+
+def _mean_positions_rgba(
+    hex_color,
+    alpha,
+):
+    color = str(hex_color).lstrip("#")
+
+    if len(color) != 6:
+        return (
+            f"rgba(21,151,194,{alpha})"
+        )
+
+    try:
+        r = int(
+            color[0:2],
+            16,
+        )
+        g = int(
+            color[2:4],
+            16,
+        )
+        b = int(
+            color[4:6],
+            16,
+        )
+    except ValueError:
+        return (
+            f"rgba(21,151,194,{alpha})"
+        )
+
+    return (
+        f"rgba({r},{g},{b},{alpha})"
+    )
+
+
+def _mean_positions_marker_size(
+    touch_share,
+):
+    share = pd.to_numeric(
+        touch_share,
+        errors="coerce",
+    )
+
+    if pd.isna(share):
+        share = 0.0
+
+    # Touch share remains visible, but the range is intentionally restrained
+    # because Full Match can contain 14-16 eligible players.
+    return max(
+        26.0,
+        min(
+            44.0,
+            26.0 + float(share) * 1.25,
+        ),
+    )
+
+
+def _mean_positions_label_offsets(
+    df_player_profile,
+):
+    """
+    Spread surname labels around dense median-location clusters.
+
+    The player marker stays at the true median position; only the annotation
+    box moves. This improves readability without changing any metric.
+    """
+    if (
+        df_player_profile is None
+        or df_player_profile.empty
+    ):
+        return []
+
+    points = [
+        (
+            float(row["median_x"]),
+            float(row["median_y"]),
+        )
+        for _, row in df_player_profile.iterrows()
+    ]
+
+    clusters = []
+    visited = set()
+
+    for index in range(len(points)):
+        if index in visited:
+            continue
+
+        cluster = []
+        queue = [index]
+        visited.add(index)
+
+        while queue:
+            current = queue.pop(0)
+            cluster.append(current)
+
+            x_current, y_current = points[current]
+
+            for other in range(len(points)):
+                if other in visited:
+                    continue
+
+                x_other, y_other = points[other]
+
+                if (
+                    abs(x_current - x_other) <= 9.0
+                    and abs(y_current - y_other) <= 9.0
+                ):
+                    visited.add(other)
+                    queue.append(other)
+
+        clusters.append(cluster)
+
+    # Pixel offsets around the real marker location.
+    candidates = [
+        {
+            "xshift": 0,
+            "yshift": -24,
+            "xanchor": "center",
+            "yanchor": "top",
+        },
+        {
+            "xshift": 0,
+            "yshift": 24,
+            "xanchor": "center",
+            "yanchor": "bottom",
+        },
+        {
+            "xshift": -22,
+            "yshift": 0,
+            "xanchor": "right",
+            "yanchor": "middle",
+        },
+        {
+            "xshift": 22,
+            "yshift": 0,
+            "xanchor": "left",
+            "yanchor": "middle",
+        },
+        {
+            "xshift": -18,
+            "yshift": 20,
+            "xanchor": "right",
+            "yanchor": "bottom",
+        },
+        {
+            "xshift": 18,
+            "yshift": -20,
+            "xanchor": "left",
+            "yanchor": "top",
+        },
+    ]
+
+    offsets = [
+        None
+        for _ in points
+    ]
+
+    for cluster in clusters:
+        ordered = sorted(
+            cluster,
+            key=lambda idx: (
+                points[idx][1],
+                points[idx][0],
+            ),
+        )
+
+        for local_index, player_index in enumerate(ordered):
+            offsets[player_index] = dict(
+                candidates[
+                    local_index
+                    % len(candidates)
+                ]
+            )
+
+    return offsets
+
+
+def plot_mean_positions_profile_plotly(
+    df_player_profile,
+    team_summary,
+    *,
+    is_away=False,
+):
+    """
+    Territorial occupation profile, not a formation.
+
+    Centre = player median touch location.
+    Ellipse = x/y interquartile touch footprint.
+    Marker size = share of the team's selected-period touch events.
+    """
+    palette = get_team_palette(
+        is_away=is_away
+    )
+    primary = palette["primary"]
+
+    fig = go.Figure()
+
+    pitch_shapes = (
+        pitch_plots.get_plotly_pitch_shapes(
+            "rgba(255,255,255,0.24)",
+            "rgba(255,255,255,0.82)",
+        )
+    )
+
+    profile = (
+        df_player_profile.copy()
+        if df_player_profile is not None
+        else pd.DataFrame()
+    )
+
+    summary = (
+        dict(team_summary)
+        if team_summary
+        else {}
+    )
+
+    # ---------------------------------------------------------
+    # TEAM FOOTPRINT
+    # ---------------------------------------------------------
+
+    required_bounds = (
+        "structural_min_x",
+        "structural_max_x",
+        "structural_min_y",
+        "structural_max_y",
+    )
+
+    if all(
+        summary.get(key) is not None
+        for key in required_bounds
+    ):
+        pitch_shapes.append(
+            dict(
+                type="rect",
+                x0=summary[
+                    "structural_min_x"
+                ],
+                x1=summary[
+                    "structural_max_x"
+                ],
+                y0=summary[
+                    "structural_min_y"
+                ],
+                y1=summary[
+                    "structural_max_y"
+                ],
+                line=dict(
+                    color=_mean_positions_rgba(
+                        primary,
+                        0.62,
+                    ),
+                    width=1.4,
+                    dash="dot",
+                ),
+                fillcolor=_mean_positions_rgba(
+                    primary,
+                    0.055,
+                ),
+                layer="below",
+            )
+        )
+
+    centroid_x = summary.get(
+        "centroid_x"
+    )
+    centroid_y = summary.get(
+        "centroid_y"
+    )
+
+    if (
+        centroid_x is not None
+        and centroid_y is not None
+    ):
+        pitch_shapes.append(
+            dict(
+                type="line",
+                x0=float(
+                    centroid_x
+                ),
+                x1=float(
+                    centroid_x
+                ),
+                y0=0,
+                y1=100,
+                line=dict(
+                    color=_mean_positions_rgba(
+                        primary,
+                        0.55,
+                    ),
+                    width=1.4,
+                    dash="dash",
+                ),
+                layer="below",
+            )
+        )
+
+    # ---------------------------------------------------------
+    # INDIVIDUAL IQR FOOTPRINTS
+    # ---------------------------------------------------------
+
+    if not profile.empty:
+        for _, row in profile.iterrows():
+            median_x = float(
+                row["median_x"]
+            )
+            median_y = float(
+                row["median_y"]
+            )
+
+            half_x = max(
+                float(
+                    row.get(
+                        "iqr_x",
+                        0.0,
+                    )
+                ) / 2.0,
+                1.4,
+            )
+            half_y = max(
+                float(
+                    row.get(
+                        "iqr_y",
+                        0.0,
+                    )
+                ) / 2.0,
+                1.4,
+            )
+
+            pitch_shapes.append(
+                dict(
+                    type="circle",
+                    x0=median_x - half_x,
+                    x1=median_x + half_x,
+                    y0=median_y - half_y,
+                    y1=median_y + half_y,
+                    line=dict(
+                        color=_mean_positions_rgba(
+                            primary,
+                            0.22,
+                        ),
+                        width=1,
+                    ),
+                    fillcolor=_mean_positions_rgba(
+                        primary,
+                        0.045,
+                    ),
+                    layer="below",
+                )
+            )
+
+        jersey_text = []
+        surname_text = []
+        marker_sizes = []
+        customdata = []
+
+        for _, row in profile.iterrows():
+            jersey = row.get(
+                "Mapped Jersey Number"
+            )
+
+            if (
+                jersey is None
+                or pd.isna(jersey)
+            ):
+                jersey_label = ""
+            else:
+                jersey_label = str(
+                    int(jersey)
+                )
+
+            name = str(
+                row.get(
+                    "playerName",
+                    "Unknown",
+                )
+            )
+            surname = _mean_positions_compact_name(
+                name
+            )
+
+            if len(surname) > 14:
+                surname = (
+                    surname[:13]
+                    + "…"
+                )
+
+            jersey_text.append(
+                jersey_label
+            )
+            surname_text.append(
+                surname
+            )
+            marker_sizes.append(
+                _mean_positions_marker_size(
+                    row.get(
+                        "touch_share",
+                        0.0,
+                    )
+                )
+            )
+            customdata.append(
+                [
+                    name,
+                    jersey_label,
+                    row.get(
+                        "positional_role",
+                        "Unknown",
+                    ),
+                    float(
+                        row.get(
+                            "minutes_played",
+                            0.0,
+                        )
+                    ),
+                    int(
+                        row.get(
+                            "touch_count",
+                            0,
+                        )
+                    ),
+                    float(
+                        row.get(
+                            "touch_share",
+                            0.0,
+                        )
+                    ),
+                    float(
+                        row.get(
+                            "dispersion_m",
+                            0.0,
+                        )
+                    ),
+                ]
+            )
+
+        fig.add_trace(
+            go.Scatter(
+                x=profile[
+                    "median_x"
+                ],
+                y=profile[
+                    "median_y"
+                ],
+                mode="markers+text",
+                marker=dict(
+                    size=marker_sizes,
+                    color=primary,
+                    line=dict(
+                        color=(
+                            "rgba(255,255,255,0.94)"
+                        ),
+                        width=1.7,
+                    ),
+                ),
+                text=jersey_text,
+                textposition=(
+                    "middle center"
+                ),
+                textfont=dict(
+                    family=(
+                        "Inter, Arial, sans-serif"
+                    ),
+                    color="#ffffff",
+                    size=10.5,
+                ),
+                customdata=customdata,
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b>"
+                    "<br>Jersey: %{customdata[1]}"
+                    "<br>Role: %{customdata[2]}"
+                    "<br>Minutes: %{customdata[3]:.1f}"
+                    "<br>Touches: %{customdata[4]}"
+                    "<br>Touch share: %{customdata[5]:.1f}%"
+                    "<br>Median dispersion: %{customdata[6]:.1f} m"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+                name="Median locations",
+            )
+        )
+
+        label_offsets = (
+            _mean_positions_label_offsets(
+                profile
+            )
+        )
+
+        for (
+            x,
+            y,
+            surname,
+            offset,
+        ) in zip(
+            profile["median_x"],
+            profile["median_y"],
+            surname_text,
+            label_offsets,
+        ):
+            offset = (
+                offset
+                or {
+                    "xshift": 0,
+                    "yshift": -24,
+                    "xanchor": "center",
+                    "yanchor": "top",
+                }
+            )
+
+            fig.add_annotation(
+                x=float(x),
+                y=float(y),
+                text=(
+                    f"<b>{surname}</b>"
+                ),
+                showarrow=False,
+                xanchor=offset[
+                    "xanchor"
+                ],
+                yanchor=offset[
+                    "yanchor"
+                ],
+                xshift=offset[
+                    "xshift"
+                ],
+                yshift=offset[
+                    "yshift"
+                ],
+                font=dict(
+                    family=(
+                        "Inter, Arial, sans-serif"
+                    ),
+                    color="#ffffff",
+                    size=9.5,
+                ),
+                bgcolor=(
+                    "rgba(16,47,69,0.92)"
+                ),
+                bordercolor=(
+                    "rgba(255,255,255,0.18)"
+                ),
+                borderwidth=1,
+                borderpad=2,
+            )
+
+    else:
+        add_zero_state(
+            fig,
+            "No players meet the selected minutes threshold",
+        )
+
+    # ---------------------------------------------------------
+    # CENTROID
+    # ---------------------------------------------------------
+
+    if (
+        centroid_x is not None
+        and centroid_y is not None
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    float(
+                        centroid_x
+                    )
+                ],
+                y=[
+                    float(
+                        centroid_y
+                    )
+                ],
+                mode="markers",
+                marker=dict(
+                    size=16,
+                    color=(
+                        "rgba(255,255,255,0)"
+                    ),
+                    symbol="x",
+                    line=dict(
+                        color="#ffffff",
+                        width=2,
+                    ),
+                ),
+                hovertemplate=(
+                    "<b>Outfield centroid</b>"
+                    f"<br>x: {float(centroid_x):.1f}"
+                    f"<br>y: {float(centroid_y):.1f}"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+            )
+        )
+
+    apply_match_pitch_layout(
+        fig,
+        pitch_shapes=pitch_shapes,
+        height=MEAN_POSITIONS_PLOT_HEIGHT,
+        showlegend=False,
+        header=False,
+        x_range=(-2, 102),
+        y_range=(-5, 107),
+    )
+
+    add_attacking_direction(
+        fig,
+        dark=True,
+        x=0.985,
+        y=0.025,
+        xanchor="right",
+        yanchor="bottom",
+    )
 
     return fig

@@ -3744,50 +3744,102 @@ def render_formation_content(active_tab, stored_data_json):
                 )
 
         elif active_tab == 'mean_positions':
-            # Prepara i dati usando la nuova funzione
-            df_home_touches, df_home_agg = player_metrics.get_mean_positions_data(df_processed, HTEAM_NAME)
-            df_away_touches, df_away_agg = player_metrics.get_mean_positions_data(df_processed, ATEAM_NAME)
-
-            # Crea i grafici con la nuova funzione di plot
-            fig_home = formation_plotly.plot_mean_positions_plotly(df_home_touches, df_home_agg, HCOL, is_away=False)
-            fig_away = formation_plotly.plot_mean_positions_plotly(df_away_touches, df_away_agg, ACOL, is_away=True)
-
             return dash_html.Div([
+
                 dash_html.Div([
-                    dash_html.I(className="fa-solid fa-circle-info"),
-                    dash_html.Span("Circles represent starters; diamonds represent substitutes. The dashed line marks the average team height."),
+                    dash_html.I(
+                        className="fa-solid fa-circle-info"
+                    ),
+                    dash_html.Span(
+                        (
+                            "This is an aggregated territorial profile, "
+                            "not a formation. Each starting football slot "
+                            "contributes at most one representative player: "
+                            "substitutes inherit the slot of the player they "
+                            "replace, and the player with the most minutes in "
+                            "the selected window is shown. Centres are median "
+                            "touch locations; footprints show spatial range; "
+                            "marker size reflects touch share."
+                        )
+                    ),
                 ], className="match-analysis-note"),
-                dbc.Row([
-                    dbc.Col([
-                        dash_html.Section([
-                            dash_html.Div([
-                                dash_html.Span("HOME TEAM", className="match-panel-eyebrow"),
-                                dash_html.H3(HTEAM_NAME, className="match-panel-title"),
-                                dash_html.P("Average player locations with the team's territorial touch density.", className="match-panel-description"),
-                            ], className="match-panel-header"),
-                            dcc.Graph(
-                                figure=fig_home,
-                                config={'displayModeBar': False, 'responsive': True},
-                                className="match-analysis-graph",
-                            )
-                        ], className="match-panel match-viz-panel")
-                    ], lg=6),
-                    dbc.Col([
-                        dash_html.Section([
-                            dash_html.Div([
-                                dash_html.Span("AWAY TEAM", className="match-panel-eyebrow"),
-                                dash_html.H3(ATEAM_NAME, className="match-panel-title"),
-                                dash_html.P("Average player locations with the team's territorial touch density.", className="match-panel-description"),
-                            ], className="match-panel-header"),
-                            dcc.Graph(
-                                figure=fig_away,
-                                config={'displayModeBar': False, 'responsive': True},
-                                className="match-analysis-graph",
-                            )
-                        ], className="match-panel match-viz-panel")
-                    ], lg=6)
-                ], className="g-3")
-            ], className="match-tab-body")
+
+                dash_html.Section([
+                    dash_html.Div([
+                        dash_html.Div([
+                            dash_html.Span(
+                                "TIME WINDOW",
+                                className="match-panel-eyebrow",
+                            ),
+                            dash_html.H3(
+                                "Territorial occupation",
+                                className="match-panel-title",
+                            ),
+                            dash_html.P(
+                                (
+                                    "Compare stable player-location profiles "
+                                    "within a consistent match period."
+                                ),
+                                className="match-panel-description",
+                            ),
+                        ]),
+
+                        dash_html.Div([
+                            dash_html.Span(
+                                "MINIMUM SAMPLE",
+                                className="mean-positions-control-label",
+                            ),
+                            dash_html.Strong(
+                                "15 min",
+                                className="mean-positions-threshold",
+                            ),
+                        ], className="mean-positions-threshold-block"),
+
+                    ], className="match-panel-header"),
+
+                    dbc.RadioItems(
+                        id="mean-positions-period-selector",
+                        options=[
+                            {
+                                "label": "Full Match",
+                                "value": "full",
+                            },
+                            {
+                                "label": "1H",
+                                "value": "1h",
+                            },
+                            {
+                                "label": "2H",
+                                "value": "2h",
+                            },
+                        ],
+                        value="full",
+                        inline=True,
+                        className="mean-positions-period-selector",
+                        inputClassName="btn-check",
+                        labelClassName=(
+                            "mean-positions-period-option"
+                        ),
+                        labelCheckedClassName=(
+                            "mean-positions-period-option--active"
+                        ),
+                    ),
+
+                ], className=(
+                    "match-panel mean-positions-control-panel"
+                )),
+
+                dcc.Loading(
+                    type="circle",
+                    children=dash_html.Div(
+                        id="mean-positions-period-content"
+                    ),
+                ),
+
+            ], className=(
+                "match-tab-body mean-positions-workspace"
+            ))
+
 
     except Exception as e:
         return dbc.Alert(f"Error rendering formation/shape content: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
@@ -3923,6 +3975,322 @@ def update_formation_timeline(selected_time, timeline_model):
             timeline_model,
         ),
     )
+
+def mean_positions_metric(
+    label,
+    value,
+    *,
+    detail=None,
+):
+    return dash_html.Div([
+        dash_html.Span(
+            label,
+            className="mean-position-kpi-label",
+        ),
+        dash_html.Strong(
+            value,
+            className="mean-position-kpi-value",
+        ),
+        (
+            dash_html.Span(
+                detail,
+                className="mean-position-kpi-detail",
+            )
+            if detail
+            else None
+        ),
+    ], className="mean-position-kpi")
+
+
+def mean_positions_team_panel(
+    team_name,
+    profile,
+    summary,
+    figure,
+    *,
+    is_away=False,
+):
+    palette_class = (
+        "mean-positions-team-panel--away"
+        if is_away
+        else "mean-positions-team-panel--home"
+    )
+
+    def metric_value(
+        key,
+        suffix="",
+        decimals=1,
+    ):
+        value = summary.get(key)
+
+        if value is None:
+            return "—"
+
+        return (
+            f"{float(value):.{decimals}f}"
+            f"{suffix}"
+        )
+
+    centroid_x = summary.get(
+        "centroid_x"
+    )
+    centroid_y = summary.get(
+        "centroid_y"
+    )
+
+    centroid_label = (
+        (
+            f"{float(centroid_x):.1f}, "
+            f"{float(centroid_y):.1f}"
+        )
+        if (
+            centroid_x is not None
+            and centroid_y is not None
+        )
+        else "—"
+    )
+
+    return dash_html.Section([
+        dash_html.Div([
+            dash_html.Div([
+                dash_html.Span(
+                    (
+                        "AWAY TEAM"
+                        if is_away
+                        else "HOME TEAM"
+                    ),
+                    className="match-panel-eyebrow",
+                ),
+                dash_html.H3(
+                    team_name,
+                    className="match-panel-title",
+                ),
+                dash_html.P(
+                    (
+                        "Median touch-location profile of players "
+                        "meeting the selected minutes threshold."
+                    ),
+                    className="match-panel-description",
+                ),
+            ]),
+
+            dash_html.Div([
+                dash_html.Span(
+                    (
+                        f"{summary.get('representative_players', summary.get('eligible_players', 0))} "
+                        "representative players"
+                    ),
+                    className="mean-position-sample-pill",
+                ),
+                dash_html.Span(
+                    (
+                        f"{summary.get('touches', 0):,} "
+                        "team touches"
+                    ),
+                    className="mean-position-sample-pill",
+                ),
+            ], className="mean-position-sample"),
+
+        ], className="match-panel-header"),
+
+        dash_html.Div([
+            mean_positions_metric(
+                "Team length",
+                metric_value(
+                    "team_length_m",
+                    " m",
+                ),
+                detail="Outfield median span",
+            ),
+            mean_positions_metric(
+                "Team width",
+                metric_value(
+                    "team_width_m",
+                    " m",
+                ),
+                detail="Outfield median span",
+            ),
+            mean_positions_metric(
+                "Centroid",
+                centroid_label,
+                detail="Opta x, y",
+            ),
+            mean_positions_metric(
+                "Average height",
+                metric_value(
+                    "average_height_m",
+                    " m",
+                ),
+                detail="From own goal",
+            ),
+        ], className="mean-position-kpi-grid"),
+
+        dcc.Graph(
+            figure=figure,
+            config={
+                "displayModeBar": False,
+                "responsive": True,
+            },
+            className="mean-positions-graph",
+        ),
+
+    ], className=(
+        "match-panel mean-positions-team-panel "
+        + palette_class
+    ))
+
+
+@app.callback(
+    Output(
+        "mean-positions-period-content",
+        "children",
+    ),
+    Input(
+        "mean-positions-period-selector",
+        "value",
+    ),
+    State(
+        "store-df-match",
+        "data",
+    ),
+)
+def render_mean_positions_period(
+    selected_period,
+    stored_data_json,
+):
+    if not stored_data_json:
+        return dbc.Alert(
+            "Match data loading...",
+            color="info",
+        )
+
+    try:
+        df_processed = pd.read_json(
+            io.StringIO(
+                stored_data_json["df"]
+            ),
+            orient="split",
+        )
+
+        match_info = json.loads(
+            stored_data_json[
+                "match_info"
+            ]
+        )
+
+        home_team = match_info.get(
+            "hteamName",
+            "Home",
+        )
+        away_team = match_info.get(
+            "ateamName",
+            "Away",
+        )
+
+        home_profile, home_summary = (
+            player_metrics.get_mean_positions_profile(
+                df_processed,
+                home_team,
+                period=selected_period,
+                min_minutes=(
+                    player_metrics
+                    .MEAN_POSITIONS_MIN_MINUTES
+                ),
+            )
+        )
+
+        away_profile, away_summary = (
+            player_metrics.get_mean_positions_profile(
+                df_processed,
+                away_team,
+                period=selected_period,
+                min_minutes=(
+                    player_metrics
+                    .MEAN_POSITIONS_MIN_MINUTES
+                ),
+            )
+        )
+
+        home_figure = (
+            formation_plotly
+            .plot_mean_positions_profile_plotly(
+                home_profile,
+                home_summary,
+                is_away=False,
+            )
+        )
+
+        away_figure = (
+            formation_plotly
+            .plot_mean_positions_profile_plotly(
+                away_profile,
+                away_summary,
+                is_away=True,
+            )
+        )
+
+        period_label = {
+            "full": "Full Match",
+            "1h": "First Half",
+            "2h": "Second Half",
+        }.get(
+            selected_period,
+            "Full Match",
+        )
+
+        return dash_html.Div([
+
+            dash_html.Div([
+                dash_html.Span(
+                    period_label,
+                    className=(
+                        "mean-positions-period-readout"
+                    ),
+                ),
+                dash_html.Span(
+                    (
+                        "Structural KPIs use representative outfield "
+                        "player median locations. Substitution chains "
+                        "contribute at most one player; goalkeepers are "
+                        "excluded when role metadata identifies them."
+                    ),
+                    className=(
+                        "mean-positions-method-readout"
+                    ),
+                ),
+            ], className=(
+                "mean-positions-period-summary"
+            )),
+
+            dash_html.Div([
+                mean_positions_team_panel(
+                    home_team,
+                    home_profile,
+                    home_summary,
+                    home_figure,
+                    is_away=False,
+                ),
+                mean_positions_team_panel(
+                    away_team,
+                    away_profile,
+                    away_summary,
+                    away_figure,
+                    is_away=True,
+                ),
+            ], className="mean-positions-grid"),
+
+        ])
+
+    except Exception:
+        logger.warning(
+            "Could not render Mean Positions profile.",
+            exc_info=True,
+        )
+
+        return dbc.Alert(
+            "Unable to build the selected territorial profile.",
+            color="danger",
+        )
 
 # --- CALLBACKS FOR FORMATION COMMENTS ---
 @app.callback(
