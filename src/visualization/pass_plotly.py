@@ -2000,3 +2000,808 @@ def plot_pass_network_profile_plotly(edges, nodes, team_name, *, is_away=False):
         xanchor="right", yanchor="bottom",
     )
     return fig
+
+# PLOT-05 — aggregated Progressive Pass summary map
+def _progressive_pass_aggregate_locations(
+    df_prog_passes,
+    *,
+    grid_size=12,
+):
+    columns = [
+        "kind",
+        "x",
+        "y",
+        "count",
+        "completed",
+        "completion_pct",
+    ]
+
+    if (
+        df_prog_passes is None
+        or df_prog_passes.empty
+    ):
+        return pd.DataFrame(columns=columns)
+
+    attempts = df_prog_passes.copy()
+
+    if "is_progressive_attempt" in attempts.columns:
+        attempts = attempts[
+            attempts["is_progressive_attempt"]
+            .fillna(False)
+            .astype(bool)
+        ].copy()
+
+    if attempts.empty:
+        return pd.DataFrame(columns=columns)
+
+    completed = attempts.get(
+        "is_progressive",
+        pd.Series(False, index=attempts.index),
+    ).fillna(False).astype(bool)
+
+    records = []
+
+    for kind, x_column, y_column in (
+        ("Origin", "x", "y"),
+        ("Destination", "end_x", "end_y"),
+    ):
+        if (
+            x_column not in attempts.columns
+            or y_column not in attempts.columns
+        ):
+            continue
+
+        subset = pd.DataFrame({
+            "x": pd.to_numeric(
+                attempts[x_column],
+                errors="coerce",
+            ),
+            "y": pd.to_numeric(
+                attempts[y_column],
+                errors="coerce",
+            ),
+            "completed": completed.astype(int),
+        }).dropna(subset=["x", "y"])
+
+        if subset.empty:
+            continue
+
+        subset["_bin_x"] = (
+            np.floor(
+                subset["x"] / float(grid_size)
+            )
+            .clip(
+                lower=0,
+                upper=max(int(100 / grid_size), 1),
+            )
+            .astype(int)
+        )
+        subset["_bin_y"] = (
+            np.floor(
+                subset["y"] / float(grid_size)
+            )
+            .clip(
+                lower=0,
+                upper=max(int(100 / grid_size), 1),
+            )
+            .astype(int)
+        )
+
+        grouped = (
+            subset
+            .groupby(
+                ["_bin_x", "_bin_y"],
+                as_index=False,
+            )
+            .agg(
+                x=("x", "median"),
+                y=("y", "median"),
+                count=("x", "size"),
+                completed=("completed", "sum"),
+            )
+        )
+        grouped["completion_pct"] = (
+            grouped["completed"]
+            / grouped["count"]
+            * 100.0
+        )
+        grouped["kind"] = kind
+        records.append(grouped[columns])
+
+    if not records:
+        return pd.DataFrame(columns=columns)
+
+    return pd.concat(
+        records,
+        ignore_index=True,
+    )
+
+
+def _progressive_pass_tactical_zone(
+    x,
+    y,
+):
+    """
+    Map one Opta coordinate to a 4 x 3 tactical zone.
+
+    Longitudinal bands:
+      0 = build-up
+      1 = middle third
+      2 = advanced
+      3 = final quarter
+
+    Lateral channels:
+      0 = left
+      1 = central
+      2 = right
+
+    Team plots share the same left-to-right attacking orientation.
+    """
+    x_value = float(x)
+    y_value = float(y)
+
+    x_band = min(
+        int(
+            max(
+                x_value,
+                0.0,
+            )
+            // 25.0
+        ),
+        3,
+    )
+
+    if y_value < (100.0 / 3.0):
+        channel = 2
+    elif y_value < (200.0 / 3.0):
+        channel = 1
+    else:
+        channel = 0
+
+    return (
+        x_band,
+        channel,
+    )
+
+
+def _progressive_pass_aggregate_routes(
+    df_prog_passes,
+    *,
+    top_n=8,
+):
+    """
+    Aggregate progressive passes by tactical origin -> destination zone.
+
+    The underlying progressive-pass definition is unchanged. Only the
+    presentation layer groups geometrically similar attempts.
+
+    The plotted arrow uses the median real origin and destination of all
+    passes in that tactical route, rather than the zone centre.
+    """
+    columns = [
+        "start_band",
+        "start_channel",
+        "end_band",
+        "end_channel",
+        "start_x",
+        "start_y",
+        "end_x",
+        "end_y",
+        "attempts",
+        "completed",
+        "completion_pct",
+        "average_length_m",
+        "average_progression_m",
+    ]
+
+    if (
+        df_prog_passes is None
+        or df_prog_passes.empty
+    ):
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    attempts = df_prog_passes.copy()
+
+    if "is_progressive_attempt" in attempts.columns:
+        attempts = attempts[
+            attempts[
+                "is_progressive_attempt"
+            ]
+            .fillna(False)
+            .astype(bool)
+        ].copy()
+
+    if attempts.empty:
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    for column in (
+        "x",
+        "y",
+        "end_x",
+        "end_y",
+    ):
+        attempts[column] = pd.to_numeric(
+            attempts.get(
+                column
+            ),
+            errors="coerce",
+        )
+
+    attempts = attempts.dropna(
+        subset=[
+            "x",
+            "y",
+            "end_x",
+            "end_y",
+        ]
+    ).copy()
+
+    if attempts.empty:
+        return pd.DataFrame(
+            columns=columns
+        )
+
+    attempts["_completed"] = (
+        attempts.get(
+            "is_progressive",
+            pd.Series(
+                False,
+                index=attempts.index,
+            ),
+        )
+        .fillna(False)
+        .astype(bool)
+        .astype(int)
+    )
+
+    dx_m = (
+        attempts["end_x"]
+        - attempts["x"]
+    ) * 1.05
+
+    dy_m = (
+        attempts["end_y"]
+        - attempts["y"]
+    ) * 0.68
+
+    attempts["_pass_length_m"] = np.hypot(
+        dx_m,
+        dy_m,
+    )
+
+    if (
+        "progressive_distance_m"
+        in attempts.columns
+    ):
+        attempts["_progression_m"] = (
+            pd.to_numeric(
+                attempts[
+                    "progressive_distance_m"
+                ],
+                errors="coerce",
+            )
+        )
+    else:
+        attempts["_progression_m"] = (
+            attempts["end_x"]
+            - attempts["x"]
+        ) * 1.05
+
+    zone_pairs = attempts.apply(
+        lambda row: (
+            _progressive_pass_tactical_zone(
+                row["x"],
+                row["y"],
+            ),
+            _progressive_pass_tactical_zone(
+                row["end_x"],
+                row["end_y"],
+            ),
+        ),
+        axis=1,
+    )
+
+    attempts[
+        "_start_band"
+    ] = [
+        value[0][0]
+        for value in zone_pairs
+    ]
+
+    attempts[
+        "_start_channel"
+    ] = [
+        value[0][1]
+        for value in zone_pairs
+    ]
+
+    attempts[
+        "_end_band"
+    ] = [
+        value[1][0]
+        for value in zone_pairs
+    ]
+
+    attempts[
+        "_end_channel"
+    ] = [
+        value[1][1]
+        for value in zone_pairs
+    ]
+
+    grouped = (
+        attempts
+        .groupby(
+            [
+                "_start_band",
+                "_start_channel",
+                "_end_band",
+                "_end_channel",
+            ],
+            as_index=False,
+        )
+        .agg(
+            start_x=("x", "median"),
+            start_y=("y", "median"),
+            end_x=("end_x", "median"),
+            end_y=("end_y", "median"),
+            attempts=("x", "size"),
+            completed=(
+                "_completed",
+                "sum",
+            ),
+            average_length_m=(
+                "_pass_length_m",
+                "mean",
+            ),
+            average_progression_m=(
+                "_progression_m",
+                "mean",
+            ),
+        )
+        .rename(
+            columns={
+                "_start_band":
+                    "start_band",
+                "_start_channel":
+                    "start_channel",
+                "_end_band":
+                    "end_band",
+                "_end_channel":
+                    "end_channel",
+            }
+        )
+    )
+
+    grouped[
+        "completion_pct"
+    ] = (
+        grouped["completed"]
+        / grouped["attempts"]
+        * 100.0
+    )
+
+    grouped = (
+        grouped
+        .sort_values(
+            [
+                "attempts",
+                "completed",
+                "average_progression_m",
+            ],
+            ascending=[
+                False,
+                False,
+                False,
+            ],
+            kind="stable",
+        )
+        .head(
+            max(
+                int(top_n),
+                0,
+            )
+        )
+        .reset_index(
+            drop=True
+        )
+    )
+
+    return grouped[
+        columns
+    ]
+
+def plot_progressive_pass_summary_plotly(
+    df_prog_passes,
+    team_name,
+    team_color,
+    is_away=False,
+):
+    """
+    Summary view using the strongest tactical origin -> destination routes.
+
+    Each arrow aggregates progressive passes sharing the same 4 x 3 tactical
+    origin and destination zones. The arrow itself is drawn between the median
+    real coordinates of those attempts.
+    """
+    del team_name
+    del team_color
+
+    palette = get_team_palette(
+        is_away=is_away
+    )
+
+    fig = go.Figure()
+
+    pitch_shapes = (
+        pitch_plots
+        .get_plotly_pitch_shapes(
+            "rgba(255,255,255,0.24)",
+            "rgba(255,255,255,0.82)",
+        )
+    )
+
+    # 4 longitudinal bands.
+    for x_value in (
+        25,
+        50,
+        75,
+    ):
+        pitch_shapes.append(
+            dict(
+                type="line",
+                x0=x_value,
+                y0=0,
+                x1=x_value,
+                y1=100,
+                line=dict(
+                    color=(
+                        "rgba(255,255,255,0.10)"
+                    ),
+                    dash="dot",
+                    width=1,
+                ),
+            )
+        )
+
+    # 3 lateral channels.
+    for y_value in (
+        100 / 3,
+        200 / 3,
+    ):
+        pitch_shapes.append(
+            dict(
+                type="line",
+                x0=0,
+                y0=y_value,
+                x1=100,
+                y1=y_value,
+                line=dict(
+                    color=(
+                        "rgba(255,255,255,0.10)"
+                    ),
+                    dash="dot",
+                    width=1,
+                ),
+            )
+        )
+
+    routes = (
+        _progressive_pass_aggregate_routes(
+            df_prog_passes,
+            top_n=8,
+        )
+    )
+
+    if routes.empty:
+        add_zero_state(
+            fig,
+            (
+                "No open-play progressive pass "
+                "attempts for this team"
+            ),
+            dark=True,
+        )
+    else:
+        max_attempts = max(
+            int(
+                routes[
+                    "attempts"
+                ].max()
+            ),
+            1,
+        )
+
+        midpoint_x = []
+        midpoint_y = []
+        midpoint_size = []
+        midpoint_text = []
+        midpoint_custom = []
+
+        band_labels = {
+            0: "Build-up",
+            1: "Middle",
+            2: "Advanced",
+            3: "Final quarter",
+        }
+
+        channel_labels = {
+            0: "Left",
+            1: "Central",
+            2: "Right",
+        }
+
+        for rank, row in routes.iterrows():
+            route_attempts = int(
+                row["attempts"]
+            )
+
+            strength = (
+                route_attempts
+                / max_attempts
+            ) ** 0.72
+
+            width = (
+                1.8
+                + 4.8 * strength
+            )
+
+            opacity = (
+                0.42
+                + 0.48 * strength
+            )
+
+            fig.add_annotation(
+                x=float(
+                    row["end_x"]
+                ),
+                y=float(
+                    row["end_y"]
+                ),
+                ax=float(
+                    row["start_x"]
+                ),
+                ay=float(
+                    row["start_y"]
+                ),
+                xref="x",
+                yref="y",
+                axref="x",
+                ayref="y",
+                text="",
+                showarrow=True,
+                arrowhead=3,
+                arrowsize=1.15,
+                arrowwidth=width,
+                arrowcolor=(
+                    palette["primary"]
+                ),
+                opacity=opacity,
+            )
+
+            start_x = float(
+                row["start_x"]
+            )
+            start_y = float(
+                row["start_y"]
+            )
+            end_x = float(
+                row["end_x"]
+            )
+            end_y = float(
+                row["end_y"]
+            )
+
+            route_dx = (
+                end_x
+                - start_x
+            )
+            route_dy = (
+                end_y
+                - start_y
+            )
+
+            route_norm = max(
+                float(
+                    np.hypot(
+                        route_dx,
+                        route_dy,
+                    )
+                ),
+                1e-9,
+            )
+
+            # Put the attempt badge beside the arrow instead of on top of it.
+            # Alternate sides to reduce collisions between nearby routes.
+            badge_side = (
+                1.0
+                if rank % 2 == 0
+                else -1.0
+            )
+            badge_offset = 4.0
+
+            badge_x = (
+                (
+                    start_x
+                    + end_x
+                )
+                / 2.0
+                + (
+                    -route_dy
+                    / route_norm
+                    * badge_offset
+                    * badge_side
+                )
+            )
+
+            badge_y = (
+                (
+                    start_y
+                    + end_y
+                )
+                / 2.0
+                + (
+                    route_dx
+                    / route_norm
+                    * badge_offset
+                    * badge_side
+                )
+            )
+
+            midpoint_x.append(
+                badge_x
+            )
+
+            midpoint_y.append(
+                badge_y
+            )
+
+            midpoint_size.append(
+                19.0
+                + 10.0 * strength
+            )
+
+            midpoint_text.append(
+                str(
+                    route_attempts
+                )
+            )
+
+            start_zone = (
+                f"{band_labels[int(row['start_band'])]} "
+                f"{channel_labels[int(row['start_channel'])]}"
+            )
+
+            end_zone = (
+                f"{band_labels[int(row['end_band'])]} "
+                f"{channel_labels[int(row['end_channel'])]}"
+            )
+
+            midpoint_custom.append([
+                rank + 1,
+                route_attempts,
+                int(
+                    row[
+                        "completed"
+                    ]
+                ),
+                float(
+                    row[
+                        "completion_pct"
+                    ]
+                ),
+                float(
+                    row[
+                        "average_length_m"
+                    ]
+                ),
+                float(
+                    row[
+                        "average_progression_m"
+                    ]
+                ),
+                start_zone,
+                end_zone,
+            ])
+
+        fig.add_trace(
+            go.Scatter(
+                x=midpoint_x,
+                y=midpoint_y,
+                mode="markers+text",
+                marker=dict(
+                    size=midpoint_size,
+                    symbol="circle",
+                    color=(
+                        "rgba(16,47,69,0.98)"
+                    ),
+                    line=dict(
+                        color=(
+                            palette[
+                                "primary"
+                            ]
+                        ),
+                        width=2.1,
+                    ),
+                ),
+                text=midpoint_text,
+                textposition=(
+                    "middle center"
+                ),
+                textfont=dict(
+                    color="#ffffff",
+                    size=10,
+                ),
+                customdata=np.asarray(
+                    midpoint_custom,
+                    dtype=object,
+                ),
+                hovertemplate=(
+                    "<b>%{customdata[6]} → %{customdata[7]}</b>"
+                    "<br>Route rank: #%{customdata[0]}"
+                    "<br>Attempts: %{customdata[1]}"
+                    "<br>Completed: %{customdata[2]}"
+                    "<br>Completion: %{customdata[3]:.0f}%"
+                    "<br>Average pass length: %{customdata[4]:.1f} m"
+                    "<br>Average progression: %{customdata[5]:.1f} m"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
+                name="Top tactical routes",
+            )
+        )
+
+        fig.add_annotation(
+            x=0.02,
+            y=0.985,
+            xref="paper",
+            yref="paper",
+            text=(
+                "<b>Top 8 tactical routes</b>"
+                "<br><span style='font-size:11px'>"
+                "4 longitudinal bands × 3 channels · "
+                "width = volume · badge = attempts"
+                "</span>"
+            ),
+            showarrow=False,
+            xanchor="left",
+            yanchor="top",
+            align="left",
+            font=dict(
+                color="#ffffff",
+                size=12,
+            ),
+            bgcolor=(
+                "rgba(16,47,69,0.86)"
+            ),
+            bordercolor=(
+                "rgba(255,255,255,0.16)"
+            ),
+            borderwidth=1,
+            borderpad=5,
+        )
+
+    apply_match_pitch_layout(
+        fig,
+        pitch_shapes=pitch_shapes,
+        height=560,
+        showlegend=False,
+        header=False,
+        x_range=(-2, 102),
+        y_range=(-5, 107),
+    )
+
+    add_attacking_direction(
+        fig,
+        dark=True,
+        x=0.985,
+        y=0.025,
+        xanchor="right",
+        yanchor="bottom",
+    )
+
+    return fig

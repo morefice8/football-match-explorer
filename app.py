@@ -50,6 +50,7 @@ from src.components.match_graph_shell import match_graph_panel, match_graph_shel
 from src import config
 from src.metrics import pass_network_metrics
 from src.components import pass_network_view
+from src.components import progressive_pass_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -4654,284 +4655,169 @@ def generate_progressive_passes_plot(stored_data_json):
 
 
 # --- CALLBACK FOR PROGRESSIVE PASSES CONTENT ---
+# PLOT-05 — rebuild Progressive Passes view mode
+def _build_progressive_passes_view(
+    stored_data_json,
+    view_mode="summary",
+):
+    if not stored_data_json:
+        return []
+
+    df_processed = pd.read_json(
+        io.StringIO(
+            stored_data_json["df"]
+        ),
+        orient="split",
+    )
+
+    match_info = json.loads(
+        stored_data_json.get(
+            "match_info",
+            "{}",
+        )
+    )
+
+    home_team = match_info.get(
+        "hteamName",
+        "Home",
+    )
+    away_team = match_info.get(
+        "ateamName",
+        "Away",
+    )
+
+    all_passes = (
+        pass_processing
+        .get_passes_df(
+            df_processed
+        )
+    )
+
+    prog_passes = all_passes[
+        all_passes[
+            "is_progressive_attempt"
+        ]
+        .fillna(False)
+        .astype(bool)
+    ].copy()
+
+    return progressive_pass_view.panels(
+        prog_passes,
+        home_team,
+        away_team,
+        HCOL,
+        ACOL,
+        view_mode=(
+            view_mode
+            or progressive_pass_view.VIEW_SUMMARY
+        ),
+    )
+
 @app.callback(
     Output("div-progressive-passes-content", "children"),
     Input("store-df-match", "data"),
     Input("passes-nested-tabs", "active_tab")
 )
-def show_progressive_passes_content_callback(stored_data_json, active_nested_tab):
-    if active_nested_tab != "progressive_passes" or not stored_data_json:
+def show_progressive_passes_content_callback(
+    stored_data_json,
+    active_nested_tab,
+):
+    if (
+        active_nested_tab
+        != "progressive_passes"
+        or not stored_data_json
+    ):
         return no_update
 
     try:
-        df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-        match_info = json.loads(stored_data_json['match_info'])
-
-        HTEAM_NAME = match_info.get('hteamName', 'Home')
-        ATEAM_NAME = match_info.get('ateamName', 'Away')
-
-        # Keep attempted and completed progressive passes separate: volume alone
-        # must not be presented as passing quality.
-        all_passes = pass_processing.get_passes_df(df_processed)
-        prog_passes = all_passes[
-            all_passes['is_progressive_attempt'].fillna(False).astype(bool)
-        ].copy()
-
-        if prog_passes.empty:
-            return dbc.Alert(
-                "No open-play progressive pass attempts found in the match.",
-                color="warning",
+        initial_panels = (
+            _build_progressive_passes_view(
+                stored_data_json,
+                progressive_pass_view.VIEW_SUMMARY,
             )
+        )
 
-        def create_prog_pass_layout_for_team(team_name, team_color, is_away):
-            team_passes = prog_passes[prog_passes['team_name'] == team_name]
-            summary = pass_metrics.progressive_pass_summary(team_passes)
-            fig = pass_plotly.plot_progressive_passes_plotly(
-                team_passes, team_name, team_color, is_away
-            )
-            graph_component = dcc.Graph(
-                figure=fig,
-                config={'displayModeBar': False, 'responsive': True},
-                className='progressive-map-graph',
-            )
+        dynamic_panels = dash_html.Div(
+            initial_panels,
+            id="progressive-pass-view-content",
+            className="progressive-summary-panel-stack",
+        )
 
-            def metric_card(
-                label,
-                value,
-                detail,
-                tooltip=None,
-            ):
-                if tooltip:
-                    tooltip_id = (
-                        "progressive-kpi-info-"
-                        f"{uuid.uuid4().hex}"
-                    )
-
-                    label_component = dash_html.Div([
-
-                        dash_html.Span(
-                            label,
-                            className='progressive-kpi-label',
-                        ),
-
-                        dash_html.I(
-                            id=tooltip_id,
-                            className=(
-                                "fa-regular "
-                                "fa-circle-question "
-                                "metric-definition-icon"
-                            ),
-                        ),
-
-                        dbc.Tooltip(
-                            tooltip,
-                            target=tooltip_id,
-                            placement="top",
-                            delay={
-                                "show": 250,
-                                "hide": 80,
-                            },
-                        ),
-
-                    ], className="metric-label-with-info")
-
-                else:
-                    label_component = dash_html.Span(
-                        label,
-                        className='progressive-kpi-label',
-                    )
-
-                return dash_html.Div([
-
-                    label_component,
-
-                    dash_html.Strong(
-                        value,
-                        className='progressive-kpi-value',
-                    ),
-
-                    dash_html.Small(
-                        detail,
-                        className='progressive-kpi-detail',
-                    ),
-
-                ], className='progressive-kpi-card')
-
-            main_channel_count = summary['channel_counts'].get(
-                summary['main_channel'], 0
-            )
-
-            kpis = dash_html.Div([
-
-                metric_card(
-                    'Completed / attempted',
-                    (
-                        f"{summary['successful']} "
-                        f"/ {summary['attempted']}"
-                    ),
-                    'Open-play progressive passes',
-                    (
-                        "Attempted is the total number of open-play "
-                        "passes that satisfy the progressive-pass "
-                        "criterion. Completed counts only those with "
-                        "a successful outcome."
-                    ),
-                ),
-
-                metric_card(
-                    'Completion',
-                    f"{summary['completion_pct']:.1f}%",
-                    'Completed ÷ attempted',
-                    (
-                        "Progressive-pass completion rate. "
-                        "The denominator is all qualifying "
-                        "progressive-pass attempts."
-                    ),
-                ),
-
-                metric_card(
-                    'Progression gained',
-                    f"{summary['total_progression_m']:.0f} m",
-                    'Completed progressive passes only',
-                    (
-                        "Only completed progressive passes contribute "
-                        "to this total. Failed attempts contribute "
-                        "zero metres."
-                    ),
-                ),
-
-                metric_card(
-                    'Main origin channel',
-                    summary['main_channel'],
-                    (
-                        f"{main_channel_count} of "
-                        f"{summary['attempted']} attempts"
-                    ),
-                    (
-                        "The pitch is divided into Left, Central and "
-                        "Right origin channels using the starting "
-                        "location of each progressive-pass attempt. "
-                        "The denominator is all progressive attempts."
-                    ),
-                ),
-
-            ], className='progressive-kpi-grid')
-
-            channel_total = max(summary['attempted'], 1)
-            channel_profile = dash_html.Div([
-                dash_html.Div([
-                    dash_html.Span(channel),
-                    dash_html.Div(
-                        dash_html.Span(style={
-                            'width': (
-                                f"{summary['channel_counts'][channel] / channel_total * 100:.1f}%"
-                            )
-                        }),
-                        className='progressive-channel-track',
-                    ),
-                    dash_html.Strong(str(summary['channel_counts'][channel])),
-                ], className='progressive-channel-row')
-                for channel in ('Left', 'Central', 'Right')
-            ], className='progressive-channel-profile')
-
-            top_passers = pass_metrics.progressive_pass_player_summary(team_passes)
-            if top_passers.empty:
-                table_content = dbc.Alert('No player data', color='secondary')
-            else:
-                player_jersey_map = (
-                    team_passes.drop_duplicates('playerName')
-                    .set_index('playerName')['Mapped Jersey Number']
-                )
-
-                def format_player_name_with_jersey(player_name):
-                    jersey_raw = player_jersey_map.get(player_name)
-                    try:
-                        jersey = str(int(jersey_raw))
-                    except (ValueError, TypeError):
-                        jersey = '?'
-                    return f"#{jersey} · {player_name}"
-
-                top_passers['Player'] = top_passers['Player'].apply(
-                    format_player_name_with_jersey
-                )
-                top_passers['Completed'] = (
-                    top_passers['Successful'].astype(str)
-                    + ' / '
-                    + top_passers['Attempted'].astype(str)
-                )
-                top_passers['Rate'] = top_passers['Completion %'].astype(str) + '%'
-                top_passers['Gain'] = top_passers['Progression m'].astype(str) + ' m'
-                display_table = top_passers[['Player', 'Completed', 'Rate', 'Gain']]
-                table_content = dbc.Table.from_dataframe(
-                    display_table,
-                    striped=False,
-                    bordered=False,
-                    hover=True,
-                    responsive=True,
-                    className='progressive-player-table',
-                )
-
-            sidebar = dash_html.Div([
-                kpis,
-                dash_html.Div([
-                    dash_html.H6('Origin-channel profile'),
-                    channel_profile,
-                ], className='progressive-sidebar-section'),
-                dash_html.Div([
-                    dash_html.H6('Top progressive passers'),
-                    table_content,
-                ], className='progressive-sidebar-section'),
-            ], className='progressive-sidebar')
-
-            empty_message = (
-                "No open-play progressive pass attempts for this team."
-                if summary["attempted"] == 0
-                else None
-            )
-
-            return match_graph_panel(
-                team_name=team_name,
-                is_away=is_away,
-                sample_size=(
-                    f"n = {summary['attempted']} attempts"
-                ),
-                graph=graph_component,
-                sidebar=sidebar,
-                empty_message=empty_message,
-            )
-
-        home_layout = create_prog_pass_layout_for_team(HTEAM_NAME, HCOL, is_away=False)
-        away_layout = create_prog_pass_layout_for_team(ATEAM_NAME, ACOL, is_away=True)
-
-        return match_graph_shell(
+        shell = match_graph_shell(
             methodology=(
-                "Open-play only. A pass is progressive when it reduces the "
-                "distance to the centre of goal by at least 30 m in the own "
-                "half, 15 m across halfway or 10 m in the opposition half. "
-                "Crosses and restarts are excluded."
+                "Open-play only. A pass is progressive when it reduces "
+                "the distance to the centre of goal by at least 30 m in "
+                "the own half, 15 m across halfway or 10 m in the "
+                "opposition half. Crosses and restarts are excluded. "
+                "Summary groups attempts into tactical origin-to-destination "
+                "routes; individual pass lines are available only in "
+                "All attempts."
             ),
             panels=[
-                home_layout,
-                away_layout,
+                dynamic_panels,
             ],
             analyst_notes={
-                "textarea_id": "comment-progressive-passes",
-                "save_button_id": "save-comment-progressive-passes",
-                "status_id": "save-status-progressive-passes",
+                "textarea_id":
+                    "comment-progressive-passes",
+                "save_button_id":
+                    "save-comment-progressive-passes",
+                "status_id":
+                    "save-status-progressive-passes",
                 "description": (
-                    "Summarise the most meaningful progressive-passing "
-                    "patterns in the match."
+                    "Record the main progression patterns, "
+                    "channels and players."
                 ),
                 "placeholder": (
-                    "Write your Progressive Passes analysis..."
+                    "Add analyst notes for Progressive Passes..."
                 ),
             },
             class_name="progressive-analysis",
         )
 
-    except Exception as e:
-        tb_str = traceback.format_exc()
-        return dbc.Alert(f"Error generating progressive passes plot: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+        return (
+            progressive_pass_view
+            .workspace(
+                shell
+            )
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Error generating Progressive Passes"
+        )
+
+        return dbc.Alert(
+            (
+                "Error generating Progressive Passes: "
+                f"{exc}"
+            ),
+            color="danger",
+        )
+
+# PLOT-05 — Summary / All attempts toggle
+@app.callback(
+    Output(
+        "progressive-pass-view-content",
+        "children",
+    ),
+    Input(
+        "progressive-view-toggle",
+        "value",
+    ),
+    State(
+        "store-df-match",
+        "data",
+    ),
+    prevent_initial_call=True,
+)
+def update_progressive_pass_view(
+    view_mode,
+    stored_data_json,
+):
+    return _build_progressive_passes_view(
+        stored_data_json,
+        view_mode,
+    )
 
 # Example for progressive passes save:
 @app.callback(
