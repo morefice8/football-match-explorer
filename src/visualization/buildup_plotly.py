@@ -599,6 +599,68 @@ def plot_opponent_buildup_after_loss_plotly(
                 outcome_text = f"Shot conceded" if metric_to_analyze == 'defensive_actions' else "Shot"
             something_was_plotted = True
 
+        # Explicit transition recovery marker.
+        # These events can legitimately start a zero-pass transition,
+        # so they must remain visible in the sequence explorer.
+        elif (
+            metric_to_analyze
+            in (
+                'offensive_transitions',
+                'defensive_transitions',
+            )
+            and event_type
+            in (
+                'Ball recovery',
+                'Tackle',
+                'Interception',
+            )
+        ):
+            jersey = row.get(
+                'Mapped Jersey Number',
+                '',
+            )
+
+            jersey_text = (
+                str(int(jersey))
+                if pd.notna(jersey)
+                and jersey != ''
+                else ''
+            )
+
+            hover_text = (
+                f"<b>{row.get('playerName', '')}"
+                f" (#{jersey_text})</b>"
+                f"<br>{event_type}"
+                "<br>Transition recovery"
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=[start_x],
+                    y=[start_y],
+                    mode='markers+text',
+                    marker=dict(
+                        symbol='diamond',
+                        size=18,
+                        color=color_for_buildup_team,
+                        line=dict(
+                            color='white',
+                            width=2,
+                        ),
+                    ),
+                    text=jersey_text,
+                    textfont=dict(
+                        color='white',
+                        size=9,
+                    ),
+                    hovertext=hover_text,
+                    hoverinfo='text',
+                    showlegend=False,
+                )
+            )
+
+            something_was_plotted = True
+
         elif event_type == 'Offside Pass':
             jersey = row.get('Mapped Jersey Number', '')
             jersey_text = str(int(jersey)) if pd.notna(jersey) and jersey != '' else ''
@@ -672,11 +734,38 @@ def plot_opponent_buildup_after_loss_plotly(
             ))
             outcome_text = event_type
 
-        # Update last_event_end_x/y for next iteration's carry check
-        if event_type == 'Pass' and is_successful and pd.notna(end_x) and pd.notna(end_y):
+        # Update the controlled location used to connect the
+        # current event with the next action.
+        if (
+            event_type == 'Pass'
+            and is_successful
+            and pd.notna(end_x)
+            and pd.notna(end_y)
+        ):
             last_event_end_x = end_x
             last_event_end_y = end_y
-        else: # Sequence terminated or non-pass event
+
+        elif (
+            metric_to_analyze
+            in (
+                'offensive_transitions',
+                'defensive_transitions',
+            )
+            and event_type
+            in (
+                'Ball recovery',
+                'Tackle',
+                'Interception',
+            )
+            and is_successful
+        ):
+            # Recovery events are point-like controlled actions.
+            # Their start location becomes the origin of the
+            # following movement in the transition.
+            last_event_end_x = start_x
+            last_event_end_y = start_y
+
+        else:
             last_event_end_x = None
             last_event_end_y = None
 

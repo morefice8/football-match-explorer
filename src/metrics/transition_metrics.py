@@ -18,6 +18,19 @@ TACKLE_ID = 7
 BALL_RECOVERY_ID = 49  # Often used for loose ball recoveries
 PASS_ID = 1
 
+# Transition-domain contract. Keep the default in one place while still
+# allowing callers/tests to override it explicitly when needed.
+TRANSITION_WINDOW_SECONDS = 12.0
+
+# Explicit possession-gain markers that confirm the gaining team has
+# controlled the ball. Recording these markers also keeps zero-pass
+# transitions observable.
+TRANSITION_RECOVERY_EVENT_TYPES = frozenset({
+    'Ball recovery',
+    'Tackle',
+    'Interception',
+})
+
 # Define outcome categories (can be moved to config)
 SUCCESSFUL_TRANSITION_CATEGORIES = ['Goals', 'Shot', 'Big Chance', 'Chance Created'] # What counts as "successful"
 FAILED_TRANSITION_CATEGORIES = ['Possession Lost', 'Turnover'] # What counts as "failed"
@@ -167,7 +180,7 @@ def find_buildup_after_possession_loss(df_processed,
                                        max_passes_in_buildup_sequence=35,
                                        shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'],
                                        metric_to_analyze='defensive_transitions',
-                                       max_transition_seconds=12):
+                                       max_transition_seconds=TRANSITION_WINDOW_SECONDS):
     """
     Identifies sequences of successful passes by the TEAM THAT GAINED POSSESSION
     immediately following a possession loss by the specified 'team_that_lost_possession'.
@@ -199,6 +212,9 @@ def find_buildup_after_possession_loss(df_processed,
         'From corner',
         'Goal mouth y co-ordinate',
         'periodId',
+        'Red card',
+        'Second yellow',
+        'Out of play',
     ]
 
     all_teams = df_processed['team_name'].unique()
@@ -266,6 +282,39 @@ def find_buildup_after_possession_loss(df_processed,
     sequence_id_counter = 0
 
     processed_loss_event_ids = set()
+
+    def _action_in_transition_frame(event):
+        """
+        Return an event expressed in the coordinate frame of the
+        team currently in transition.
+
+        Processed Match Analysis coordinates are team-relative.
+        Events belonging to the opposite team therefore require
+        a 180-degree rotation before they can coexist in the same
+        transition sequence.
+        """
+        action_data = event.to_dict()
+
+        if event.get('team_name') == team_building_up:
+            return action_data
+
+        for coord in (
+            'x',
+            'y',
+            'end_x',
+            'end_y',
+        ):
+            value = pd.to_numeric(
+                action_data.get(coord),
+                errors='coerce',
+            )
+
+            if pd.notna(value):
+                action_data[coord] = (
+                    100.0 - float(value)
+                )
+
+        return action_data
 
     def _find_immediate_penalty_award(
         start_idx,
@@ -542,6 +591,7 @@ def find_buildup_after_possession_loss(df_processed,
         current_opponent_sequence_events = []
         num_passes_in_seq = 0
         sequence_outcome_type = 'Unknown' # Default value
+        termination_reason_override = None
         current_event_original_df_idx = loss_original_df_idx # Start from the loss event index
 
         # Trace forward to find the opponent's sequence
@@ -565,6 +615,10 @@ def find_buildup_after_possession_loss(df_processed,
                     and pd.notna(action_period)
                     and action_period != loss_period
                 ):
+                    if current_opponent_sequence_events:
+                        termination_reason_override = (
+                            'period_boundary'
+                        )
                     break
 
                 # 2. Transition cannot last indefinitely
@@ -597,9 +651,13 @@ def find_buildup_after_possession_loss(df_processed,
                                     'Possession Consolidated'
                                 )
 
+                            termination_reason_override = (
+                                'time_window_elapsed'
+                            )
+
                         break
 
-                action_data = action_by_gaining_team.to_dict()
+                action_data = _action_in_transition_frame(action_by_gaining_team)
                 action_data['loss_sequence_id'] = sequence_id_counter
                 action_data['loss_zone'] = loss_zone
                 action_data['loss_x'] = loss_x
@@ -621,7 +679,7 @@ def find_buildup_after_possession_loss(df_processed,
 
                 is_correct_team = (action_by_gaining_team['team_name'] == team_building_up)
                 is_pass = (action_by_gaining_team['type_name'] == 'Pass')
-                is_unknown = (action_by_gaining_team['type_name'] == 'Unknown')
+                is_unknown = (action_by_gaining_team['type_name'] in ('Unknown','Unknown Type',))
                 is_successful_event = (action_by_gaining_team['outcome'] == 'Successful')
                 is_team_that_lost_possession = (action_by_gaining_team['team_name'] == team_that_lost_possession)
                 is_not_successful_event = (action_by_gaining_team['outcome'] == 'Unsuccessful')
@@ -629,7 +687,24 @@ def find_buildup_after_possession_loss(df_processed,
                 is_end_sequence = (action_by_gaining_team['type_name'] in ('Foul', 'Out', 'Keeper pick-up', 'Claim', 'Dispossessed', 'Offside Pass', 'Corner Awarded'))
                 is_take_on = (action_by_gaining_team['type_name'] == 'Take On')
                 is_ball_touch = (action_by_gaining_team['type_name'] == 'Ball touch')
-                is_ball_recovery = (action_by_gaining_team['type_name'] == 'Ball recovery')
+                is_out_of_play = (
+                    action_by_gaining_team.get('Out of play')
+                    in [1, '1', True]
+                )
+
+                is_recovery_marker = (
+                    action_by_gaining_team['type_name']
+                    in TRANSITION_RECOVERY_EVENT_TYPES
+                    and not (
+                        action_by_gaining_team['type_name']
+                        == 'Tackle'
+                        and is_out_of_play
+                    )
+                )
+                is_card = (
+                    action_by_gaining_team['type_name']
+                    == 'Card'
+                )
                 is_from_corner = (action_by_gaining_team.get('From corner') in [1, '1', True])
                 is_penalty_awarded = (action_by_gaining_team.get('Penalty') in [1, '1', True])
                 is_penalty_for_building_team = (
@@ -647,6 +722,12 @@ def find_buildup_after_possession_loss(df_processed,
                         )
                     )
                 )
+
+                # Cards (including dismissals) are administrative events,
+                # not evidence that possession changed. Keep tracing the
+                # transition around them.
+                if is_card:
+                    continue
 
                 # A penalty award is a terminal event even when it is the
                 # first event after the turnover. Do not require an earlier
@@ -675,7 +756,7 @@ def find_buildup_after_possession_loss(df_processed,
                     if penalty_award_event is not None:
                         current_opponent_sequence_events.append(action_data)
 
-                        penalty_data = penalty_award_event.to_dict()
+                        penalty_data = _action_in_transition_frame(penalty_award_event)
                         penalty_data['loss_sequence_id'] = sequence_id_counter
                         penalty_data['loss_zone'] = loss_zone
                         penalty_data['loss_x'] = loss_x
@@ -692,31 +773,119 @@ def find_buildup_after_possession_loss(df_processed,
                             sequence_outcome_type = 'Penalty won'
                         break
 
-                if is_end_sequence and len(current_opponent_sequence_events) > 0:
-                    current_opponent_sequence_events.append(action_data)
-                    if action_by_gaining_team['type_name'] == 'Foul':
+                if (
+                    is_end_sequence
+                    and current_opponent_sequence_events
+                ):
+                    current_opponent_sequence_events.append(
+                        action_data
+                    )
+
+                    if (
+                        action_by_gaining_team['type_name']
+                        == 'Foul'
+                    ):
                         if is_penalty_awarded:
-                            if metric_to_analyze == 'defensive_transitions':
-                                sequence_outcome_type = 'Penalty conceded'
+                            if (
+                                metric_to_analyze
+                                == 'defensive_transitions'
+                            ):
+                                sequence_outcome_type = (
+                                    'Penalty conceded'
+                                )
                             else:
-                                sequence_outcome_type = 'Penalty won'
+                                sequence_outcome_type = (
+                                    'Penalty won'
+                                )
                         else:
                             sequence_outcome_type = 'Foul'
-                    elif action_by_gaining_team['type_name'] == 'Offside Pass':
+
+                    elif (
+                        action_by_gaining_team['type_name']
+                        == 'Offside Pass'
+                    ):
                         sequence_outcome_type = 'Offside'
-                    elif action_by_gaining_team['type_name'] == 'Out':
+
+                    elif (
+                        action_by_gaining_team['type_name']
+                        == 'Out'
+                    ):
                         sequence_outcome_type = 'Out'
-                    elif action_by_gaining_team['type_name'] == 'Corner Awarded':
+
+                    elif (
+                        action_by_gaining_team['type_name']
+                        == 'Corner Awarded'
+                    ):
                         sequence_outcome_type = 'Corner'
-                    elif action_by_gaining_team['type_name'] == 'Dispossessed':
-                        if metric_to_analyze == 'defensive_transitions':
-                            sequence_outcome_type = f"Regained Possessions"
+
+                    elif (
+                        action_by_gaining_team['type_name']
+                        == 'Dispossessed'
+                    ):
+                        if (
+                            metric_to_analyze
+                            == 'defensive_transitions'
+                        ):
+                            sequence_outcome_type = (
+                                'Regained Possessions'
+                            )
                         else:
-                            sequence_outcome_type = f"Lost Possessions"
-                    break # End the sequence here
+                            sequence_outcome_type = (
+                                'Lost Possessions'
+                            )
+
+                    elif (
+                        action_by_gaining_team['type_name']
+                        in ('Keeper pick-up', 'Claim')
+                    ):
+                        if (
+                            action_by_gaining_team['team_name']
+                            == team_that_lost_possession
+                            and is_successful_event
+                        ):
+                            # The defending team regained control
+                            # through its goalkeeper.
+                            if (
+                                metric_to_analyze
+                                == 'defensive_transitions'
+                            ):
+                                sequence_outcome_type = (
+                                    'Regained Possessions'
+                                )
+                            else:
+                                sequence_outcome_type = (
+                                    'Lost Possessions'
+                                )
+
+                        elif (
+                            action_by_gaining_team['team_name']
+                            == team_building_up
+                            and is_successful_event
+                        ):
+                            # The team in transition retained the ball
+                            # but the fast phase ended with keeper control.
+                            if (
+                                metric_to_analyze
+                                == 'defensive_transitions'
+                            ):
+                                sequence_outcome_type = (
+                                    'Opponent Possession Consolidated'
+                                )
+                            else:
+                                sequence_outcome_type = (
+                                    'Possession Consolidated'
+                                )
+
+                            termination_reason_override = (
+                                'keeper_control'
+                            )
+
+                    break
 
                 elif is_end_sequence:
-                    break # End the sequence here
+                    # A terminal event alone does not prove that
+                    # the opponent actually established possession.
+                    break
 
                 elif is_correct_team and is_pass:
                     if is_successful_event: #successful pass
@@ -760,6 +929,21 @@ def find_buildup_after_possession_loss(df_processed,
                     continue # Skip this event
                 elif is_ball_touch and is_successful_event: # Any unintentional ball touch
                     continue # Skip this event
+                elif (
+                    is_correct_team
+                    and is_recovery_marker
+                    and is_successful_event
+                ):
+                    # An explicit recovery is a controlled action even when
+                    # no pass follows it. Store it so immediate regains and
+                    # zero-pass transitions remain observable.
+                    current_opponent_sequence_events.append(
+                        action_data
+                    )
+                    processed_loss_event_ids.add(
+                        action_by_gaining_team['id']
+                    )
+                    continue
                 elif is_correct_team and is_successful_event: # Gaining team still has ball
                     continue # Skip this event
                 elif is_correct_team and is_take_on and is_not_successful_event: # Gaining team lost possession due to unsuccessful take on
@@ -784,11 +968,6 @@ def find_buildup_after_possession_loss(df_processed,
                     # print(f"DEBUG: Seen lost possession events: {processed_loss_event_ids}")
                     continue # Skip this event
 
-                elif is_correct_team and is_ball_recovery and is_successful_event:
-                    processed_loss_event_ids.add(action_by_gaining_team['id'])
-                    # print(f"DEBUG: Seen lost possession events: {processed_loss_event_ids}")
-                    continue # Skip this event
-
                 elif (is_team_that_lost_possession and is_successful_event):
                     if metric_to_analyze == 'defensive_transitions':
                         sequence_outcome_type = (
@@ -801,7 +980,7 @@ def find_buildup_after_possession_loss(df_processed,
 
                     break
 
-                else: # Some other event or end of data
+                else:  # Some other event or end of data
                     break
 
         # pass_count = sum(
@@ -831,6 +1010,9 @@ def find_buildup_after_possession_loss(df_processed,
                 df_seq_deduped,
                 viewpoint=viewpoint,
                 legacy_outcome=sequence_outcome_type,
+                termination_reason=(
+                    termination_reason_override
+                ),
             )
 
             all_buildup_events_with_loss_info.extend(
