@@ -5234,3 +5234,224 @@ td.cell--selected {
     justify-content: flex-start;
   }
 }
+
+/* PLOT-08 — Cross Flow */
+
+.plot08-cross-flow {
+  display: grid;
+  gap: 16px;
+}
+
+.plot08-cross-flow-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.plot08-cross-flow-kpi {
+  min-width: 0;
+  padding: 14px 15px;
+  border: 1px solid rgba(10, 52, 78, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plot08-cross-flow-kpi-label {
+  color: #56758a;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.plot08-cross-flow-kpi-value {
+  color: #082f49;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+.plot08-cross-flow-kpi-value--name {
+  font-size: 1.05rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.plot08-cross-flow-kpi-detail {
+  color: #6a8292;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.plot08-cross-flow-list {
+  padding: 15px;
+  border: 1px solid rgba(10, 52, 78, 0.10);
+  border-radius: 12px;
+  background: #f8fbfc;
+}
+
+.plot08-cross-flow-list-title {
+  display: block;
+  margin-top: 2px;
+  color: #082f49;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.plot08-cross-flow-list-note {
+  display: block;
+  margin-top: 3px;
+  color: #607b8d;
+  font-size: 0.8rem;
+}
+
+.plot08-cross-flow-route-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.plot08-cross-flow-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid rgba(10, 52, 78, 0.10);
+  border-radius: 10px;
+  background: #ffffff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.plot08-cross-flow-row:hover {
+  border-color: rgba(8, 151, 190, 0.42);
+  background: #f5fbfd;
+}
+
+.plot08-cross-flow-row:focus-visible {
+  outline: 3px solid rgba(8, 151, 190, 0.22);
+  outline-offset: 2px;
+}
+
+.plot08-cross-flow-rank {
+  color: #698395;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.plot08-cross-flow-main {
+  min-width: 0;
+}
+
+.plot08-cross-flow-route {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.plot08-cross-flow-zone {
+  color: #082f49;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 0.88rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plot08-cross-flow-zone--destination {
+  color: #0b7592;
+}
+
+.plot08-cross-flow-arrow {
+  flex: 0 0 auto;
+  color: #7b919f;
+  font-size: 0.72rem;
+}
+
+.plot08-cross-flow-track {
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5eef2;
+}
+
+.plot08-cross-flow-track > span {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: inherit;
+}
+
+.plot08-cross-flow-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+  color: #637c8d;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.plot08-cross-flow-count {
+  justify-self: end;
+  color: #082f49;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.plot08-cross-flow-method {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #eef8fb;
+  color: #446b80;
+  font-size: 0.77rem;
+  line-height: 1.45;
+}
+
+.plot08-cross-flow-method i {
+  margin-top: 2px;
+  color: #0897be;
+}
+
+@media (max-width: 900px) {
+  .plot08-cross-flow-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .plot08-cross-flow-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plot08-cross-flow-row {
+    grid-template-columns: 24px minmax(0, 1fr) 34px;
+    gap: 7px;
+    padding-inline: 8px;
+  }
+
+  .plot08-cross-flow-detail {
+    font-size: 0.7rem;
+  }
+}

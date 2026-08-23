@@ -14,6 +14,7 @@ def plot_cross_heatmap(
     is_away=False,
     grid_size=6,
     selected_cross_id=None,
+    selected_flow_route=None,
 ):
     """
     Plot cross origin or destination locations.
@@ -425,6 +426,134 @@ def plot_cross_heatmap(
             showlegend=False,
         )
     )
+
+
+    # ---------------------------------------------------------
+    # SELECTED FLOW
+    # ---------------------------------------------------------
+
+    if (
+        selected_flow_route
+        and isinstance(
+            selected_flow_route,
+            dict,
+        )
+    ):
+        selected_origin = (
+            selected_flow_route.get(
+                "origin"
+            )
+        )
+
+        selected_destination = (
+            selected_flow_route.get(
+                "destination"
+            )
+        )
+
+        if (
+            selected_origin
+            and selected_destination
+            and "Origin Zone"
+                in df_plot.columns
+            and "Destination Zone"
+                in df_plot.columns
+        ):
+            selected_flow = (
+                df_plot[
+                    (
+                        df_plot[
+                            "Origin Zone"
+                        ]
+                        == selected_origin
+                    )
+                    & (
+                        df_plot[
+                            "Destination Zone"
+                        ]
+                        == selected_destination
+                    )
+                ]
+                .copy()
+            )
+
+            if not selected_flow.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=selected_flow[
+                            x_column
+                        ],
+                        y=selected_flow[
+                            y_column
+                        ],
+                        mode="markers",
+                        marker=dict(
+                            size=15,
+                            color=(
+                                "rgba(245,196,81,0.20)"
+                            ),
+                            line=dict(
+                                color="#f5c451",
+                                width=2.6,
+                            ),
+                        ),
+                        customdata=(
+                            selected_flow[
+                                "cross_id"
+                            ]
+                        ),
+                        hovertemplate=(
+                            "<b>Selected cross flow</b>"
+                            "<br>"
+                            + str(
+                                selected_origin
+                            )
+                            + " → "
+                            + str(
+                                selected_destination
+                            )
+                            + "<extra></extra>"
+                        ),
+                        name="selected_flow_points",
+                        showlegend=False,
+                    )
+                )
+
+                fig.add_annotation(
+                    x=2,
+                    y=103,
+                    text=(
+                        "<b>SELECTED FLOW</b> · "
+                        + str(
+                            selected_origin
+                        )
+                        + " → "
+                        + str(
+                            selected_destination
+                        )
+                        + " · "
+                        + str(
+                            len(
+                                selected_flow
+                            )
+                        )
+                        + " crosses"
+                    ),
+                    showarrow=False,
+                    xanchor="left",
+                    font=dict(
+                        color="#f5c451",
+                        size=10,
+                    ),
+                    bgcolor=(
+                        "rgba(10,52,78,0.86)"
+                    ),
+                    bordercolor=(
+                        "rgba(245,196,81,0.55)"
+                    ),
+                    borderwidth=1,
+                    borderpad=4,
+                )
 
     # ---------------------------------------------------------
     # SELECTED CROSS

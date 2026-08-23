@@ -53,6 +53,7 @@ from src.components import pass_network_view
 from src.components import progressive_pass_view
 from src.components import final_third_view
 from src.components import pass_location_view
+from src.components import cross_flow_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -125,6 +126,7 @@ app.layout = dash_html.Div([
     dcc.Store(id="store-set-piece-filter", data=None),
     dcc.Store(id="cross-filter-store", data=None),
     dcc.Store(id="cross-selection-store", data=None),
+    dcc.Store(id="cross-flow-selection-store", data=None),
     dcc.Store(id="report-html-content-store"),
 
     # Contenitore dove verranno caricate le pagine
@@ -10602,12 +10604,10 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
 
             ])
 
-        flow_component = (
-            build_cross_flow_component(
-                flow_summary,
-                flow_routes,
-                HCOL if not is_away else ACOL,
-            )
+        flow_component = cross_flow_view.flow_panel(
+            flow_summary,
+            flow_routes,
+            HCOL if not is_away else ACOL,
         )
 
         # -----------------------------------------------------
@@ -10874,7 +10874,7 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
                 # ---------------------------------------------
                 dbc.Tab(
 
-                    label="Flow analysis",
+                    label="Cross flow",
                     tab_id="flow-tab",
 
                     children=[
@@ -10897,10 +10897,9 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
 
                                     dash_html.P(
                                         (
-                                            "Rank the most common routes from "
-                                            "cross origin to destination. "
-                                            "Percentages use all currently "
-                                            "filtered crosses."
+                                            "Compare the most common origin-to-destination "
+                                            "routes by volume, retention and "
+                                            "shot generation."
                                         ),
                                         className="match-panel-description",
                                     ),
@@ -10910,8 +10909,8 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
                                 dash_html.Div(
                                     dash_html.Span(
                                         (
-                                            "Routes combine crosses with the "
-                                            "same origin and destination zones."
+                                            "Select a route to highlight its crosses "
+                                            "on both location maps."
                                         ),
                                         className="match-panel-hint",
                                     ),
@@ -10996,6 +10995,113 @@ def reset_cross_filter_on_team_switch(active_tab):
     logger.debug(f"Crosses team tab changed to '{active_tab}'. Resetting cross filter store.")
     return None # Returning None effectively clears the store
 
+
+# PLOT-08 — route selection -> both location maps.
+@app.callback(
+    Output(
+        "cross-flow-selection-store",
+        "data",
+    ),
+    Output(
+        "cross-analysis-subtabs",
+        "active_tab",
+    ),
+    Output(
+        "cross-selection-store",
+        "data",
+        allow_duplicate=True,
+    ),
+    Input(
+        {
+            "type": "cross-flow-route",
+            "origin": ALL,
+            "destination": ALL,
+        },
+        "n_clicks",
+    ),
+    State(
+        "cross-flow-selection-store",
+        "data",
+    ),
+    prevent_initial_call=True,
+)
+def select_cross_flow_route(
+    n_clicks,
+    current_route,
+):
+    if not any(
+        n_clicks or []
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    ctx = dash.callback_context
+
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+
+    triggered_id = (
+        ctx.triggered[0][
+            "prop_id"
+        ]
+        .split(".")[0]
+    )
+
+    try:
+        route_id = json.loads(
+            triggered_id
+        )
+    except (
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    if (
+        not isinstance(
+            route_id,
+            dict,
+        )
+        or route_id.get(
+            "type"
+        )
+        != "cross-flow-route"
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    route = {
+        "origin":
+            route_id.get(
+                "origin"
+            ),
+        "destination":
+            route_id.get(
+                "destination"
+            ),
+    }
+
+    if (
+        not route["origin"]
+        or not route[
+            "destination"
+        ]
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    if current_route == route:
+        return (
+            None,
+            "heatmaps-tab",
+            None,
+        )
+
+    return (
+        route,
+        "heatmaps-tab",
+        None,
+    )
+
+
 # Callback 3: Gestisce la selezione/deselezione del punto e aggiorna lo store
 @app.callback(
     Output('cross-selection-store', 'data'),
@@ -11023,23 +11129,99 @@ def update_cross_selection_on_map_click(origin_click, dest_click, selected_cross
 
 # Callback 4: Aggiorna i grafici in base ai dati filtrati e alla selezione
 @app.callback(
-    Output('cross-origin-map', 'figure'),
-    Output('cross-dest-map', 'figure'),
-    Input('cross-data-store-current-team', 'data'),
-    Input('cross-selection-store', 'data'),
-    State("crosses-team-tabs", "active_tab")
+    Output(
+        "cross-origin-map",
+        "figure",
+    ),
+    Output(
+        "cross-dest-map",
+        "figure",
+    ),
+    Input(
+        "cross-data-store-current-team",
+        "data",
+    ),
+    Input(
+        "cross-selection-store",
+        "data",
+    ),
+    Input(
+        "cross-flow-selection-store",
+        "data",
+    ),
+    State(
+        "crosses-team-tabs",
+        "active_tab",
+    ),
 )
-def update_cross_plots_on_selection(cross_data_json, selected_cross_id, active_team_tab):
+def update_cross_plots_on_selection(
+    cross_data_json,
+    selected_cross_id,
+    selected_flow_route,
+    active_team_tab,
+):
     if not cross_data_json:
-        return go.Figure(layout={'title': 'No Data'}), go.Figure(layout={'title': 'No Data'})
+        return (
+            go.Figure(
+                layout={
+                    "title":
+                        "No Data",
+                }
+            ),
+            go.Figure(
+                layout={
+                    "title":
+                        "No Data",
+                }
+            ),
+        )
 
-    df_filtered = pd.read_json(io.StringIO(cross_data_json), orient='split')
-    is_away = (active_team_tab == "crosses-away")
+    df_filtered = pd.read_json(
+        io.StringIO(
+            cross_data_json
+        ),
+        orient="split",
+    )
 
-    origin_map = cross_plots.plot_cross_heatmap(df_filtered, 'origin', is_away, selected_cross_id=selected_cross_id)
-    dest_map = cross_plots.plot_cross_heatmap(df_filtered, 'destination', is_away, selected_cross_id=selected_cross_id)
+    is_away = (
+        active_team_tab
+        == "crosses-away"
+    )
 
-    return origin_map, dest_map
+    origin_map = (
+        cross_plots
+        .plot_cross_heatmap(
+            df_filtered,
+            "origin",
+            is_away,
+            selected_cross_id=(
+                selected_cross_id
+            ),
+            selected_flow_route=(
+                selected_flow_route
+            ),
+        )
+    )
+
+    dest_map = (
+        cross_plots
+        .plot_cross_heatmap(
+            df_filtered,
+            "destination",
+            is_away,
+            selected_cross_id=(
+                selected_cross_id
+            ),
+            selected_flow_route=(
+                selected_flow_route
+            ),
+        )
+    )
+
+    return (
+        origin_map,
+        dest_map,
+    )
 
 # # Callback 5: Gestisce i filtri delle card
 # @app.callback(
