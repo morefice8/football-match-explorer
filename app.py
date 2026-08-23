@@ -54,6 +54,8 @@ from src.components import progressive_pass_view
 from src.components import final_third_view
 from src.components import pass_location_view
 from src.components import cross_flow_view
+from src.utils.sequence_normalization import normalize_sequence
+from src.visualization.sequence_explorer import plot_sequence_explorer
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -7680,15 +7682,13 @@ def update_buildup_plot_and_indicator(controller_data, stored_sequence_data):
 
         # Call the Plotly function
         # fig = buildup_plotly.plot_buildup_sequence_plotly(seq_df, team_color, is_away)
-        fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
+        normalized_sequence = normalize_sequence(
             seq_df,
-            team_that_lost_possession=None,  # Or actual value if available
-            team_building_up=None,           # Or actual value if available
-            color_for_buildup_team=team_color,
-            loss_sequence_id=active_index + 1,
-            loss_zone=None,                  # Or actual value if available
-            is_buildup_team_away=is_away,
-            metric_to_analyze='buildup_phases',
+            sequence_type="buildup",
+        )
+        fig = plot_sequence_explorer(
+            normalized_sequence,
+            team_color=team_color,
         )
 
         plot_component = dcc.Graph(
@@ -8798,15 +8798,13 @@ def update_def_transition_plot(controller_data, active_filter, stored_data):
             active_index
         ]
 
-        fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
+        normalized_sequence = normalize_sequence(
             selected_seq,
-            team_that_lost_possession=None,
-            team_building_up=None,
-            color_for_buildup_team=team_color,
-            loss_sequence_id=active_index + 1,
-            loss_zone=selected_seq.iloc[0].get("loss_zone"),
-            is_buildup_team_away=is_away,
-            metric_to_analyze='defensive_transitions'
+            sequence_type="defensive_transition",
+        )
+        fig = plot_sequence_explorer(
+            normalized_sequence,
+            team_color=team_color,
         )
 
         graph = dcc.Graph(
@@ -9674,15 +9672,15 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         loss_zone = first_event.get('loss_zone', 'Unknown Zone')
 
         # --- 2. Chiama la funzione con TUTTI i parametri richiesti ---
-        fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
-            sequence_data=seq_df,                                  # <--- Passato come argomento con nome per chiarezza
-            team_that_lost_possession=team_that_lost_possession, # <--- PARAMETRO RICHIESTO
-            team_building_up=team_building_up,                   # <--- PARAMETRO RICHIESTO
-            color_for_buildup_team=team_color,
-            loss_sequence_id=loss_sequence_id,                   # <--- PARAMETRO RICHIESTO
-            loss_zone=loss_zone,                                 # <--- PARAMETRO RICHIESTO
-            is_buildup_team_away=is_away,
-            metric_to_analyze='offensive_transitions'
+        normalized_sequence = normalize_sequence(
+            seq_df,
+            sequence_type="offensive_transition",
+            team_name=team_building_up,
+            opponent_name=team_that_lost_possession,
+        )
+        fig = plot_sequence_explorer(
+            normalized_sequence,
+            team_color=team_color,
         )
 
         graph = dcc.Graph(figure=fig, config={"displayModeBar": False}, style={"height": "550px"})
@@ -10305,15 +10303,15 @@ def update_set_piece_carousel_plot(controller_data, sequence_data, match_data):
     attacking_team = match_info.get('hteamName') if not is_away else match_info.get('ateamName')
     defending_team = match_info.get('ateamName') if not is_away else match_info.get('hteamName')
 
-    fig = buildup_plotly.plot_opponent_buildup_after_loss_plotly(
-        sequence_data=seq_df,
-        team_that_lost_possession=defending_team,
-        team_building_up=attacking_team,
-        color_for_buildup_team=team_color,
-        loss_sequence_id=seq_df.iloc[0]['trigger_sequence_id'],
-        loss_zone=seq_df.iloc[0]['trigger_zone'],
-        is_buildup_team_away=is_away,
-        metric_to_analyze='set_piece'
+    normalized_sequence = normalize_sequence(
+        seq_df,
+        sequence_type="set_piece",
+        team_name=attacking_team,
+        opponent_name=defending_team,
+    )
+    fig = plot_sequence_explorer(
+        normalized_sequence,
+        team_color=team_color,
     )
 
     indicator = f"Sequence {active_index + 1} of {total_items}"
