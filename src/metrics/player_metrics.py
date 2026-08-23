@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 from .pass_metrics import classify_progressive_passes
+from .shot_sequence_metrics import calculate_shot_sequence_player_stats
 
 
 PENALTY_AREA_X_MIN = 83.5
@@ -299,31 +300,47 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
         return pd.DataFrame()
     player_stats.set_index('playerName', inplace=True) # Set index after creation
 
-    # --- Calculate "Buildup to Shot" (Shift Logic) ---
-    # (Keep this logic as it uses shift on the original df and merges)
-    print("  Calculating 'Buildup to Shot' (shift logic)...")
-    df_processed['next_event_is_kp'] = df_processed['is_key_pass'].shift(-1).fillna(False)
-    buildup_df = df_processed[(df_processed['type_name'] == 'Pass') & df_processed['next_event_is_kp']]
-    if not buildup_df.empty:
-        buildup_counts = buildup_df.groupby('playerName')['id'].count().rename('Buildup to Shot')
-        player_stats = player_stats.merge(buildup_counts, on='playerName', how='left')
-        player_stats['Buildup to Shot'] = player_stats['Buildup to Shot'].fillna(0).astype(int)
+    # --- Canonical Shot Sequence Involvement (REL-08) ---
+    print("  Calculating canonical shot-sequence involvement...")
+    shot_sequence_stats = calculate_shot_sequence_player_stats(
+        df_processed,
+        shot_types=shot_types,
+    )
+
+    shot_sequence_columns = [
+        'Shot Sequence Shots',
+        'Shot Sequence Assists',
+        'Shot Sequence Pre-Assists',
+        'Shot Sequence Involvements',
+    ]
+
+    if shot_sequence_stats.empty:
+        for column in shot_sequence_columns:
+            player_stats[column] = 0
     else:
-        player_stats['Buildup to Shot'] = 0
-    # Consider removing the temporary column if df_processed is used later
-    # df_processed.drop(columns=['next_event_is_kp'], inplace=True, errors='ignore')
+        player_stats = player_stats.merge(
+            shot_sequence_stats,
+            left_index=True,
+            right_index=True,
+            how='left',
+        )
+        for column in shot_sequence_columns:
+            player_stats[column] = (
+                player_stats[column]
+                .fillna(0)
+                .astype(int)
+            )
 
+    # Temporary compatibility aliases. The legacy names remain available to
+    # callers until the graph is redesigned, but are now sourced from the
+    # possession-chain contract rather than shift(-1).
+    player_stats['Buildup to Shot'] = (
+        player_stats['Shot Sequence Pre-Assists']
+    )
+    player_stats['Shooting Seq Total'] = (
+        player_stats['Shot Sequence Involvements']
+    )
 
-    # --- Calculate Totals ---
-    # (Keep total calculation logic, ensure column names match exactly)
-    shooting_seq_cols = ['Shots', 'Shot Assists', 'Buildup to Shot']
-    if all(col in player_stats.columns for col in shooting_seq_cols): player_stats['Shooting Seq Total'] = player_stats[shooting_seq_cols].sum(axis=1)
-    else: print("Warning: Could not calculate 'Shooting Seq Total'."); player_stats['Shooting Seq Total'] = 0
-
-    # offensive_pass_cols = ['Progressive Passes', 'Passes into Box', 'Shot Assists']
-    # if all(col in player_stats.columns for col in offensive_pass_cols): player_stats['Offensive Pass Total'] = player_stats[offensive_pass_cols].sum(axis=1)
-    # else: print("Warning: Could not calculate 'Offensive Pass Total'."); player_stats['Offensive Pass Total'] = 0
-    
         # --- Unique Offensive Pass Contributions ---
     offensive_contribution_counts = (
         calculate_offensive_pass_contributions(

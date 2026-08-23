@@ -43,22 +43,22 @@ def plot_shot_sequence_bar(ax, player_stats_df, num_players=10, title="Shot Sequ
     """Plots a stacked bar chart for shot sequence involvement for top players."""
     print(f"Plotting {title} bar chart...")
     # Ensure required columns exist
-    req_cols = ['Shots', 'Shot Assists', 'Buildup to Shot', 'Shooting Seq Total']
+    req_cols = ['Shot Sequence Shots', 'Shot Sequence Assists', 'Shot Sequence Pre-Assists', 'Shot Sequence Involvements']
     if not all(col in player_stats_df.columns for col in req_cols):
         print(f"Warning: Missing required columns for shot sequence plot. Skipping.")
         ax.text(0.5, 0.5, "Data Unavailable", ha='center', va='center', fontsize=12, color='red')
         return
 
     # Get top N players based on the total shooting sequence involvement
-    top_players_df = player_stats_df.sort_values('Shooting Seq Total', ascending=False).head(num_players)
+    top_players_df = player_stats_df.sort_values('Shot Sequence Involvements', ascending=False).head(num_players)
     # Sort back by index/original order potentially? Or keep sorted by total? Let's keep sorted for ranking.
     # Reverse for plotting (top player at the top of the bar chart)
     top_players_df = top_players_df.iloc[::-1]
 
     players = top_players_df.index.tolist()
-    shots = top_players_df['Shots'].tolist()
-    shot_assists = top_players_df['Shot Assists'].tolist()
-    buildup = top_players_df['Buildup to Shot'].tolist()
+    shots = top_players_df['Shot Sequence Shots'].tolist()
+    shot_assists = top_players_df['Shot Sequence Assists'].tolist()
+    buildup = top_players_df['Shot Sequence Pre-Assists'].tolist()
 
     # Calculate left offsets for stacking
     left_sa = np.array(shots)
@@ -66,8 +66,8 @@ def plot_shot_sequence_bar(ax, player_stats_df, num_players=10, title="Shot Sequ
 
     # Plot bars
     ax.barh(players, shots, label='Shot', color=HCOL, left=0, zorder=3) # Use a distinct color
-    ax.barh(players, shot_assists, label='Shot Assist', color=VIOLET, left=left_sa, zorder=3)
-    ax.barh(players, buildup, label='Buildup', color=ACOL, left=left_buildup, zorder=3) # Use another distinct color
+    ax.barh(players, shot_assists, label='Shot-Creating Pass', color=VIOLET, left=left_sa, zorder=3)
+    ax.barh(players, buildup, label='Pre-Assist', color=ACOL, left=left_buildup, zorder=3) # Use another distinct color
 
     # Add counts inside bars
     for i, player in enumerate(players):
@@ -79,7 +79,7 @@ def plot_shot_sequence_bar(ax, player_stats_df, num_players=10, title="Shot Sequ
                 ax.text(x_pos, i, str(int(count)), ha='center', va='center', color=BG_COLOR, fontsize=10, fontweight='bold', zorder=4)
 
     # Styling
-    max_total = top_players_df['Shooting Seq Total'].max()
+    max_total = top_players_df['Shot Sequence Involvements'].max()
     ax.set_xlim(0, max_total * 1.05) # Add padding
     # Add grid lines
     x_ticks = np.arange(0, max_total + 1, 2) # Adjust step if needed
@@ -1467,7 +1467,7 @@ def plot_shot_sequence_bar_plotly(player_stats_df, df_processed, home_team_name,
     """
     Crea un bar chart Plotly interattivo per il coinvolgimento nelle sequenze di tiro.
     """
-    req_cols = ['Shots', 'Shot Assists', 'Buildup to Shot', 'Shooting Seq Total']
+    req_cols = ['Shot Sequence Shots', 'Shot Sequence Assists', 'Shot Sequence Pre-Assists', 'Shot Sequence Involvements']
     if not all(col in player_stats_df.columns for col in req_cols):
         fig = go.Figure()
         fig.update_layout(
@@ -1477,12 +1477,12 @@ def plot_shot_sequence_bar_plotly(player_stats_df, df_processed, home_team_name,
         )
         return fig
     
-    weights = {'Shots': 3, 'Shot Assists': 2, 'Buildup to Shot': 1}
+    weights = {'Shot Sequence Shots': 3, 'Shot Sequence Assists': 2, 'Shot Sequence Pre-Assists': 1}
     df_with_score = player_stats_df.copy()
     df_with_score['Weighted Score'] = (
-        df_with_score['Shots'] * weights['Shots'] +
-        df_with_score['Shot Assists'] * weights['Shot Assists'] +
-        df_with_score['Buildup to Shot'] * weights['Buildup to Shot']
+        df_with_score['Shot Sequence Shots'] * weights['Shot Sequence Shots'] +
+        df_with_score['Shot Sequence Assists'] * weights['Shot Sequence Assists'] +
+        df_with_score['Shot Sequence Pre-Assists'] * weights['Shot Sequence Pre-Assists']
     )
 
     # 1. Prepara i dati dei top players, ordinamento DISCENDENTE e inversione per il plot
@@ -1497,9 +1497,9 @@ def plot_shot_sequence_bar_plotly(player_stats_df, df_processed, home_team_name,
     fig = go.Figure()
 
     # Aggiungi le tracce usando il DataFrame invertito
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Buildup to Shot'], name='Buildup', orientation='h', marker_color=acol, text=plot_df['Buildup to Shot'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Buildup to Shot: %{x}<extra></extra>'))
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shot Assists'], name='Shot Assist', orientation='h', marker_color=violet_col, text=plot_df['Shot Assists'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Shot Assist: %{x}<extra></extra>'))
-    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shots'], name='Shot', orientation='h', marker_color=hcol, text=plot_df['Shots'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Shots: %{x}<extra></extra>'))
+    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shot Sequence Pre-Assists'], name='Pre-Assist', orientation='h', marker_color=acol, text=plot_df['Shot Sequence Pre-Assists'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Pre-Assist: %{x}<br><span style="font-size:11px">Pass received by the player who then makes the shot-creating pass.</span><extra></extra>'))
+    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shot Sequence Assists'], name='Shot-Creating Pass', orientation='h', marker_color=violet_col, text=plot_df['Shot Sequence Assists'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Shot-Creating Pass: %{x}<br><span style="font-size:11px">Completed pass directly creating a shot.</span><extra></extra>'))
+    fig.add_trace(go.Bar(y=plot_df.index, x=plot_df['Shot Sequence Shots'], name='Shot', orientation='h', marker_color=hcol, text=plot_df['Shot Sequence Shots'], hoverinfo='y+x', hovertemplate='<b>%{y}</b><br>Shots: %{x}<extra></extra>'))
     
     # --- Configurazione del Layout ---
     fig.update_layout(
