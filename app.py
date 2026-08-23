@@ -5571,10 +5571,11 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
             className='fa-solid fa-circle-info'
         ),
         dash_html.Span(
-            'Players are ranked by unique offensive pass '
-            'contributions. Progressive passes, passes into '
-            'the box and key passes are shown independently '
-            'because the categories can overlap.'
+            'Players are ranked by unique qualifying pass events. '
+            'Progressive passes, completed passes into the box, '
+            'key passes and assists all contribute; overlaps count '
+            'once. Assists are included in UNIQUE even though they '
+            'are not shown as a separate column.'
         ),
     ], className='match-analysis-note'),
 

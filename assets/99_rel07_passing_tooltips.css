@@ -1,0 +1,48 @@
+/* REL-07 — Player passing metric tooltips */
+
+.passing-header-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28rem;
+  cursor: help;
+}
+
+.passing-header-info {
+  color: #0b8bab;
+  font-size: 0.62rem;
+  opacity: 0.72;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.passing-header-label:hover .passing-header-info,
+.passing-header-label:focus .passing-header-info {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.passing-metric-tooltip {
+  --bs-tooltip-bg: #17354d;
+  --bs-tooltip-color: #f7fbfc;
+  --bs-tooltip-max-width: 320px;
+  --bs-tooltip-opacity: 1;
+}
+
+.passing-metric-tooltip .tooltip-inner {
+  max-width: 320px;
+  padding: 0.62rem 0.72rem;
+  color: #f7fbfc;
+  background: #17354d;
+  border: 1px solid rgba(78, 195, 212, 0.28);
+  border-radius: 0.55rem;
+  box-shadow: 0 0.45rem 1.2rem rgba(23, 53, 77, 0.18);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+}

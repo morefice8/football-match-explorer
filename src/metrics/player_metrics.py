@@ -1,95 +1,200 @@
 # src/metrics/player_metrics.py
 import pandas as pd
 import numpy as np
-from .pass_metrics import analyze_progressive_passes # Assuming correct relative import
+from .pass_metrics import classify_progressive_passes
+
+
+PENALTY_AREA_X_MIN = 83.5
+PENALTY_AREA_Y_MIN = 21.1
+PENALTY_AREA_Y_MAX = 78.9
+
+
+def _successful_pass_mask(df):
+    """Return successful Pass events, accepting text or numeric outcomes."""
+    pass_mask = df['type_name'].fillna('').astype(str).str.lower().eq('pass')
+    outcome = df.get('outcome', pd.Series('', index=df.index))
+    outcome_text = outcome.fillna('').astype(str).str.strip().str.lower()
+    outcome_numeric = pd.to_numeric(outcome, errors='coerce')
+    return pass_mask & (
+        outcome_text.eq('successful')
+        | outcome_numeric.eq(1)
+    )
+
+
+def _event_key_series(df):
+    """Return stable event identities, preferring Opta's global ``id``."""
+    keys = pd.Series(index=df.index, dtype='object')
+
+    if 'id' in df.columns:
+        has_id = df['id'].notna()
+        keys.loc[has_id] = [
+            ('id', value)
+            for value in df.loc[has_id, 'id']
+        ]
+
+    if 'eventId' in df.columns:
+        missing = keys.isna() & df['eventId'].notna()
+        keys.loc[missing] = [
+            ('eventId', value)
+            for value in df.loc[missing, 'eventId']
+        ]
+
+    missing = keys.isna()
+    keys.loc[missing] = [
+        ('index', index)
+        for index in df.index[missing]
+    ]
+    return keys
+
+
+def build_player_passing_event_sets(
+    df_processed,
+    prog_pass_exclusions=None,
+):
+    """
+    Build explicit event sets for the individual passing metrics.
+
+    Contract:
+    - Key Pass: completed pass flagged as a key pass; restarts are allowed.
+    - Assist: completed pass flagged as an assist; restarts are allowed.
+    - Completed Pass into Box: completed open-play pass ending in the box.
+    - Progressive Pass: completed open-play pass satisfying the canonical
+      progressive-pass definition.
+    - Unique Offensive Contribution: union of the four event sets above.
+
+    Set unions prevent overlapping categories from double-counting the same
+    event.
+    """
+    empty = {
+        'key_pass': set(),
+        'assist': set(),
+        'completed_pass_into_box': set(),
+        'progressive_pass': set(),
+        'shot_assist': set(),
+        'unique_offensive_contribution': set(),
+    }
+    if df_processed is None or df_processed.empty:
+        return empty
+
+    df = df_processed.copy()
+    if 'type_name' not in df.columns:
+        return empty
+
+    for flag_col in ('is_key_pass', 'is_assist'):
+        if flag_col in df.columns:
+            df[flag_col] = df[flag_col].fillna(False).astype(bool)
+        else:
+            df[flag_col] = False
+
+    classified = classify_progressive_passes(
+        df,
+        exclude_qualifiers=prog_pass_exclusions,
+    )
+    successful_pass = _successful_pass_mask(df)
+    open_play = classified.get(
+        'progressive_is_open_play',
+        pd.Series(False, index=df.index),
+    ).fillna(False).astype(bool)
+
+    end_x = pd.to_numeric(
+        df.get(
+            'end_x',
+            pd.Series(float('nan'), index=df.index),
+        ),
+        errors='coerce',
+    )
+    end_y = pd.to_numeric(
+        df.get(
+            'end_y',
+            pd.Series(float('nan'), index=df.index),
+        ),
+        errors='coerce',
+    )
+
+    key_pass_mask = successful_pass & df['is_key_pass']
+    assist_mask = successful_pass & df['is_assist']
+    into_box_mask = (
+        successful_pass
+        & open_play
+        & end_x.ge(PENALTY_AREA_X_MIN)
+        & end_y.between(
+            PENALTY_AREA_Y_MIN,
+            PENALTY_AREA_Y_MAX,
+            inclusive='both',
+        )
+    )
+    progressive_mask = classified.get(
+        'is_progressive',
+        pd.Series(False, index=df.index),
+    ).fillna(False).astype(bool)
+
+    event_keys = _event_key_series(df)
+    key_passes = set(event_keys.loc[key_pass_mask])
+    assists = set(event_keys.loc[assist_mask])
+    into_box = set(event_keys.loc[into_box_mask])
+    progressive = set(event_keys.loc[progressive_mask])
+    shot_assists = key_passes | assists
+
+    return {
+        'key_pass': key_passes,
+        'assist': assists,
+        'completed_pass_into_box': into_box,
+        'progressive_pass': progressive,
+        'shot_assist': shot_assists,
+        'unique_offensive_contribution': (
+            progressive
+            | into_box
+            | key_passes
+            | assists
+        ),
+    }
+
 
 def calculate_offensive_pass_contributions(
     df_processed,
-    df_progressive_passes,
+    df_progressive_passes=None,
+    prog_pass_exclusions=None,
 ):
-    """
-    Count unique offensive pass events per player.
+    """Count unique canonical offensive pass events per player."""
+    del df_progressive_passes  # Backward-compatible parameter.
 
-    A pass contributes once if it is at least one of:
-    - progressive pass
-    - pass into the box
-    - shot assist / key pass
-
-    Categories may overlap, but the event is counted only once.
-    """
     if df_processed is None or df_processed.empty:
-        return pd.Series(dtype='int64', name='Offensive Pass Contributions')
+        return pd.Series(
+            dtype='int64',
+            name='Offensive Pass Contributions',
+        )
 
     df = df_processed.copy()
-
-    pass_mask = df['type_name'].eq('Pass')
-
-    into_box_mask = (
-        pass_mask
-        & (pd.to_numeric(df['end_x'], errors='coerce') >= 83)
-        & (pd.to_numeric(df['end_y'], errors='coerce') >= 21.1)
-        & (pd.to_numeric(df['end_y'], errors='coerce') <= 78.9)
+    event_sets = build_player_passing_event_sets(
+        df,
+        prog_pass_exclusions=prog_pass_exclusions,
     )
-
-    shot_assist_mask = (
-        pass_mask
-        & (
-            df['is_key_pass'].fillna(False).astype(bool)
-            | df['is_assist'].fillna(False).astype(bool)
+    contribution_events = event_sets[
+        'unique_offensive_contribution'
+    ]
+    if not contribution_events:
+        return pd.Series(
+            dtype='int64',
+            name='Offensive Pass Contributions',
         )
-    )
 
-    progressive_mask = pd.Series(
-        False,
-        index=df.index,
-    )
+    event_keys = _event_key_series(df)
+    selected = df.loc[
+        event_keys.isin(contribution_events),
+        ['playerName'],
+    ].copy()
+    selected['_event_key'] = event_keys.loc[selected.index]
 
-    if (
-        df_progressive_passes is not None
-        and not df_progressive_passes.empty
-    ):
-        if (
-            'id' in df.columns
-            and 'id' in df_progressive_passes.columns
-        ):
-            progressive_ids = set(
-                df_progressive_passes['id'].dropna()
-            )
-            progressive_mask = df['id'].isin(progressive_ids)
-
-        elif (
-            'eventId' in df.columns
-            and 'eventId' in df_progressive_passes.columns
-        ):
-            progressive_ids = set(
-                df_progressive_passes['eventId'].dropna()
-            )
-            progressive_mask = df['eventId'].isin(progressive_ids)
-
-        else:
-            # analyze_progressive_passes preserves original indices.
-            progressive_mask = df.index.isin(
-                df_progressive_passes.index
-            )
-
-    contribution_mask = (
-        pass_mask
-        & (
-            progressive_mask
-            | into_box_mask
-            | shot_assist_mask
-        )
-    )
-
-    counts = (
-        df.loc[contribution_mask]
+    return (
+        selected
+        .dropna(subset=['playerName'])
+        .drop_duplicates(['playerName', '_event_key'])
         .groupby('playerName')
         .size()
         .rename('Offensive Pass Contributions')
         .astype(int)
     )
 
-    return counts
 
 def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
                            key_pass_values=[13, 14, 15], assist_values=[16],
@@ -101,6 +206,8 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     if df_processed.empty:
         print("Warning: Input DataFrame is empty.")
         return pd.DataFrame()
+
+    df_processed = df_processed.copy()
 
     # --- Pre-calculate Flags ---
     # (Keep the logic to ensure is_key_pass and is_assist flags exist)
@@ -117,6 +224,10 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
         df_processed['is_key_pass'] = df_processed['is_key_pass'].fillna(False).astype(bool)
         df_processed['is_assist'] = df_processed['is_assist'].fillna(False).astype(bool)
 
+    successful_pass = _successful_pass_mask(df_processed)
+    df_processed['is_key_pass'] &= successful_pass
+    df_processed['is_assist'] &= successful_pass
+
     # Define shot types
     shot_types = ['Miss', 'Attempt Saved', 'Post', 'Goal']
 
@@ -132,13 +243,22 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
          print(f"Error: Missing one or more required columns for calculation: {set(required_cols_check) - set(df_processed.columns)}")
          return pd.DataFrame()
 
+    passing_event_sets = build_player_passing_event_sets(
+        df_processed,
+        prog_pass_exclusions=prog_pass_exclusions,
+    )
+
     for name, group in grouped_player:
         stats = {}
         stats['playerName'] = name # Keep player name
+        group_event_keys = set(_event_key_series(group))
 
         # Shooting Sequence
         stats['Shots'] = (group['type_name'].isin(shot_types)).sum()
-        stats['Shot Assists'] = (group['is_key_pass']).sum() + (group['is_assist']).sum()
+        stats['Shot Assists'] = len(
+            group_event_keys
+            & passing_event_sets['shot_assist']
+        )
 
         # Defensive Actions
         stats['Tackles Won'] = ((group['type_name'] == 'Tackle') & (group['outcome'] == 'Successful')).sum()
@@ -148,11 +268,22 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
         stats['Aerials Won'] = ((group['type_name'] == 'Aerial') & (group['outcome'] == 'Successful')).sum()
 
         # Passing Types
-        stats['Passes into Box'] = ((group['type_name'] == 'Pass') &
-                                    (group['end_x'].fillna(-1) >= 83) &
-                                    (group['end_y'].fillna(-1) >= 21.1) &
-                                    (group['end_y'].fillna(-1) <= 78.9)).sum()
-        stats['Key Passes'] = stats['Shot Assists'] # Assuming they are the same by definition used
+        stats['Progressive Passes'] = len(
+            group_event_keys
+            & passing_event_sets['progressive_pass']
+        )
+        stats['Passes into Box'] = len(
+            group_event_keys
+            & passing_event_sets['completed_pass_into_box']
+        )
+        stats['Key Passes'] = len(
+            group_event_keys
+            & passing_event_sets['key_pass']
+        )
+        stats['Assists'] = len(
+            group_event_keys
+            & passing_event_sets['assist']
+        )
 
         # Basic Pass Stats
         stats['Total Passes'] = (group['type_name'] == 'Pass').sum()
@@ -167,19 +298,6 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
         print("No player data after initial aggregation.")
         return pd.DataFrame()
     player_stats.set_index('playerName', inplace=True) # Set index after creation
-
-    # --- Calculate Progressive Passes per Player ---
-    # (Keep this logic as it merges counts from a separate calculation)
-    print("  Calculating progressive passes per player...")
-    df_prog_passes_all, _ = analyze_progressive_passes(
-        df_processed, exclude_qualifiers=prog_pass_exclusions
-    )
-    if not df_prog_passes_all.empty:
-        prog_passes_counts = df_prog_passes_all.groupby('playerName')['id'].count().rename('Progressive Passes')
-        player_stats = player_stats.merge(prog_passes_counts, on='playerName', how='left')
-        player_stats['Progressive Passes'] = player_stats['Progressive Passes'].fillna(0).astype(int)
-    else:
-        player_stats['Progressive Passes'] = 0
 
     # --- Calculate "Buildup to Shot" (Shift Logic) ---
     # (Keep this logic as it uses shift on the original df and merges)
@@ -210,7 +328,7 @@ def calculate_player_stats(df_processed, assist_qualifier_col='Assist',
     offensive_contribution_counts = (
         calculate_offensive_pass_contributions(
             df_processed,
-            df_prog_passes_all,
+            prog_pass_exclusions=prog_pass_exclusions,
         )
     )
 

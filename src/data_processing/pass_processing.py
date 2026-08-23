@@ -521,14 +521,50 @@ def get_passes_df(df_processed):
 
     # 1. Progressive passes. Keep both attempts and completions so that the UI
     # can distinguish volume from efficiency. The classifier also exposes the
-    # actual metres gained towards the centre of the opponent's goal.
+    # canonical open-play flag used by other individual passing metrics.
     classified_passes = pass_metrics.classify_progressive_passes(passes)
     for column in pass_metrics.PROGRESSIVE_RESULT_COLUMNS:
         passes[column] = classified_passes[column]
 
-    # 2. Passaggi in Area (calcolati su tutti i passaggi, anche falliti)
-    passes['is_into_box'] = (passes['end_x'] >= 83.5) & (passes['end_y'].between(21.1, 78.9))
-    
+    outcome = passes.get(
+        'outcome',
+        pd.Series('', index=passes.index),
+    )
+    outcome_text = (
+        outcome.fillna('').astype(str).str.strip().str.lower()
+    )
+    outcome_numeric = pd.to_numeric(
+        outcome,
+        errors='coerce',
+    )
+    successful_pass = (
+        outcome_text.eq('successful')
+        | outcome_numeric.eq(1)
+    )
+
+    # 2. Completed open-play passes ending inside the penalty area.
+    # Reuse the same open-play contract as Progressive Passes so corners,
+    # free kicks, throw-ins, goal kicks and crosses do not leak into the
+    # individual "Passes into Box" metric.
+    passes['is_into_box'] = (
+        successful_pass
+        & classified_passes[
+            'progressive_is_open_play'
+        ].fillna(False).astype(bool)
+        & pd.to_numeric(
+            passes['end_x'],
+            errors='coerce',
+        ).ge(83.5)
+        & pd.to_numeric(
+            passes['end_y'],
+            errors='coerce',
+        ).between(
+            21.1,
+            78.9,
+            inclusive='both',
+        )
+    )
+
     # 3. Receiver information. Never use a blind shift: the next raw row can
     # belong to the opponent or be an administrative event.
     receiver_info = infer_pass_receivers(df_processed)
@@ -548,13 +584,20 @@ def get_passes_df(df_processed):
         f"high={coverage['high']}, medium={coverage['medium']})."
     )
 
-    # 4. Assicura che i flag di key pass/assist esistano
+    # 4. Ensure Key Pass / Assist flags exist and represent completed passes.
     for flag_col in ['is_key_pass', 'is_assist']:
         if flag_col in passes.columns:
-            passes[flag_col] = passes[flag_col].fillna(False).astype(bool)
+            passes[flag_col] = (
+                passes[flag_col]
+                .fillna(False)
+                .astype(bool)
+                & successful_pass
+            )
         else:
-            # Questo è il messaggio che stai vedendo. Significa che il problema è a monte.
-            print(f"  get_passes_df: Flag column '{flag_col}' NOT found. Creating as all False.")
+            print(
+                f"  get_passes_df: Flag column "
+                f"'{flag_col}' NOT found. Creating as all False."
+            )
             passes[flag_col] = False
 
     # --- Define final columns to select ---

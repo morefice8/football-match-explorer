@@ -148,7 +148,7 @@ def create_offensive_pass_contributions_table(
     required_cols = [
         'Progressive Passes',
         'Passes into Box',
-        'Shot Assists',
+        'Key Passes',
         'Offensive Pass Contributions',
     ]
 
@@ -256,7 +256,7 @@ def create_offensive_pass_contributions_table(
             row['Passes into Box']
         )
         key_passes = int(
-            row['Shot Assists']
+            row['Key Passes']
         )
 
         bar_width = (
@@ -336,10 +336,102 @@ def create_offensive_pass_contributions_table(
         dash_html.Div('#'),
         dash_html.Div('Player'),
         dash_html.Div('Offensive contributions'),
-        dash_html.Div('Total'),
-        dash_html.Div('Prog.'),
-        dash_html.Div('Into box'),
-        dash_html.Div('Key passes'),
+
+        dash_html.Div([
+            dash_html.Span(
+                [
+                    'Unique',
+                    dash_html.I(
+                        className='fas fa-info-circle passing-header-info'
+                    ),
+                ],
+                id='passing-header-unique',
+                className='passing-header-label',
+            ),
+            dbc.Tooltip(
+                (
+                    'Unique qualifying pass events: progressive passes, '
+                    'completed passes into the box, key passes and assists. '
+                    'If one pass belongs to multiple categories, it counts once.'
+                ),
+                target='passing-header-unique',
+                placement='top',
+                delay={'show': 120, 'hide': 60},
+                className='passing-metric-tooltip',
+            ),
+        ]),
+
+        dash_html.Div([
+            dash_html.Span(
+                [
+                    'Prog.',
+                    dash_html.I(
+                        className='fas fa-info-circle passing-header-info'
+                    ),
+                ],
+                id='passing-header-progressive',
+                className='passing-header-label',
+            ),
+            dbc.Tooltip(
+                (
+                    'Completed open-play passes that reduce the distance to '
+                    'the centre of goal by at least 30 m in the own half, '
+                    '15 m when crossing halfway, or 10 m in the opposition '
+                    'half. Crosses and restarts are excluded.'
+                ),
+                target='passing-header-progressive',
+                placement='top',
+                delay={'show': 120, 'hide': 60},
+                className='passing-metric-tooltip',
+            ),
+        ]),
+
+        dash_html.Div([
+            dash_html.Span(
+                [
+                    'Into box',
+                    dash_html.I(
+                        className='fas fa-info-circle passing-header-info'
+                    ),
+                ],
+                id='passing-header-into-box',
+                className='passing-header-label',
+            ),
+            dbc.Tooltip(
+                (
+                    'Completed open-play passes ending inside the opponent '
+                    'penalty area. Unsuccessful passes and restarts are excluded.'
+                ),
+                target='passing-header-into-box',
+                placement='top',
+                delay={'show': 120, 'hide': 60},
+                className='passing-metric-tooltip',
+            ),
+        ]),
+
+        dash_html.Div([
+            dash_html.Span(
+                [
+                    'Key passes',
+                    dash_html.I(
+                        className='fas fa-info-circle passing-header-info'
+                    ),
+                ],
+                id='passing-header-key-passes',
+                className='passing-header-label',
+            ),
+            dbc.Tooltip(
+                (
+                    'Completed passes flagged as key passes: passes that '
+                    'directly create a shooting opportunity. Set-piece passes '
+                    'may qualify.'
+                ),
+                target='passing-header-key-passes',
+                placement='top',
+                delay={'show': 120, 'hide': 60},
+                className='passing-metric-tooltip',
+            ),
+        ]),
     ], className='passing-player-header')
 
     return dash_html.Div(
@@ -973,7 +1065,7 @@ def plot_passer_stats_bar_plotly(
     required_cols = [
         'Progressive Passes',
         'Passes into Box',
-        'Shot Assists',
+        'Key Passes',
         'Offensive Pass Contributions',
     ]
 
@@ -1069,7 +1161,7 @@ def plot_passer_stats_bar_plotly(
             'offset': 0.00,
         },
         {
-            'column': 'Shot Assists',
+            'column': 'Key Passes',
             'label': 'Key passes',
             'color': '#8b72cf',
             'symbol': 'square',
@@ -1184,7 +1276,7 @@ def plot_passer_stats_bar_plotly(
         max(
             plot_df['Progressive Passes'].max(),
             plot_df['Passes into Box'].max(),
-            plot_df['Shot Assists'].max(),
+            plot_df['Key Passes'].max(),
             1,
         )
     )
