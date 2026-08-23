@@ -605,7 +605,7 @@ def get_passes_df(df_processed):
 
     # --- Define final columns to select ---
     columns_to_select = [
-        "id", "eventId", 
+        "id", "eventId", "periodId", "playerId",
         "timeMin", "timeSec", # Assicurati che siano incluse
         "x", "y", "end_x", "end_y", "team_name",
         "playerName", "shorter_name", "Mapped Jersey Number",
@@ -622,7 +622,7 @@ def get_passes_df(df_processed):
 
     # Seleziona solo le colonne che esistono effettivamente nel DataFrame
     final_present_columns = [col for col in columns_to_select if col in passes.columns]
-    
+
     df_final_passes = passes[final_present_columns]
 
     logger.info(f"  get_passes_df: Extracted {len(df_final_passes)} pass events. Columns: {df_final_passes.columns.tolist()}")

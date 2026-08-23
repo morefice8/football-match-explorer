@@ -1866,3 +1866,137 @@ def plot_pass_heatmap_plotly(
     )
 
     return fig
+
+
+# PLOT-04 — compact reliable pass network
+def plot_pass_network_profile_plotly(edges, nodes, team_name, *, is_away=False):
+    """Presentation-only renderer for the PLOT-04 network profile."""
+    del team_name
+    palette = get_team_palette(is_away=is_away)
+    fig = go.Figure()
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.22)",
+        "rgba(255,255,255,0.78)",
+    )
+    edges = edges.copy() if edges is not None else pd.DataFrame()
+
+    # PLOT-04A — only nodes belonging to displayed connections
+    if not edges.empty:
+        shown_players = set(
+            edges["player1"].dropna().astype(str)
+        ).union(
+            set(
+                edges["player2"].dropna().astype(str)
+            )
+        )
+
+        nodes = nodes[
+            nodes["playerName"]
+            .astype(str)
+            .isin(shown_players)
+        ].copy()
+    else:
+        # A network without qualifying edges should not show a cloud of
+        # isolated eligible players.
+        nodes = nodes.iloc[0:0].copy()
+    nodes = nodes.copy() if nodes is not None else pd.DataFrame()
+
+    if not edges.empty:
+        max_count = max(float(pd.to_numeric(edges["pass_count"], errors="coerce").max()), 1.0)
+        hx, hy, custom = [], [], []
+        for _, row in edges.sort_values("pass_count").iterrows():
+            count = float(row["pass_count"])
+            strength = (count / max_count) ** 0.72
+            fig.add_trace(go.Scatter(
+                x=[row["pass_avg_x"], row["pass_avg_x_end"]],
+                y=[row["pass_avg_y"], row["pass_avg_y_end"]],
+                mode="lines",
+                line=dict(width=1.0 + 4.5 * strength, color=palette["primary"]),
+                opacity=0.28 + 0.56 * strength,
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+            hx.append((row["pass_avg_x"] + row["pass_avg_x_end"]) / 2)
+            hy.append((row["pass_avg_y"] + row["pass_avg_y_end"]) / 2)
+            custom.append([
+                row["player1"], row["player2"], int(row["pass_count"]),
+                int(row["player1_to_player2"]), int(row["player2_to_player1"]),
+            ])
+        fig.add_trace(go.Scatter(
+            x=hx, y=hy, mode="markers",
+            marker=dict(size=20, opacity=0),
+            customdata=np.asarray(custom, dtype=object),
+            hovertemplate=(
+                "<b>%{customdata[0]} ↔ %{customdata[1]}</b>"
+                "<br>Total: %{customdata[2]} passes"
+                "<br>%{customdata[0]} → %{customdata[1]}: %{customdata[3]}"
+                "<br>%{customdata[1]} → %{customdata[0]}: %{customdata[4]}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        ))
+
+    if nodes.empty:
+        add_zero_state(fig, "No eligible players in this window", dark=True)
+    else:
+        involvement = pd.to_numeric(nodes["pass_involvement"], errors="coerce").fillna(0)
+        max_involvement = max(float(involvement.max()), 1.0)
+        nodes["marker_size"] = 19 + 25 * np.sqrt(involvement / max_involvement)
+
+        def jersey_text(frame):
+            labels = []
+            for value in frame["jersey_number"]:
+                try:
+                    labels.append(f"<b>{int(float(value))}</b>")
+                except (TypeError, ValueError):
+                    labels.append("")
+            return labels
+
+        for status, symbol, outline in (
+            ("Starter", "circle", "rgba(255,255,255,0.88)"),
+            ("Substitute", "diamond", "#d9c98c"),
+        ):
+            subset = nodes[nodes["status"].eq(status)]
+            if subset.empty:
+                continue
+            fig.add_trace(go.Scatter(
+                x=subset["pass_avg_x"], y=subset["pass_avg_y"],
+                mode="markers+text", text=jersey_text(subset),
+                textposition="middle center",
+                textfont=dict(color="white", size=10),
+                marker=dict(
+                    symbol=symbol, color=palette["primary"],
+                    size=subset["marker_size"], opacity=0.96,
+                    line=dict(width=1.6, color=outline),
+                ),
+                customdata=np.column_stack([
+                    subset["playerName"], subset["minutes"], subset["pass_sent"],
+                    subset["pass_received"], subset["pass_involvement"],
+                ]),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b>"
+                    f"<br>{status}"
+                    "<br>Minutes in window: %{customdata[1]:.0f}"
+                    "<br>Passes sent: %{customdata[2]}"
+                    "<br>Passes received: %{customdata[3]}"
+                    "<br>Pass involvement: %{customdata[4]}"
+                    "<extra></extra>"
+                ),
+                name=status,
+                showlegend=False,
+            ))
+
+    apply_match_pitch_layout(
+        fig,
+        pitch_shapes=pitch_shapes,
+        height=560,
+        showlegend=False,
+        header=False,
+        x_range=(-2, 102),
+        y_range=(-5, 107),
+    )
+    add_attacking_direction(
+        fig, dark=True, x=0.985, y=0.025,
+        xanchor="right", yanchor="bottom",
+    )
+    return fig

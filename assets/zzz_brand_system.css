@@ -4592,3 +4592,84 @@ td.cell--selected {
         min-height: 0;
     }
 }
+
+
+/* --------------------------------------------------------------------------
+   PLOT-04 — Pass Network
+   -------------------------------------------------------------------------- */
+.pass-network-workspace { display:grid; gap:16px; }
+.pass-network-methodology { margin-bottom:0 !important; }
+.pass-network-controls {
+    display:grid; grid-template-columns:1fr 1fr minmax(180px,.7fr);
+    gap:12px; padding:14px; border:1px solid rgba(8,47,73,.12);
+    border-radius:14px; background:#fff;
+}
+.pass-network-control-group {
+    min-width:0; padding:10px 12px; border-radius:10px;
+    background:rgba(235,244,248,.58);
+}
+.pass-network-control-group--rules { display:grid; align-content:center; }
+.pass-network-control-title { display:block; margin-top:2px; color:#082f49; font-size:.93rem; }
+.pass-network-control-note { margin-top:5px; color:#64748b; }
+.pass-network-radio { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
+.pass-network-radio .form-check { margin:0; padding:0; }
+.pass-network-radio .form-check-input { position:absolute; opacity:0; pointer-events:none; }
+.pass-network-radio-label {
+    display:inline-flex; align-items:center; justify-content:center; min-height:32px;
+    padding:6px 12px; border:1px solid #cbdbe3; border-radius:999px;
+    background:#fff; color:#31566b; font-size:.78rem; font-weight:700; cursor:pointer;
+}
+.pass-network-radio-label:hover { border-color:#1597c2; }
+.pass-network-radio-label.is-active {
+    border-color:#1597c2; background:#eaf8fc; color:#087fa5;
+}
+.pass-network-period-view { display:grid; gap:12px; }
+.pass-network-active-summary {
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding:10px 14px; border:1px solid rgba(8,47,73,.10);
+    border-radius:12px; background:#fff;
+}
+.pass-network-window-value { display:block; margin-top:2px; color:#082f49; }
+.pass-network-rule-pills, .pass-network-sample-pills {
+    display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px;
+}
+.pass-network-rule-pill, .pass-network-sample-pill {
+    display:inline-flex; align-items:center; min-height:26px; padding:4px 9px;
+    border:1px solid #d9e5ea; border-radius:999px; background:#f8fbfc;
+    color:#526b7b; font-size:.7rem; font-weight:700;
+}
+.pass-network-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.pass-network-team-panel { overflow:hidden; padding:0; }
+.pass-network-team-header {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:15px 16px 11px; border-bottom:1px solid #e2ebef;
+}
+.pass-network-team-name { margin:2px 0 0; color:#082f49; font-size:1.06rem; }
+.pass-network-visual-key {
+    display:flex; flex-wrap:wrap; gap:8px 14px; padding:9px 16px;
+    border-bottom:1px solid #edf2f4; color:#607687; font-size:.68rem;
+}
+.pass-network-graph { min-height:560px; }
+.pass-network-connections {
+    padding:14px 16px 16px; border-top:1px solid #e2ebef; background:#fbfdfe;
+}
+.pass-network-connections-title { margin:2px 0 4px; color:#082f49; font-size:.98rem; }
+.pass-connection-directions {
+    display:flex; flex-wrap:wrap; gap:5px 12px; margin-top:4px;
+    color:#748896; font-size:.64rem;
+}
+.pass-connection-arrow { color:#8aa0ad; font-weight:800; }
+.pass-network-empty { padding:14px; color:#748896; font-size:.82rem; }
+@media (max-width:1100px) {
+    .pass-network-controls { grid-template-columns:1fr 1fr; }
+    .pass-network-control-group--rules { grid-column:1/-1; }
+    .pass-network-grid { grid-template-columns:1fr; }
+}
+@media (max-width:700px) {
+    .pass-network-controls { grid-template-columns:1fr; }
+    .pass-network-control-group--rules { grid-column:auto; }
+    .pass-network-active-summary, .pass-network-team-header {
+        align-items:flex-start; flex-direction:column;
+    }
+    .pass-network-rule-pills, .pass-network-sample-pills { justify-content:flex-start; }
+}

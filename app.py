@@ -48,6 +48,8 @@ from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
 from src.components.match_graph_shell import match_graph_panel, match_graph_shell
 from src import config
+from src.metrics import pass_network_metrics
+from src.components import pass_network_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -4385,234 +4387,37 @@ def show_pass_network_graph(stored_data_json): # Note: this is now a helper, not
 
 def show_pass_network_graph_plotly(stored_data_json):
     if not stored_data_json:
-        return dash_html.P("No data in store for pass network.", style={"color": "orange"})
+        return dash_html.P(
+            "No data in store for pass network.",
+            className="pass-network-empty",
+        )
+
     try:
-        df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-        match_info = json.loads(stored_data_json['match_info'])
-
-        HTEAM_NAME = match_info.get('hteamName', 'Home')
-        ATEAM_NAME = match_info.get('ateamName', 'Away')
-
-        # Dati sui passaggi (la tua logica esistente va bene)
-        passes_df = pass_processing.get_passes_df(df_processed)
-        successful_passes = passes_df[passes_df['outcome'] == 'Successful']
-
-        if successful_passes.empty:
-            return dbc.Alert("No successful passes in the match.", color="warning")
-
-        home_receiver_coverage = pass_processing.receiver_coverage_summary(
-            successful_passes[successful_passes['team_name'] == HTEAM_NAME]
+        df_processed = pd.read_json(
+            io.StringIO(stored_data_json["df"]),
+            orient="split",
         )
-        away_receiver_coverage = pass_processing.receiver_coverage_summary(
-            successful_passes[successful_passes['team_name'] == ATEAM_NAME]
-        )
+        match_info = json.loads(stored_data_json.get("match_info", "{}"))
+        home_team = match_info.get("hteamName", "Home")
+        away_team = match_info.get("ateamName", "Away")
+        passes_df = pass_processing.get_passes_df(df_processed.copy())
 
-        # **Ottieni la lista dei subentrati per ogni squadra**
-        home_subs = pass_processing.get_sub_list(df_processed[df_processed['team_name'] == HTEAM_NAME])
-        away_subs = pass_processing.get_sub_list(df_processed[df_processed['team_name'] == ATEAM_NAME])
-
-        # --- Dati per Home Team ---
-        home_passes_between, home_avg_locs = pass_metrics.calculate_pass_network_data(successful_passes, HTEAM_NAME)
-        fig_home = pass_plotly.plot_pass_network_plotly(home_passes_between, home_avg_locs, HTEAM_NAME, HCOL, home_subs, is_away=False)
-
-        # **MODIFICA TABELLA: Aggiungi numeri di maglia**
-
-        # home_table_df = home_passes_between[['player1', 'player2', 'pass_count']].copy()
-        # home_table_df['player1'] = home_table_df['player1'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
-        # home_table_df['player2'] = home_table_df['player2'].apply(lambda name: f"#{int(home_jersey_map.get(name, '?')) if pd.notna(home_jersey_map.get(name)) else '?'} - {name}")
-        # home_table = dbc.Table.from_dataframe(home_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
-
-        # --- Dati per Away Team ---
-        away_passes_between, away_avg_locs = pass_metrics.calculate_pass_network_data(successful_passes, ATEAM_NAME)
-        fig_away = pass_plotly.plot_pass_network_plotly(away_passes_between, away_avg_locs, ATEAM_NAME, ACOL, away_subs, is_away=True)
-
-        # **MODIFICA TABELLA: Aggiungi numeri di maglia**
-        # away_table_df = away_passes_between[['player1', 'player2', 'pass_count']].copy()
-        # away_table_df['player1'] = away_table_df['player1'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
-        # away_table_df['player2'] = away_table_df['player2'].apply(lambda name: f"#{int(away_jersey_map.get(name, '?')) if pd.notna(away_jersey_map.get(name)) else '?'} - {name}")
-        # away_table = dbc.Table.from_dataframe(away_table_df.sort_values('pass_count', ascending=False).head(10), striped=True, bordered=True, hover=True, color="dark")
-
-        def build_top_connections(
-            passes_between,
-            jersey_map,
-            team_color,
-            limit=6,
-        ):
-            if (
-                passes_between is None
-                or passes_between.empty
-            ):
-                return dash_html.Div(
-                    "No reliable connections available.",
-                    className="pass-network-empty",
-                )
-
-            top_connections = (
-                passes_between
-                .sort_values(
-                    'pass_count',
-                    ascending=False,
-                )
-                .head(limit)
-                .copy()
-            )
-
-            max_count = max(
-                int(
-                    top_connections[
-                        'pass_count'
-                    ].max()
-                ),
-                1,
-            )
-
-            def player_label(
-                player_name,
-            ):
-                jersey_raw = jersey_map.get(
-                    player_name
-                )
-
-                try:
-                    jersey = str(
-                        int(float(jersey_raw))
-                    )
-                except (
-                    ValueError,
-                    TypeError,
-                ):
-                    jersey = '?'
-
-                return (
-                    f"#{jersey} · {player_name}"
-                )
-
-            rows = []
-
-            for rank, (_, row) in enumerate(
-                top_connections.iterrows(),
-                start=1,
-            ):
-                count = int(
-                    row['pass_count']
-                )
-
-                width = (
-                    count / max_count * 100
-                )
-
-                rows.append(
-                    dash_html.Div([
-
-                        dash_html.Span(
-                            str(rank),
-                            className=(
-                                "pass-connection-rank"
-                            ),
-                        ),
-
-                        dash_html.Div([
-
-                            dash_html.Div(
-                                [
-                                    dash_html.Span(
-                                        player_label(
-                                            row['player1']
-                                        )
-                                    ),
-
-                                    dash_html.I(
-                                        className=(
-                                            "fa-solid "
-                                            "fa-arrow-right-arrow-left"
-                                        )
-                                    ),
-
-                                    dash_html.Span(
-                                        player_label(
-                                            row['player2']
-                                        )
-                                    ),
-                                ],
-                                className=(
-                                    "pass-connection-pair"
-                                ),
-                            ),
-
-                            dash_html.Div(
-                                dash_html.Span(
-                                    style={
-                                        "width":
-                                            f"{width:.1f}%",
-                                        "backgroundColor":
-                                            team_color,
-                                    }
-                                ),
-                                className=(
-                                    "pass-connection-track"
-                                ),
-                            ),
-
-                        ], className=(
-                            "pass-connection-main"
-                        )),
-
-                        dash_html.Strong(
-                            str(count),
-                            className=(
-                                "pass-connection-count"
-                            ),
-                        ),
-
-                    ], className=(
-                        "pass-connection-row"
-                    ))
-                )
-
-            return dash_html.Div(
-                rows,
-                className="pass-connection-list",
-            )
-
-        home_jersey_map = home_avg_locs.set_index('playerName')['jersey_number'].to_dict()
-        home_connections = build_top_connections(
-            home_passes_between,
-            home_jersey_map,
-            HCOL,
-        )
-
-        away_jersey_map = away_avg_locs.set_index('playerName')['jersey_number'].to_dict()
-        away_connections = build_top_connections(
-            away_passes_between,
-            away_jersey_map,
-            ACOL,
-        )
-
-
-        # Layout a due colonne per mostrare i grafici affiancati
-        pass_network_coverage_panel = render_data_coverage_panel(
+        coverage = render_data_coverage_panel(
             [
                 _receiver_coverage_item(
-                    passes_df[
-                        passes_df["team_name"] == HTEAM_NAME
-                    ],
-                    label=f"{HTEAM_NAME} receiver coverage",
+                    passes_df[passes_df["team_name"] == home_team],
+                    label=f"{home_team} receiver coverage",
                 ),
                 _receiver_coverage_item(
-                    passes_df[
-                        passes_df["team_name"] == ATEAM_NAME
-                    ],
-                    label=f"{ATEAM_NAME} receiver coverage",
+                    passes_df[passes_df["team_name"] == away_team],
+                    label=f"{away_team} receiver coverage",
                 ),
                 _coordinate_coverage_item(
                     passes_df,
                     label="Pass coordinates",
                     columns=("x", "y", "end_x", "end_y"),
                 ),
-                _outcome_coverage_item(
-                    passes_df,
-                    label="Pass outcomes",
-                ),
+                _outcome_coverage_item(passes_df, label="Pass outcomes"),
             ],
             note=(
                 "Network links use only reliable inferred receivers. "
@@ -4620,134 +4425,37 @@ def show_pass_network_graph_plotly(stored_data_json):
             ),
         )
 
+        methodology = dash_html.Div([
+            dash_html.I(className="fa-solid fa-circle-info"),
+            dash_html.Span(
+                "The network is rebuilt for the selected time window. "
+                "Players must meet the minutes threshold; connections need "
+                "reliable receiver attribution and the selected pass volume. "
+                "Only the strongest links are shown."
+            ),
+        ], className="match-analysis-note pass-network-methodology")
+
+        initial = pass_network_view.render_period_view(
+            stored_data_json,
+            "full",
+            pass_network_metrics.PASS_NETWORK_MIN_CONNECTION,
+            HCOL,
+            ACOL,
+        )
+
         return dash_html.Div([
+            methodology,
+            coverage,
+            pass_network_view.controls(),
+            dcc.Loading(
+                dash_html.Div(initial, id="pass-network-period-content"),
+                type="circle",
+            ),
+        ], className="match-tab-body pass-network-workspace")
 
-            pass_network_coverage_panel,
-
-
-            # ---------------------------------------------------------
-            # NETWORK PANELS
-            # ---------------------------------------------------------
-            dash_html.Div([
-
-                # HOME
-                dash_html.Section([
-
-                    dcc.Graph(
-                        figure=fig_home,
-                        config={
-                            'displayModeBar': False,
-                            'responsive': True,
-                        },
-                        className=(
-                            "pass-network-graph"
-                        ),
-                    ),
-
-                    dash_html.Div([
-
-                        dash_html.Div([
-                            dash_html.Span(
-                                "TOP CONNECTIONS",
-                                className=(
-                                    "match-panel-eyebrow"
-                                ),
-                            ),
-
-                            dash_html.H4(
-                                HTEAM_NAME,
-                                className=(
-                                    "pass-network-connections-title"
-                                ),
-                            ),
-
-                            dash_html.P(
-                                (
-                                    "Highest-volume player pairs. "
-                                    "Passes in both directions are "
-                                    "combined."
-                                ),
-                                className=(
-                                    "match-panel-description"
-                                ),
-                            ),
-
-                        ]),
-
-                        home_connections,
-
-                    ], className=(
-                        "pass-network-connections"
-                    )),
-
-                ], className=(
-                    "match-panel "
-                    "pass-network-team-panel"
-                )),
-
-
-                # AWAY
-                dash_html.Section([
-
-                    dcc.Graph(
-                        figure=fig_away,
-                        config={
-                            'displayModeBar': False,
-                            'responsive': True,
-                        },
-                        className=(
-                            "pass-network-graph"
-                        ),
-                    ),
-
-                    dash_html.Div([
-
-                        dash_html.Div([
-                            dash_html.Span(
-                                "TOP CONNECTIONS",
-                                className=(
-                                    "match-panel-eyebrow"
-                                ),
-                            ),
-
-                            dash_html.H4(
-                                ATEAM_NAME,
-                                className=(
-                                    "pass-network-connections-title"
-                                ),
-                            ),
-
-                            dash_html.P(
-                                (
-                                    "Highest-volume player pairs. "
-                                    "Passes in both directions are "
-                                    "combined."
-                                ),
-                                className=(
-                                    "match-panel-description"
-                                ),
-                            ),
-
-                        ]),
-
-                        away_connections,
-
-                    ], className=(
-                        "pass-network-connections"
-                    )),
-
-                ], className=(
-                    "match-panel "
-                    "pass-network-team-panel"
-                )),
-
-            ], className="pass-network-grid"),
-
-        ], className="match-tab-body")
-
-    except Exception as e:
-        tb_str = traceback.format_exc()
-        return dbc.Alert(f"Error generating interactive pass network: {e}\n{tb_str}", color="danger", style={"whiteSpace":"pre-wrap"})
+    except Exception:
+        logger.warning("Could not render Pass Network.", exc_info=True)
+        return dbc.Alert("Unable to build the Pass Network.", color="danger")
 
 # Aggiorna il callback per chiamare la nuova funzione
 @app.callback(
@@ -4757,6 +4465,24 @@ def show_pass_network_graph_plotly(stored_data_json):
 def show_pass_network_graph_content_callback(stored_data_json):
     logger.debug("--- show_pass_network_graph_content_callback (Plotly) TRIGGERED ---")
     return show_pass_network_graph_plotly(stored_data_json)
+
+
+# PLOT-04 — Pass Network period callback
+@app.callback(
+    Output("pass-network-period-content", "children"),
+    Input("pass-network-period-selector", "value"),
+    Input("pass-network-threshold-selector", "value"),
+    State("store-df-match", "data"),
+    prevent_initial_call=True,
+)
+def update_pass_network_period_content(period, threshold, stored_data_json):
+    return pass_network_view.render_period_view(
+        stored_data_json,
+        period or "full",
+        threshold,
+        HCOL,
+        ACOL,
+    )
 
 
 # --- CALLBACK TO SAVE COMMENT FOR PASS NETWORK ---
