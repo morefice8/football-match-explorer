@@ -1672,17 +1672,130 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
 #     )
 #     return fig
 
+PASS_LOCATION_DENSITY_X_BINS = np.linspace(0, 100, 11)
+PASS_LOCATION_DENSITY_Y_BINS = np.linspace(0, 100, 9)
+
+PASS_LOCATION_GRID_X_BINS = np.linspace(0, 100, 7)
+PASS_LOCATION_GRID_Y_BINS = np.linspace(0, 100, 6)
+
+
+def _valid_pass_location_frame(passes_df):
+    df_plot = (
+        passes_df.copy()
+        if passes_df is not None
+        else pd.DataFrame()
+    )
+
+    if (
+        df_plot.empty
+        or "x" not in df_plot.columns
+        or "y" not in df_plot.columns
+    ):
+        return pd.DataFrame()
+
+    x = pd.to_numeric(
+        df_plot["x"],
+        errors="coerce",
+    )
+
+    y = pd.to_numeric(
+        df_plot["y"],
+        errors="coerce",
+    )
+
+    valid = (
+        x.between(0, 100)
+        & y.between(0, 100)
+    )
+
+    df_plot = df_plot.loc[valid].copy()
+    df_plot["x"] = x.loc[valid].astype(float)
+    df_plot["y"] = y.loc[valid].astype(float)
+
+    return df_plot
+
+
+def _pass_location_peak_share(
+    passes_df,
+    x_bins,
+    y_bins,
+):
+    df_plot = _valid_pass_location_frame(
+        passes_df
+    )
+
+    total = len(df_plot)
+
+    if total == 0:
+        return 0.0
+
+    counts, _, _ = np.histogram2d(
+        df_plot["y"],
+        df_plot["x"],
+        bins=[
+            y_bins,
+            x_bins,
+        ],
+    )
+
+    shares = (
+        counts
+        / total
+        * 100.0
+    )
+
+    return float(
+        shares.max()
+    )
+
+
+def pass_location_shared_scales(
+    home_passes,
+    away_passes,
+):
+    # Each team is normalised to 100% of its own valid pass origins.
+    # A common zmax makes equal intensities comparable between teams.
+
+    density_peak = max(
+        _pass_location_peak_share(
+            home_passes,
+            PASS_LOCATION_DENSITY_X_BINS,
+            PASS_LOCATION_DENSITY_Y_BINS,
+        ),
+        _pass_location_peak_share(
+            away_passes,
+            PASS_LOCATION_DENSITY_X_BINS,
+            PASS_LOCATION_DENSITY_Y_BINS,
+        ),
+        1.0,
+    )
+
+    grid_peak = max(
+        _pass_location_peak_share(
+            home_passes,
+            PASS_LOCATION_GRID_X_BINS,
+            PASS_LOCATION_GRID_Y_BINS,
+        ),
+        _pass_location_peak_share(
+            away_passes,
+            PASS_LOCATION_GRID_X_BINS,
+            PASS_LOCATION_GRID_Y_BINS,
+        ),
+        1.0,
+    )
+
+    return {
+        "density": float(density_peak),
+        "grid": float(grid_peak),
+    }
+
 def plot_pass_density_plotly(
     passes_df,
     team_name,
     is_away=False,
+    shared_zmax=None,
 ):
-    """
-    Show the spatial concentration of pass origins.
-
-    All teams are displayed attacking towards x=100.
-    is_away controls only the visual palette.
-    """
+    # Percentage-normalised concentration of pass origins.
 
     fig = go.Figure()
 
@@ -1693,159 +1806,100 @@ def plot_pass_density_plotly(
         )
     )
 
-    df_plot = (
-        passes_df.copy()
-        if passes_df is not None
-        else pd.DataFrame()
+    df_plot = _valid_pass_location_frame(
+        passes_df
     )
-
-    # Coordinates are already normalised so every team
-    # attacks from left to right. Do not mirror Away.
 
     if is_away:
         colorscale = [
-            [0.00, 'rgba(11,143,178,0.00)'],
-            [0.15, 'rgba(11,143,178,0.14)'],
-            [0.45, 'rgba(55,184,210,0.52)'],
-            [0.75, 'rgba(19,157,191,0.78)'],
-            [1.00, 'rgba(4,119,151,0.96)'],
+            [0.00, "rgba(11,143,178,0.00)"],
+            [0.15, "rgba(11,143,178,0.14)"],
+            [0.45, "rgba(55,184,210,0.52)"],
+            [0.75, "rgba(19,157,191,0.78)"],
+            [1.00, "rgba(4,119,151,0.96)"],
         ]
     else:
         colorscale = [
-            [0.00, 'rgba(232,93,72,0.00)'],
-            [0.15, 'rgba(232,93,72,0.14)'],
-            [0.45, 'rgba(243,132,110,0.52)'],
-            [0.75, 'rgba(235,95,73,0.78)'],
-            [1.00, 'rgba(196,62,45,0.96)'],
+            [0.00, "rgba(232,93,72,0.00)"],
+            [0.15, "rgba(232,93,72,0.14)"],
+            [0.45, "rgba(243,132,110,0.52)"],
+            [0.75, "rgba(235,95,73,0.78)"],
+            [1.00, "rgba(196,62,45,0.96)"],
         ]
 
+    own_peak = _pass_location_peak_share(
+        df_plot,
+        PASS_LOCATION_DENSITY_X_BINS,
+        PASS_LOCATION_DENSITY_Y_BINS,
+    )
+
+    scale_max = max(
+        float(
+            shared_zmax
+            if shared_zmax is not None
+            else own_peak
+        ),
+        1.0,
+    )
+
     if not df_plot.empty:
-
-        x = pd.to_numeric(
-            df_plot['x'],
-            errors='coerce',
-        )
-
-        y = pd.to_numeric(
-            df_plot['y'],
-            errors='coerce',
-        )
-
-        valid = (
-            x.between(0, 100)
-            & y.between(0, 100)
-        )
-
-        df_plot = df_plot.loc[valid].copy()
-
-        if not df_plot.empty:
-
-            # ---------------------------------------------
-            # DENSITY
-            # ---------------------------------------------
-            fig.add_trace(
-                go.Histogram2dContour(
-                    x=df_plot['x'],
-                    y=df_plot['y'],
-
-                    colorscale=colorscale,
-                    showscale=False,
-
-                    contours=dict(
-                        coloring='fill',
-                        showlines=False,
-                    ),
-
-                    ncontours=14,
-                    opacity=0.92,
-
-                    hoverinfo='skip',
-                    showlegend=False,
-                )
+        fig.add_trace(
+            go.Histogram2dContour(
+                x=df_plot["x"],
+                y=df_plot["y"],
+                xbins=dict(
+                    start=0,
+                    end=100,
+                    size=10,
+                ),
+                ybins=dict(
+                    start=0,
+                    end=100,
+                    size=12.5,
+                ),
+                histnorm="percent",
+                colorscale=colorscale,
+                zmin=0,
+                zmax=scale_max,
+                showscale=False,
+                contours=dict(
+                    coloring="fill",
+                    showlines=False,
+                ),
+                ncontours=14,
+                opacity=0.94,
+                hovertemplate=(
+                    "<b>%{z:.1f}% of team pass origins</b>"
+                    "<br>Zone around %{x:.0f}, %{y:.0f}"
+                    "<extra></extra>"
+                ),
+                showlegend=False,
             )
-
-            # ---------------------------------------------
-            # RAW PASS ORIGINS
-            # ---------------------------------------------
-            hover_text = []
-
-            for _, row in df_plot.iterrows():
-
-                player = row.get(
-                    'playerName',
-                    'Unknown',
-                )
-
-                minute = row.get(
-                    'timeMin',
-                    '?',
-                )
-
-                hover_text.append(
-                    (
-                        f"<b>{player}</b>"
-                        f"<br>Minute: {minute}'"
-                        f"<br>Origin: "
-                        f"{float(row['x']):.1f}, "
-                        f"{float(row['y']):.1f}"
-                    )
-                )
-
-            fig.add_trace(
-                go.Scattergl(
-                    x=df_plot['x'],
-                    y=df_plot['y'],
-
-                    mode='markers',
-
-                    marker=dict(
-                        size=4,
-                        color='#e8f0f4',
-                        opacity=0.32,
-                        line=dict(
-                            width=0,
-                        ),
-                    ),
-
-                    text=hover_text,
-
-                    hovertemplate=(
-                        "%{text}"
-                        "<extra></extra>"
-                    ),
-
-                    showlegend=False,
-                )
-            )
-
-    if df_plot.empty:
+        )
+    else:
         fig.add_annotation(
             x=50,
             y=50,
             text="No pass-location data",
             showarrow=False,
             font=dict(
-                color=(
-                    'rgba(255,255,255,0.68)'
-                ),
+                color="rgba(255,255,255,0.68)",
                 size=14,
             ),
         )
 
-    # ---------------------------------------------
-    # ATTACKING DIRECTION
-    # ---------------------------------------------
-    add_attacking_direction(fig, dark=True)
+    add_attacking_direction(
+        fig,
+        dark=True,
+    )
 
     fig.update_layout(
         shapes=pitch_shapes,
-
         xaxis=dict(
             range=[-2, 102],
             visible=False,
             fixedrange=True,
         ),
-
         yaxis=dict(
             range=[-5, 107],
             visible=False,
@@ -1855,20 +1909,11 @@ def plot_pass_density_plotly(
 
     apply_dark_pitch_layout(
         fig,
-        height=510,
-        top_margin=120,
+        height=470,
+        top_margin=44,
         showlegend=False,
     )
 
-    add_plot_header(
-        fig,
-        title=f"{team_name} · Pass origin density",
-        subtitle=(
-            f"{len(df_plot)} pass attempts · "
-            "brighter areas = higher concentration"
-        ),
-        dark=True,
-    )
 
     return fig
 
@@ -1954,13 +1999,9 @@ def plot_pass_heatmap_plotly(
     passes_df,
     team_name,
     is_away=False,
+    shared_zmax=None,
 ):
-    """
-    Show the distribution of pass origins in pitch bins.
-
-    Percentages use all valid pass origins as denominator.
-    Permanent labels are shown only for meaningful cells.
-    """
+    # Discrete grid of pass-origin shares. Raw count remains in hover.
 
     fig = go.Figure()
 
@@ -1971,69 +2012,35 @@ def plot_pass_heatmap_plotly(
         )
     )
 
-    df_plot = (
-        passes_df.copy()
-        if passes_df is not None
-        else pd.DataFrame()
+    df_plot = _valid_pass_location_frame(
+        passes_df
     )
-
-    # Again: Away changes palette only, not orientation.
 
     if is_away:
         colorscale = [
-            [0.00, 'rgba(11,143,178,0.00)'],
-            [0.15, 'rgba(11,143,178,0.16)'],
-            [0.50, '#63c5d8'],
-            [1.00, '#087f9f'],
+            [0.00, "rgba(11,143,178,0.00)"],
+            [0.15, "rgba(11,143,178,0.16)"],
+            [0.50, "#63c5d8"],
+            [1.00, "#087f9f"],
         ]
     else:
         colorscale = [
-            [0.00, 'rgba(232,93,72,0.00)'],
-            [0.15, 'rgba(232,93,72,0.16)'],
-            [0.50, '#f09581'],
-            [1.00, '#d84f39'],
+            [0.00, "rgba(232,93,72,0.00)"],
+            [0.15, "rgba(232,93,72,0.16)"],
+            [0.50, "#f09581"],
+            [1.00, "#d84f39"],
         ]
-
-    if not df_plot.empty:
-
-        x = pd.to_numeric(
-            df_plot['x'],
-            errors='coerce',
-        )
-
-        y = pd.to_numeric(
-            df_plot['y'],
-            errors='coerce',
-        )
-
-        valid = (
-            x.between(0, 100)
-            & y.between(0, 100)
-        )
-
-        df_plot = df_plot.loc[valid].copy()
 
     total_passes = len(df_plot)
 
     if total_passes > 0:
-
-        # Keep the existing useful 6 × 5 grid.
-        x_bins = np.linspace(
-            0,
-            100,
-            7,
-        )
-
-        y_bins = np.linspace(
-            0,
-            100,
-            6,
-        )
+        x_bins = PASS_LOCATION_GRID_X_BINS
+        y_bins = PASS_LOCATION_GRID_Y_BINS
 
         counts, y_edges, x_edges = (
             np.histogram2d(
-                df_plot['y'],
-                df_plot['x'],
+                df_plot["y"],
+                df_plot["x"],
                 bins=[
                     y_bins,
                     x_bins,
@@ -2044,7 +2051,7 @@ def plot_pass_heatmap_plotly(
         percentages = (
             counts
             / total_passes
-            * 100
+            * 100.0
         )
 
         x_centres = (
@@ -2057,49 +2064,42 @@ def plot_pass_heatmap_plotly(
             + y_edges[1:]
         ) / 2
 
-        max_percentage = max(
+        own_peak = max(
             float(
                 percentages.max()
             ),
             1.0,
         )
 
-        # ---------------------------------------------
-        # HEATMAP
-        # ---------------------------------------------
+        scale_max = max(
+            float(
+                shared_zmax
+                if shared_zmax is not None
+                else own_peak
+            ),
+            1.0,
+        )
+
         fig.add_trace(
             go.Heatmap(
                 z=percentages,
                 x=x_centres,
                 y=y_centres,
-
                 customdata=counts,
-
                 colorscale=colorscale,
-
                 zmin=0,
-                zmax=max_percentage,
-
+                zmax=scale_max,
                 showscale=False,
-
                 xgap=2,
                 ygap=2,
-
                 hovertemplate=(
-                    "<b>%{customdata:.0f} passes</b>"
-                    "<br>%{z:.1f}% of pass origins"
+                    "<b>%{z:.1f}% of team pass origins</b>"
+                    "<br>%{customdata:.0f} passes"
                     "<extra></extra>"
                 ),
             )
         )
 
-        # ---------------------------------------------
-        # LABEL ONLY MEANINGFUL CELLS
-        #
-        # At least:
-        # - 3 events
-        # - roughly 2% of team pass volume
-        # ---------------------------------------------
         label_threshold = max(
             3,
             int(
@@ -2115,7 +2115,6 @@ def plot_pass_heatmap_plotly(
             for j in range(
                 counts.shape[1]
             ):
-
                 count = int(
                     counts[i, j]
                 )
@@ -2129,35 +2128,31 @@ def plot_pass_heatmap_plotly(
 
                 intensity = (
                     percentage
-                    / max_percentage
+                    / scale_max
                 )
 
                 text_color = (
-                    '#ffffff'
+                    "#ffffff"
                     if intensity >= 0.48
-                    else '#dce8ee'
+                    else "#dce8ee"
                 )
 
                 fig.add_annotation(
                     x=x_centres[j],
                     y=y_centres[i],
-
                     text=(
                         f"<b>{percentage:.0f}%</b>"
-                        f"<br>"
-                        f"<span style='font-size:9px'>"
+                        "<br>"
+                        "<span style='font-size:9px'>"
                         f"{count}"
-                        f"</span>"
+                        "</span>"
                     ),
-
                     showarrow=False,
-
                     font=dict(
                         color=text_color,
                         size=11,
                     ),
                 )
-
     else:
         fig.add_annotation(
             x=50,
@@ -2165,24 +2160,23 @@ def plot_pass_heatmap_plotly(
             text="No pass-location data",
             showarrow=False,
             font=dict(
-                color=(
-                    'rgba(255,255,255,0.68)'
-                ),
+                color="rgba(255,255,255,0.68)",
                 size=14,
             ),
         )
 
-    add_attacking_direction(fig, dark=True)
+    add_attacking_direction(
+        fig,
+        dark=True,
+    )
 
     fig.update_layout(
         shapes=pitch_shapes,
-
         xaxis=dict(
             range=[-2, 102],
             visible=False,
             fixedrange=True,
         ),
-
         yaxis=dict(
             range=[-5, 107],
             visible=False,
@@ -2190,29 +2184,18 @@ def plot_pass_heatmap_plotly(
         ),
     )
 
-    # Pitch markings must remain readable above the cells.
     for shape in fig.layout.shapes:
-        shape.layer = 'above'
+        shape.layer = "above"
 
     apply_dark_pitch_layout(
         fig,
-        height=510,
-        top_margin=120,
+        height=470,
+        top_margin=44,
         showlegend=False,
     )
 
-    add_plot_header(
-        fig,
-        title=f"{team_name} · Pass origin profile",
-        subtitle=(
-            f"{total_passes} pass attempts · "
-            "share of origins by pitch zone"
-        ),
-        dark=True,
-    )
 
     return fig
-
 
 # PLOT-04 — compact reliable pass network
 def plot_pass_network_profile_plotly(edges, nodes, team_name, *, is_away=False):

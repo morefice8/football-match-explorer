@@ -52,6 +52,7 @@ from src.metrics import pass_network_metrics
 from src.components import pass_network_view
 from src.components import progressive_pass_view
 from src.components import final_third_view
+from src.components import pass_location_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -3301,21 +3302,18 @@ def render_match_tab_content(search_query, stored_data_json):
         )
     ]
 ),
-                    dbc.Tab(label="Pass Locations", tab_id="pass_locations", children=[
-                        dash_html.Div([ # Main container for this tab's content
-                            dcc.Loading(type="circle", children=dash_html.Div(id="div-pass-density-content")),
-                            dash_html.Hr(className="my-4"),
-                            dash_html.H6("Comments for Pass Locations:", className="mt-3 text-white"),
-                            dcc.Textarea(
-                                id="comment-pass-locations", # Un solo ID per i commenti
-                                placeholder="Enter your analysis on pass locations...",
-                                style={'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'},
-                                className="mb-2"
+                    dbc.Tab(
+                        label="Pass Locations",
+                        tab_id="pass_locations",
+                        children=[
+                            dcc.Loading(
+                                type="circle",
+                                children=dash_html.Div(
+                                    id="div-pass-density-content"
+                                ),
                             ),
-                            dbc.Button("Save Comment", id="save-comment-pass-locations", color="info", size="sm"),
-                            dash_html.Div(id="save-status-pass-locations", className="small d-inline-block ms-2")
-                        ])
-                    ]),
+                        ],
+                    ),
                     dbc.Tab(label="Crosses", tab_id="crosses", children=[
                         dcc.Loading(type="circle", children=dash_html.Div(id="crosses-content")),
                         dash_html.Div(id="crosses-content-wrapper")
@@ -5356,177 +5354,167 @@ def generate_pass_heatmap_plots(stored_data_json):
 #         return generate_pass_density_plots(stored_data_json)
 #     return no_update # Or dash_html.Div() if you want to clear it
 
+# PLOT-07 — unified Pass Locations workspace
+def _build_pass_location_view(
+    stored_data_json,
+    view_mode="density",
+):
+    if not stored_data_json:
+        return []
+
+    df_processed = pd.read_json(
+        io.StringIO(
+            stored_data_json["df"]
+        ),
+        orient="split",
+    )
+
+    match_info = json.loads(
+        stored_data_json.get(
+            "match_info",
+            "{}",
+        )
+    )
+
+    home_team = match_info.get(
+        "hteamName",
+        "Home",
+    )
+
+    away_team = match_info.get(
+        "ateamName",
+        "Away",
+    )
+
+    passes_df = (
+        pass_processing
+        .get_passes_df(
+            df_processed.copy()
+        )
+    )
+
+    return pass_location_view.panels(
+        passes_df,
+        home_team,
+        away_team,
+        view_mode=(
+            view_mode
+            or pass_location_view.VIEW_DENSITY
+        ),
+    )
+
+
 @app.callback(
-    Output("div-pass-density-content", "children"), # Il nome dell'ID non è più perfetto, ma funziona
-    Input("store-df-match", "data"),
-    Input("passes-nested-tabs", "active_tab")
+    Output(
+        "div-pass-density-content",
+        "children",
+    ),
+    Input(
+        "store-df-match",
+        "data",
+    ),
+    Input(
+        "passes-nested-tabs",
+        "active_tab",
+    ),
 )
-def show_pass_location_plots_callback(stored_data_json, active_nested_tab):
-    if active_nested_tab != "pass_locations" or not stored_data_json:
+def show_pass_location_plots_callback(
+    stored_data_json,
+    active_nested_tab,
+):
+    if (
+        active_nested_tab != "pass_locations"
+        or not stored_data_json
+    ):
         return no_update
 
     try:
-        df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-        match_info = json.loads(stored_data_json['match_info'])
-
-        HTEAM_NAME = match_info.get('hteamName', 'Home')
-        ATEAM_NAME = match_info.get('ateamName', 'Away')
-
-        passes_df = pass_processing.get_passes_df(df_processed.copy())
-        if passes_df.empty:
-            return dbc.Alert("No passes found to generate location plots.", color="warning")
-
-        home_passes = passes_df[passes_df['team_name'] == HTEAM_NAME]
-        away_passes = passes_df[passes_df['team_name'] == ATEAM_NAME]
-
-        # Crea i grafici interattivi separatamente
-        fig_home_density = pass_plotly.plot_pass_density_plotly(home_passes, HTEAM_NAME, is_away=False)
-        fig_home_heatmap = pass_plotly.plot_pass_heatmap_plotly(home_passes, HTEAM_NAME, is_away=False)
-
-        fig_away_density = pass_plotly.plot_pass_density_plotly(away_passes, ATEAM_NAME, is_away=True)
-        fig_away_heatmap = pass_plotly.plot_pass_heatmap_plotly(away_passes, ATEAM_NAME, is_away=True)
-
-        def team_pass_location_panel(
-            team_name,
-            passes,
-            density_fig,
-            heatmap_fig,
-            is_away,
-        ):
-            return dash_html.Section([
-
-                # -----------------------------------------
-                # TEAM HEADER
-                # -----------------------------------------
-                dash_html.Div([
-
-                    dash_html.Div([
-
-                        dash_html.Span(
-                            (
-                                "AWAY TEAM"
-                                if is_away
-                                else "HOME TEAM"
-                            ),
-                            className=(
-                                "match-panel-eyebrow"
-                            ),
-                        ),
-
-                        dash_html.H4(
-                            team_name,
-                            className="match-team-name",
-                        ),
-
-                    ]),
-
-                    dash_html.Div([
-
-                        dash_html.Span(
-                            (
-                                f"n = {len(passes)} "
-                                "pass attempts"
-                            ),
-                            className=(
-                                "progressive-sample-size"
-                            ),
-                        ),
-
-                        dash_html.Span(
-                            (
-                                "All teams attack "
-                                "left to right"
-                            ),
-                            className=(
-                                "match-panel-hint"
-                            ),
-                        ),
-
-                    ], className=(
-                        "progressive-panel-meta"
-                    )),
-
-                ], className="match-panel-header"),
-
-
-                # -----------------------------------------
-                # TWO-PLOT WORKSPACE
-                # -----------------------------------------
-                dash_html.Div([
-
-                    dash_html.Div(
-                        dcc.Graph(
-                            figure=density_fig,
-                            config={
-                                'displayModeBar':
-                                    False,
-                                'responsive':
-                                    True,
-                            },
-                            className=(
-                                "pass-location-graph"
-                            ),
-                        ),
-                        className=(
-                            "pass-location-plot-shell"
-                        ),
-                    ),
-
-                    dash_html.Div(
-                        dcc.Graph(
-                            figure=heatmap_fig,
-                            config={
-                                'displayModeBar':
-                                    False,
-                                'responsive':
-                                    True,
-                            },
-                            className=(
-                                "pass-location-graph"
-                            ),
-                        ),
-                        className=(
-                            "pass-location-plot-shell"
-                        ),
-                    ),
-
-                ], className=(
-                    "pass-location-plot-grid"
-                )),
-
-            ], className=(
-                "match-panel "
-                "pass-location-team-panel"
-            ))
-
-
-        home_panel = team_pass_location_panel(
-            HTEAM_NAME,
-            home_passes,
-            fig_home_density,
-            fig_home_heatmap,
-            is_away=False,
+        initial_panels = (
+            _build_pass_location_view(
+                stored_data_json,
+                pass_location_view.VIEW_DENSITY,
+            )
         )
 
-        away_panel = team_pass_location_panel(
-            ATEAM_NAME,
-            away_passes,
-            fig_away_density,
-            fig_away_heatmap,
-            is_away=True,
+        dynamic_panels = dash_html.Div(
+            initial_panels,
+            id="pass-location-view-content",
+            className="pass-location-view-content",
         )
 
-        return dash_html.Div(
-            [
-                home_panel,
-                away_panel,
+        shell = match_graph_shell(
+            methodology=(
+                "Pass Locations describes where pass attempts begin. "
+                "Each team's valid pass origins are normalised to 100%, "
+                "so equal colour intensity represents an equal territorial "
+                "share rather than equal raw pass volume. Density provides "
+                "a continuous structural view; Grid uses fixed cells and "
+                "shows both percentage and raw count on hover. Both teams "
+                "attack left to right."
+            ),
+            panels=[
+                dynamic_panels,
             ],
-            className="pass-location-analysis",
+            class_name="pass-location-analysis",
+
+                analyst_notes={
+                    "textarea_id": "comment-pass-locations",
+                    "save_button_id": "save-comment-pass-locations",
+                    "status_id": "save-status-pass-locations",
+                    "description": (
+                        "Record the main territorial passing patterns "
+                        "and structural differences between the teams."
+                    ),
+                    "placeholder": (
+                        "Add analyst notes for Pass Locations..."
+                    ),
+                },
+)
+
+        return (
+            pass_location_view
+            .workspace(
+                shell
+            )
         )
 
-    except Exception as e:
-        tb_str = traceback.format_exc()
-        return dbc.Alert(f"Error generating pass location plots: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+    except Exception as exc:
+        logger.exception(
+            "Error generating Pass Locations"
+        )
+
+        return dbc.Alert(
+            (
+                "Error generating Pass Locations: "
+                f"{exc}"
+            ),
+            color="danger",
+        )
+
+
+@app.callback(
+    Output(
+        "pass-location-view-content",
+        "children",
+    ),
+    Input(
+        "pass-location-view-toggle",
+        "value",
+    ),
+    State(
+        "store-df-match",
+        "data",
+    ),
+    prevent_initial_call=True,
+)
+def update_pass_location_view(
+    view_mode,
+    stored_data_json,
+):
+    return _build_pass_location_view(
+        stored_data_json,
+        view_mode,
+    )
 
 # @app.callback(
 #     Output("div-pass-heatmap-content", "children"),

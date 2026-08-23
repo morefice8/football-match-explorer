@@ -5115,3 +5115,122 @@ td.cell--selected {
         flex-direction: column;
     }
 }
+
+
+
+/* --------------------------------------------------------------------------
+   PLOT-07 — Pass Locations
+   -------------------------------------------------------------------------- */
+
+.pass-location-workspace {
+  display: grid;
+  gap: 16px;
+}
+
+.pass-location-controls {
+  padding: 14px 16px;
+}
+
+.pass-location-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.pass-location-control-title {
+  display: block;
+  margin-top: 2px;
+  color: #082f49;
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
+.pass-location-control-note {
+  display: block;
+  margin-top: 5px;
+  max-width: 760px;
+  color: #64748b;
+  font-size: 0.80rem;
+  line-height: 1.45;
+}
+
+.pass-location-view-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+}
+
+.pass-location-view-toggle .form-check {
+  margin: 0;
+  padding: 0;
+}
+
+.pass-location-view-toggle .form-check-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pass-location-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: 1px solid #cbdbe3;
+  border-radius: 999px;
+  background: #fff;
+  color: #31566b;
+  font-size: 0.80rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pass-location-toggle-label:hover {
+  border-color: #1597c2;
+}
+
+.pass-location-toggle-label.is-active {
+  border-color: #1597c2;
+  background: #eaf8fc;
+  color: #087fa5;
+}
+
+.pass-location-view-content {
+  width: 100%;
+}
+
+.pass-location-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.pass-location-panel-grid > * {
+  min-width: 0;
+}
+
+.pass-location-graph {
+  width: 100%;
+}
+
+@media (max-width: 1199.98px) {
+  .pass-location-panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .pass-location-control-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .pass-location-view-toggle {
+    justify-content: flex-start;
+  }
+}
