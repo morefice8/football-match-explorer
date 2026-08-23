@@ -3515,3 +3515,450 @@
 .match-graph-sample-size {
   white-space: nowrap;
 }
+
+/* --------------------------------------------------------------------------
+   PLOT-01 — analytical Event Explorer
+   -------------------------------------------------------------------------- */
+
+.event-explorer {
+  overflow: hidden;
+  background: #ffffff;
+  border-top: 1px solid #e4edf2;
+}
+
+.event-explorer-filters {
+  display: grid;
+  grid-template-columns:
+    minmax(11rem, .9fr)
+    minmax(15rem, 1.5fr)
+    minmax(9rem, .7fr)
+    auto;
+  gap: .75rem;
+  align-items: end;
+  padding: .9rem 1rem;
+  background: #f8fbfc;
+  border-bottom: 1px solid #e4edf2;
+}
+
+.event-filter-label {
+  display: block;
+  margin-bottom: .34rem;
+  color: #6a8191 !important;
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.event-filter-dropdown .Select-control {
+  min-height: 2.25rem;
+  color: #223d52;
+  background: #ffffff;
+  border-color: #d8e5eb;
+  border-radius: .5rem;
+  box-shadow: none;
+}
+
+.event-filter-dropdown .Select-placeholder,
+.event-filter-dropdown .Select-value-label {
+  color: #476176 !important;
+  font-size: .72rem;
+}
+
+.event-filter-summary {
+  display: grid;
+  min-width: 7rem;
+  justify-items: end;
+  padding-bottom: .12rem;
+}
+
+.event-filter-count-label {
+  color: #7c909f;
+  font-size: .52rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.event-filter-count {
+  margin-top: .05rem;
+  color: #17354d;
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.match-event-table
+.dash-spreadsheet
+td[data-dash-column="outcome"] {
+  border-radius: .38rem;
+}
+
+.match-event-table
+.dash-spreadsheet
+td[data-dash-column="event_time"],
+.match-event-table
+.dash-spreadsheet
+td[data-dash-column="start_location"],
+.match-event-table
+.dash-spreadsheet
+td[data-dash-column="end_location"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.event-explorer-row-hint {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .72rem 1rem .82rem;
+  color: #738896;
+  background: #fbfdfe;
+  border-top: 1px solid #edf2f5;
+  font-size: .62rem;
+}
+
+.event-explorer-row-hint i {
+  color: #1597c2;
+}
+
+.event-explorer-drawer {
+  color: #17354d !important;
+  background: #ffffff !important;
+}
+
+.event-explorer-drawer .offcanvas-header {
+  background: #f5f9fb;
+  border-bottom: 1px solid #dfe9ee;
+}
+
+.event-explorer-drawer .offcanvas-title {
+  color: #17354d !important;
+  font-weight: 900;
+}
+
+.event-explorer-drawer .offcanvas-body {
+  padding: 0;
+}
+
+.event-technical-row {
+  display: grid;
+  grid-template-columns:
+    minmax(8rem, .8fr)
+    minmax(0, 1.2fr);
+  gap: .8rem;
+  padding: .72rem 1rem;
+  border-bottom: 1px solid #edf2f5;
+}
+
+.event-technical-row--identifier {
+  background: #f8fbfc;
+}
+
+.event-technical-key {
+  color: #718797;
+  font-size: .61rem;
+  font-weight: 850;
+  word-break: break-word;
+}
+
+.event-technical-value {
+  color: #28485f !important;
+  background: transparent !important;
+  font-size: .64rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 980px) {
+  .event-explorer-filters {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .event-filter-summary {
+    justify-items: start;
+  }
+}
+
+@media (max-width: 640px) {
+  .event-explorer-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-01D — Event Explorer visual polish
+   -------------------------------------------------------------------------- */
+
+.event-explorer .Select-control,
+.event-explorer .Select-menu-outer,
+.event-explorer .Select-menu,
+.event-explorer .Select-value,
+.event-explorer .Select-input,
+.event-explorer .Select-input > input {
+  background: #ffffff !important;
+  color: #29465d !important;
+  border-color: #d8e5eb !important;
+}
+
+.event-explorer .Select-control {
+  min-height: 2.35rem !important;
+  border-radius: 0.5rem !important;
+}
+
+.event-explorer .Select-placeholder,
+.event-explorer .Select-value-label,
+.event-explorer .Select-input > input {
+  color: #476176 !important;
+}
+
+.event-explorer .Select-menu-outer {
+  border: 1px solid #d8e5eb !important;
+  box-shadow: 0 10px 30px rgba(23, 53, 77, 0.12) !important;
+}
+
+.event-explorer .VirtualizedSelectOption,
+.event-explorer .Select-option {
+  background: #ffffff !important;
+  color: #29465d !important;
+}
+
+.event-explorer .VirtualizedSelectFocusedOption,
+.event-explorer .Select-option.is-focused {
+  background: #eef7fa !important;
+  color: #17354d !important;
+}
+
+.event-explorer .dash-table-container,
+.event-explorer .dash-spreadsheet-container,
+.event-explorer .dash-spreadsheet-inner,
+.event-explorer .dash-spreadsheet-container .dash-spreadsheet-inner table {
+  background: #ffffff !important;
+}
+
+.event-explorer .dash-spreadsheet-container .dash-spreadsheet-inner td {
+  background: #ffffff !important;
+  color: #29465d !important;
+  border-color: #e4edf2 !important;
+}
+
+.event-explorer .dash-spreadsheet-container .dash-spreadsheet-inner th {
+  background: #f5f9fb !important;
+  color: #526b7d !important;
+  border-color: #dbe7ed !important;
+}
+
+.event-explorer .dash-spreadsheet-container .dash-spreadsheet-inner td.focused,
+.event-explorer .dash-spreadsheet-container .dash-spreadsheet-inner td.cell--selected {
+  background: #edf8fb !important;
+  box-shadow: inset 0 0 0 1px #7bc9db !important;
+}
+
+.event-explorer .dash-spreadsheet-container
+.dash-spreadsheet-inner td[data-dash-column="outcome"] {
+  font-weight: 800 !important;
+}
+
+.event-explorer .previous-next-container {
+  background: #ffffff !important;
+  color: #526b7d !important;
+}
+
+.event-explorer .previous-next-container button,
+.event-explorer .page-number {
+  background: #ffffff !important;
+  color: #29465d !important;
+  border-color: #d8e5eb !important;
+}
+
+.event-explorer button.show-hide {
+  display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-01E — Event Explorer final light-theme polish
+   -------------------------------------------------------------------------- */
+
+/* Give the Event Explorer its own breathing room below Match comparison. */
+.event-explorer-panel {
+  margin-top: 1rem;
+}
+
+/*
+ * Legacy DataTable CSS applies alternating DARK COLUMN backgrounds.
+ * The previous generic overrides were not specific enough to beat those
+ * nth-child selectors. Keep the fix scoped to Event Explorer only.
+ */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td:nth-child(odd),
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td:nth-child(even) {
+  background: #ffffff !important;
+  color: #29465d !important;
+  border-color: #e4edf2 !important;
+}
+
+/* Keep the compact Time column visually strong without reverting to dark. */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="event_time"] {
+  color: #17354d !important;
+  font-weight: 850 !important;
+}
+
+/* Period / role / coordinate columns use the secondary analytical tone. */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="event_period"],
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="positional_role"],
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="start_location"],
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="end_location"] {
+  color: #637b8c !important;
+}
+
+/*
+ * Dash DataTable cannot wrap a native cell value in a custom badge element,
+ * so use a centred inset background to give Outcome a badge treatment while
+ * retaining a white table cell around it.
+ */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td[data-dash-column="outcome"] {
+  color: #29465d !important;
+  font-weight: 850 !important;
+  background:
+    linear-gradient(
+      #eef4f7,
+      #eef4f7
+    )
+    center / 88% 72%
+    no-repeat
+    #ffffff !important;
+  border-radius: 0 !important;
+}
+
+/* Slight row hover cue for analytical scanning. */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+tr:hover td:not([data-dash-column="outcome"]) {
+  background: #f8fbfc !important;
+}
+
+/* Preserve the selected-cell cue above the hover styling. */
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td.focused,
+.event-explorer
+.dash-table-container
+.dash-spreadsheet-container
+.dash-spreadsheet-inner
+td.cell--selected {
+  background: #edf8fb !important;
+  color: #17354d !important;
+  box-shadow: inset 0 0 0 1px #7bc9db !important;
+}
+
+/* Keep the footer/pagination visually connected to the light card. */
+.event-explorer .previous-next-container {
+  background: #ffffff !important;
+  border-top: 1px solid #edf2f5;
+}
+
+/* --------------------------------------------------------------------------
+   PLOT-01F — Event Explorer selected filter value
+   -------------------------------------------------------------------------- */
+
+/*
+ * Legacy React-Select rules still force the selected value text to the old
+ * dark-theme colour. The value is present (the filter works) but becomes
+ * effectively invisible on the new white control.
+ *
+ * Keep this override scoped to Event Explorer only.
+ */
+.event-explorer
+.event-filter-dropdown.Select--single
+> .Select-control
+.Select-value,
+.event-explorer
+.event-filter-dropdown.Select--single
+> .Select-control
+.Select-value-label,
+.event-explorer
+.event-filter-dropdown
+.Select-control
+.Select-value,
+.event-explorer
+.event-filter-dropdown
+.Select-control
+.Select-value-label,
+.event-explorer
+.event-filter-dropdown
+.Select-control
+.Select-value
+> span {
+  color: #29465d !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #29465d !important;
+}
+
+/* Selected value should remain readable while the control has focus/open. */
+.event-explorer
+.event-filter-dropdown.is-focused
+.Select-value-label,
+.event-explorer
+.event-filter-dropdown.is-open
+.Select-value-label,
+.event-explorer
+.event-filter-dropdown
+.Select-control:hover
+.Select-value-label {
+  color: #17354d !important;
+  -webkit-text-fill-color: #17354d !important;
+}
+
+/* Keep placeholder visually secondary and distinct from a selected value. */
+.event-explorer
+.event-filter-dropdown
+.Select-placeholder {
+  color: #7a8e9d !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #7a8e9d !important;
+}
+
+/* Clear and dropdown arrows stay subtle on the light control. */
+.event-explorer
+.event-filter-dropdown
+.Select-clear,
+.event-explorer
+.event-filter-dropdown
+.Select-arrow-zone {
+  color: #8295a3 !important;
+}

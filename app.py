@@ -30,6 +30,7 @@ from dash import ctx
 from flask import send_from_directory
 from urllib.parse import parse_qs, unquote
 from src.utils.path_helpers import get_team_logo_path
+from src.components.event_explorer import (ROW_KEY as EVENT_EXPLORER_ROW_KEY, build_event_explorer, event_explorer_records, filter_event_explorer_dataframe, prepare_event_explorer_dataframe, render_technical_fields)
 from src.utils.sequence_filtering import (
     filter_sequences_exact,
     make_carousel_controller,
@@ -2806,6 +2807,8 @@ def render_match_tab_content(search_query, stored_data_json):
                 if item is not None
             ]
 
+            explorer_component = build_event_explorer(df)
+
             # -------------------------------------------------
             # RETURN
             # -------------------------------------------------
@@ -3148,6 +3151,54 @@ def render_match_tab_content(search_query, stored_data_json):
                     "match-panel "
                     "overview-comparison-panel"
                 )),
+
+
+                # =============================================
+                # EVENT EXPLORER
+                # =============================================
+
+                dash_html.Section([
+
+                    dash_html.Div([
+
+                        dash_html.Div([
+                            dash_html.Span(
+                                "EVENT FEED",
+                                className="match-panel-eyebrow",
+                            ),
+
+                            dash_html.H3(
+                                "Event explorer",
+                                className="match-panel-title",
+                            ),
+
+                            dash_html.P(
+                                (
+                                    f"{df.shape[0]:,} processed events. "
+                                    "Use Team, Event and Period filters; "
+                                    "select a row for the full technical record."
+                                ),
+                                className="match-panel-description",
+                            ),
+                        ]),
+
+                        dash_html.Div([
+                            dash_html.I(
+                                className="fa-solid fa-circle-info"
+                            ),
+                            dash_html.Span(
+                                (
+                                    "Technical identifiers are hidden here. "
+                                    "The CSV download retains every raw field."
+                                )
+                            ),
+                        ], className="match-panel-hint"),
+
+                    ], className="match-panel-header"),
+
+                    explorer_component,
+
+                ], className="match-panel event-explorer-panel"),
 
                 # Download target remains available.
                 dcc.Download(
@@ -11477,6 +11528,159 @@ def update_team_radar_multi(selected_teams):
 
     # Passiamo il template 'plotly_white'
     return league_plots.create_team_radar(df_league_adv, teams_to_plot, template='plotly_white')
+
+
+
+@callback(
+    Output("overview-datatable", "data"),
+    Output("event-explorer-count", "children"),
+    Input("event-explorer-team-filter", "value"),
+    Input("event-explorer-event-filter", "value"),
+    Input("event-explorer-period-filter", "value"),
+    State("store-df-match", "data"),
+)
+def update_event_explorer_filters(
+    selected_team,
+    selected_event,
+    selected_period,
+    stored_data_json,
+):
+    if not stored_data_json:
+        return [], "0"
+
+    df_json_str = stored_data_json.get("df")
+    if not df_json_str:
+        return [], "0"
+
+    try:
+        raw_df = pd.read_json(
+            io.StringIO(df_json_str),
+            orient="split",
+        )
+        display_df = prepare_event_explorer_dataframe(
+            raw_df
+        )
+        filtered_df = filter_event_explorer_dataframe(
+            display_df,
+            team=selected_team,
+            event=selected_event,
+            period=selected_period,
+        )
+        return (
+            event_explorer_records(filtered_df),
+            f"{len(filtered_df):,}",
+        )
+    except Exception:
+        logger.warning(
+            "Could not update Event Explorer filters.",
+            exc_info=True,
+        )
+        return no_update, no_update
+
+
+@callback(
+    Output("event-explorer-drawer", "is_open"),
+    Output("event-explorer-drawer-body", "children"),
+    Input("overview-datatable", "active_cell"),
+    State("overview-datatable", "derived_viewport_data"),
+    State("store-df-match", "data"),
+    prevent_initial_call=True,
+)
+def open_event_explorer_drawer(
+    active_cell,
+    viewport_rows,
+    stored_data_json,
+):
+    if not active_cell or not stored_data_json:
+        return no_update, no_update
+
+    source_row = active_cell.get("row_id")
+
+    if source_row is None and viewport_rows:
+        row_index = active_cell.get("row")
+        if (
+            row_index is not None
+            and 0 <= row_index < len(viewport_rows)
+        ):
+            source_row = viewport_rows[
+                row_index
+            ].get("id")
+
+    if source_row is None:
+        return no_update, no_update
+
+    try:
+        raw_df = pd.read_json(
+            io.StringIO(
+                stored_data_json["df"]
+            ),
+            orient="split",
+        )
+        source_position = int(source_row)
+
+        if not 0 <= source_position < len(raw_df):
+            return no_update, no_update
+
+        raw_row = raw_df.iloc[source_position]
+
+        minute = raw_row.get("timeMin", 0)
+        second = raw_row.get("timeSec", 0)
+
+        try:
+            timestamp = (
+                f"{int(minute or 0):02d}:"
+                f"{int(second or 0):02d}"
+            )
+        except (TypeError, ValueError):
+            timestamp = "—"
+
+        header = dash_html.Div(
+            [
+                dash_html.Span(
+                    timestamp,
+                    className="match-panel-eyebrow",
+                ),
+                dash_html.H4(
+                    str(
+                        raw_row.get(
+                            "type_name",
+                            "Event",
+                        )
+                    ),
+                    className="match-panel-title",
+                ),
+                dash_html.P(
+                    str(
+                        raw_row.get(
+                            "playerName",
+                            "Unknown player",
+                        )
+                    ),
+                    className="match-panel-description",
+                ),
+            ],
+            className="event-technical-summary",
+        )
+
+        return (
+            True,
+            dash_html.Div(
+                [
+                    header,
+                    render_technical_fields(
+                        raw_row
+                    ),
+                ]
+            ),
+        )
+
+    except Exception:
+        logger.warning(
+            "Could not open Event Explorer technical drawer.",
+            exc_info=True,
+        )
+        return no_update, no_update
+
 
 
 @callback(
