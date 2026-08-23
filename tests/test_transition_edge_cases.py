@@ -486,7 +486,7 @@ class TransitionEdgeCaseTests(unittest.TestCase):
         self.assertEqual(result['terminal_outcome'].iloc[-1], 'shot')
         self.assertIn(3, result['eventId'].tolist())
 
-    def test_shot_just_outside_default_window_is_excluded(self):
+    def test_shot_just_outside_base_window_completes_advanced_transition(self):
         result = find_transition([
             make_event(1, 'Home', 'Pass', 'Unsuccessful', second=0.0),
             make_event(2, 'Away', 'Ball recovery', second=0.5),
@@ -505,14 +505,14 @@ class TransitionEdgeCaseTests(unittest.TestCase):
         self.assertFalse(result.empty)
         self.assertEqual(
             result['sequence_outcome_type'].iloc[-1],
-            'Possession Consolidated',
+            'Shots',
         )
-        self.assertEqual(result['terminal_outcome'].iloc[-1], 'consolidated')
+        self.assertEqual(result['terminal_outcome'].iloc[-1], 'shot')
         self.assertEqual(
             result['termination_reason'].iloc[-1],
-            'time_window_elapsed',
+            'terminal_action_grace',
         )
-        self.assertNotIn(4, result['eventId'].tolist())
+        self.assertIn(4, result['eventId'].tolist())
 
     def test_custom_window_still_overrides_default_constant(self):
         result = find_transition(
@@ -663,6 +663,372 @@ class TransitionEdgeCaseTests(unittest.TestCase):
             ].iloc[-1],
             'Foul',
         )
+
+    def test_failed_opponent_tackle_after_dispossessed_keeps_transition_alive(self):
+        rows = [
+            make_event(
+                1,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                second=0.0,
+                end_x=65.0,
+                end_y=18.0,
+            ),
+            make_event(
+                2,
+                'Away',
+                'Interception',
+                second=0.8,
+                x=35.0,
+                y=82.0,
+            ),
+            make_event(
+                3,
+                'Away',
+                'Ball recovery',
+                second=1.5,
+                x=34.0,
+                y=78.0,
+            ),
+            make_event(
+                4,
+                'Away',
+                'Dispossessed',
+                second=3.000,
+                x=42.6,
+                y=65.2,
+            ),
+            # Same physical duel in Home coordinates:
+            # 100 - 57.4 = 42.6, 100 - 34.8 = 65.2.
+            make_event(
+                5,
+                'Home',
+                'Tackle',
+                'Unsuccessful',
+                second=3.001,
+                x=57.4,
+                y=34.8,
+            ),
+            make_event(
+                6,
+                'Away',
+                'Pass',
+                second=5.0,
+                x=46.2,
+                y=50.1,
+                end_x=75.5,
+                end_y=4.8,
+            ),
+            make_event(
+                7,
+                'Away',
+                'Pass',
+                second=8.0,
+                x=81.7,
+                y=9.4,
+                end_x=89.3,
+                end_y=66.8,
+            ),
+            make_event(
+                8,
+                'Away',
+                'Goal',
+                second=11.0,
+                x=89.3,
+                y=66.8,
+                end_x=100.0,
+                end_y=55.0,
+            ),
+        ]
+
+        result = find_transition(rows)
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Goals',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'goal',
+        )
+        self.assertIn(4, result['eventId'].tolist())
+        self.assertNotIn(5, result['eventId'].tolist())
+        self.assertIn(8, result['eventId'].tolist())
+
+    def test_successful_opponent_tackle_still_ends_dispossessed_transition(self):
+        rows = [
+            make_event(
+                1,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                second=0.0,
+            ),
+            make_event(
+                2,
+                'Away',
+                'Ball recovery',
+                second=1.0,
+            ),
+            make_event(
+                3,
+                'Away',
+                'Dispossessed',
+                second=3.000,
+                x=42.6,
+                y=65.2,
+            ),
+            make_event(
+                4,
+                'Home',
+                'Tackle',
+                'Successful',
+                second=3.001,
+                x=57.4,
+                y=34.8,
+            ),
+            make_event(
+                5,
+                'Away',
+                'Goal',
+                second=6.0,
+                x=90.0,
+                end_x=100.0,
+            ),
+        ]
+
+        result = find_transition(rows)
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Lost Possessions',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'turnover',
+        )
+        self.assertNotIn(5, result['eventId'].tolist())
+
+    def test_spatially_unrelated_failed_tackle_does_not_cancel_dispossessed(self):
+        rows = [
+            make_event(
+                1,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                second=0.0,
+            ),
+            make_event(
+                2,
+                'Away',
+                'Ball recovery',
+                second=1.0,
+            ),
+            make_event(
+                3,
+                'Away',
+                'Dispossessed',
+                second=3.000,
+                x=42.6,
+                y=65.2,
+            ),
+            make_event(
+                4,
+                'Home',
+                'Tackle',
+                'Unsuccessful',
+                second=3.001,
+                # Rotates to 10, 10: far from the Dispossessed point.
+                x=90.0,
+                y=90.0,
+            ),
+            make_event(
+                5,
+                'Away',
+                'Goal',
+                second=6.0,
+                x=90.0,
+                end_x=100.0,
+            ),
+        ]
+
+        result = find_transition(rows)
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Lost Possessions',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'turnover',
+        )
+        self.assertNotIn(5, result['eventId'].tolist())
+
+    def test_terminal_grace_requires_final_third_progress_inside_base_window(self):
+        result = find_transition([
+            make_event(1, 'Home', 'Pass', 'Unsuccessful', second=0.0),
+            make_event(2, 'Away', 'Ball recovery', second=0.5, x=30.0),
+            make_event(
+                3,
+                'Away',
+                'Pass',
+                second=5.0,
+                x=35.0,
+                end_x=60.0,
+            ),
+            make_event(
+                4,
+                'Away',
+                'Miss',
+                'Unsuccessful',
+                second=12.1,
+                x=80.0,
+                end_x=100.0,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Possession Consolidated',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'consolidated',
+        )
+        self.assertEqual(
+            result['termination_reason'].iloc[-1],
+            'time_window_elapsed',
+        )
+        self.assertNotIn(4, result['eventId'].tolist())
+
+    def test_terminal_grace_expires_after_four_seconds(self):
+        result = find_transition([
+            make_event(1, 'Home', 'Pass', 'Unsuccessful', second=0.0),
+            make_event(2, 'Away', 'Ball recovery', second=0.5),
+            make_event(3, 'Away', 'Pass', second=5.0, end_x=75.0),
+            make_event(
+                4,
+                'Away',
+                'Goal',
+                second=16.1,
+                x=88.0,
+                end_x=100.0,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Possession Consolidated',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'consolidated',
+        )
+        self.assertEqual(
+            result['termination_reason'].iloc[-1],
+            'time_window_elapsed',
+        )
+        self.assertNotIn(4, result['eventId'].tolist())
+
+    def test_vergara_style_counterattack_goal_can_complete_in_terminal_grace(self):
+        # Timing mirrors the real Sow -> Lucca recovery -> Vergara goal case:
+        # the attack reaches the final third inside 12 seconds and the goal
+        # arrives at ~15.3s without an intervening change of possession.
+        result = find_transition([
+            make_event(
+                1,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                second=0.000,
+                end_x=65.9,
+                end_y=18.5,
+            ),
+            make_event(
+                2,
+                'Away',
+                'Interception',
+                second=0.787,
+                x=22.8,
+                y=83.3,
+            ),
+            make_event(
+                3,
+                'Away',
+                'Ball recovery',
+                second=1.595,
+                x=34.1,
+                y=78.1,
+            ),
+            make_event(
+                4,
+                'Away',
+                'Dispossessed',
+                second=5.331,
+                x=42.6,
+                y=65.2,
+            ),
+            make_event(
+                5,
+                'Home',
+                'Tackle',
+                'Unsuccessful',
+                second=5.332,
+                x=57.4,
+                y=34.8,
+            ),
+            make_event(
+                6,
+                'Away',
+                'Pass',
+                second=6.987,
+                x=46.2,
+                y=50.1,
+                end_x=75.5,
+                end_y=4.8,
+            ),
+            make_event(
+                7,
+                'Away',
+                'Pass',
+                second=11.299,
+                x=81.7,
+                y=9.4,
+                end_x=89.3,
+                end_y=66.8,
+            ),
+            make_event(
+                8,
+                'Away',
+                'Goal',
+                second=15.307,
+                x=89.3,
+                y=66.8,
+                end_x=100.0,
+                end_y=54.9,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['sequence_outcome_type'].iloc[-1],
+            'Goals',
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'goal',
+        )
+        self.assertEqual(
+            result['termination_reason'].iloc[-1],
+            'terminal_action_grace',
+        )
+        self.assertIn(8, result['eventId'].tolist())
 
 
 if __name__ == '__main__':

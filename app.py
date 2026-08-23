@@ -7909,9 +7909,10 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                     ),
 
                     description=(
-                        "Compare what opponents achieved "
-                        "during the 12-second window after "
-                        "each team lost possession."
+                        "Compare what opponents achieved during the 12-second "
+                        "active transition window after each team lost "
+                        "possession. An already-advanced attack can complete "
+                        "with a shot or goal during a short terminal grace period."
                     ),
 
                     funnel_keys=[
@@ -8956,9 +8957,10 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
                 ACOL,
                 title="Offensive transition progression",
                 description=(
-                    "Compare how far each team progressed "
-                    "during the 12-second window after "
-                    "regaining possession."
+                    "Compare how far each team progressed during the "
+                    "12-second active transition window after regaining "
+                    "possession. An already-advanced attack can complete "
+                    "with a shot or goal during a short terminal grace period."
                 ),
                 funnel_keys=[
                     'total_sequences',

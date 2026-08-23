@@ -22,6 +22,13 @@ PASS_ID = 1
 # allowing callers/tests to override it explicitly when needed.
 TRANSITION_WINDOW_SECONDS = 12.0
 
+# The 12-second value defines the active transition-development window.
+# A terminal shot/goal can still complete the same transition shortly after
+# the deadline, but only if the attack had already reached the final third
+# inside the base window and possession remained continuous.
+TRANSITION_TERMINAL_GRACE_SECONDS = 4.0
+TRANSITION_ADVANCED_X_THRESHOLD = 66.67
+
 # Explicit possession-gain markers that confirm the gaining team has
 # controlled the ball. Recording these markers also keeps zero-pass
 # transitions observable.
@@ -30,6 +37,18 @@ TRANSITION_RECOVERY_EVENT_TYPES = frozenset({
     'Tackle',
     'Interception',
 })
+
+# Opta may describe one physical duel with two adjacent rows:
+#   attacking player -> Dispossessed
+#   opponent         -> Tackle/Challenge Unsuccessful
+# The failed opponent action is evidence that control was NOT won, so the
+# transition must not be terminated solely by the Dispossessed row.
+FAILED_OPPONENT_CHALLENGE_TYPES = frozenset({
+    'Tackle',
+    'Challenge',
+})
+FAILED_CHALLENGE_PAIR_WINDOW_SECONDS = 1.0
+FAILED_CHALLENGE_PAIR_MAX_DISTANCE = 5.0
 
 # Define outcome categories (can be moved to config)
 SUCCESSFUL_TRANSITION_CATEGORIES = ['Goals', 'Shot', 'Big Chance', 'Chance Created'] # What counts as "successful"
@@ -46,6 +65,137 @@ def get_pitch_third(x_coord):
         return "Middle Third"
     else:
         return "Attacking Third"
+
+# Controlled actions that can establish possession before an Opta Error.
+# Keep this conservative: an Error is a transition trigger only when the team
+# committing it had demonstrable control immediately beforehand.
+ERROR_PRIOR_CONTROL_EVENT_TYPES = frozenset({
+    'Pass',
+    'Take On',
+    'Ball recovery',
+    'Interception',
+    'Tackle',
+    'Keeper pick-up',
+    'Claim',
+    'Ball touch',
+})
+
+ERROR_PRIOR_CONTROL_LOOKBACK_SECONDS = 6.0
+
+
+def error_has_prior_team_control(
+    df,
+    error_idx,
+    team_name,
+    max_lookback_seconds=ERROR_PRIOR_CONTROL_LOOKBACK_SECONDS,
+):
+    """
+    Return True only when an Opta Error is preceded by evidence that the
+    error team actually controlled possession.
+
+    This prevents defensive errors occurring during an opponent possession
+    from being misclassified as fresh transition regains.
+
+    The scan:
+    - never crosses a period boundary;
+    - ignores administrative / failed-opponent events that do not establish
+      control;
+    - accepts a recent successful controlled action by ``team_name``;
+    - rejects once the opponent is seen to have successful control.
+    """
+    if error_idx < 0 or error_idx >= len(df):
+        return False
+
+    error_event = df.iloc[error_idx]
+
+    if error_event.get('type_name') != 'Error':
+        return True
+
+    error_period = error_event.get('periodId')
+    error_time = pd.to_numeric(
+        error_event.get('total_seconds'),
+        errors='coerce',
+    )
+
+    administrative_types = {
+        'Card',
+        'Foul',
+        'Unknown',
+        'Unknown Type',
+    }
+
+    clear_team_losses = {
+        'Dispossessed',
+        'Offside Pass',
+        'Out',
+    }
+
+    for candidate_idx in range(error_idx - 1, -1, -1):
+        candidate = df.iloc[candidate_idx]
+
+        candidate_period = candidate.get('periodId')
+        if (
+            pd.notna(error_period)
+            and pd.notna(candidate_period)
+            and candidate_period != error_period
+        ):
+            break
+
+        candidate_time = pd.to_numeric(
+            candidate.get('total_seconds'),
+            errors='coerce',
+        )
+
+        if pd.notna(error_time) and pd.notna(candidate_time):
+            elapsed = float(error_time) - float(candidate_time)
+
+            if elapsed < 0:
+                continue
+
+            if elapsed > max_lookback_seconds:
+                break
+
+        event_type = candidate.get('type_name')
+        outcome = candidate.get('outcome')
+        candidate_team = candidate.get('team_name')
+
+        if event_type in administrative_types:
+            continue
+
+        if candidate_team == team_name:
+            if event_type in clear_team_losses:
+                return False
+
+            if (
+                event_type in ERROR_PRIOR_CONTROL_EVENT_TYPES
+                and outcome == 'Successful'
+            ):
+                return True
+
+            # A failed same-team possession action is stronger evidence that
+            # control was already lost before the Error.
+            if (
+                event_type in {'Pass', 'Take On', 'Aerial', 'Challenge'}
+                and outcome == 'Unsuccessful'
+            ):
+                return False
+
+            continue
+
+        # Opponent unsuccessful actions do not prove possession changed.
+        if outcome == 'Unsuccessful':
+            continue
+
+        # A successful controlled opponent action means the Error happened
+        # during the opponent's possession, so it is not a regain trigger.
+        if (
+            event_type in ERROR_PRIOR_CONTROL_EVENT_TYPES
+            and outcome == 'Successful'
+        ):
+            return False
+
+    return False
+
 
 # --- Function to find recoveries and subsequent first pass ---
 def find_recovery_to_first_pass(df_processed,
@@ -247,7 +397,27 @@ def find_buildup_after_possession_loss(df_processed,
     #if 'Goal' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Goal'))
     if 'Pass' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Pass') & (df['outcome'] == 'Unsuccessful'))
     if 'Take On' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Take On') & (df['outcome'] == 'Unsuccessful'))
-    if 'Error' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Error'))
+    if 'Error' in possession_loss_types:
+        error_candidates = (
+            (df['team_name'] == team_that_lost_possession)
+            & (df['type_name'] == 'Error')
+        )
+
+        confirmed_error_losses = pd.Series(
+            False,
+            index=df.index,
+        )
+
+        for error_idx in df.index[error_candidates]:
+            confirmed_error_losses.loc[error_idx] = (
+                error_has_prior_team_control(
+                    df,
+                    error_idx,
+                    team_that_lost_possession,
+                )
+            )
+
+        loss_filter |= confirmed_error_losses
     if 'Dispossessed' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Dispossessed'))
     #if 'Clearance' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Clearance') & (df['outcome'] == 'Unsuccessful'))
     if 'Clearance' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Clearance'))
@@ -315,6 +485,110 @@ def find_buildup_after_possession_loss(df_processed,
                 )
 
         return action_data
+
+    def _find_paired_failed_opponent_challenge(
+        dispossessed_idx,
+        max_lookahead_seconds=FAILED_CHALLENGE_PAIR_WINDOW_SECONDS,
+        max_distance=FAILED_CHALLENGE_PAIR_MAX_DISTANCE,
+    ):
+        """
+        Return the opponent Tackle/Challenge row when it is the paired failed
+        side of the same duel as a gaining-team Dispossessed event.
+
+        The pair must:
+        - belong to the same period;
+        - occur almost immediately afterwards;
+        - be by the team that had lost possession;
+        - be an unsuccessful Tackle/Challenge;
+        - occur at the same location after converting both events into the
+          transition team's coordinate frame.
+
+        If coordinates are missing, the strict temporal/event contract is used
+        rather than inventing a possession change from unavailable geometry.
+        """
+        dispossessed = df.iloc[dispossessed_idx]
+
+        if (
+            dispossessed.get('team_name') != team_building_up
+            or dispossessed.get('type_name') != 'Dispossessed'
+        ):
+            return None
+
+        start_period = dispossessed.get('periodId')
+        start_time = dispossessed.get('total_seconds')
+        start_data = _action_in_transition_frame(dispossessed)
+
+        start_x = pd.to_numeric(
+            start_data.get('x'),
+            errors='coerce',
+        )
+        start_y = pd.to_numeric(
+            start_data.get('y'),
+            errors='coerce',
+        )
+
+        for candidate_idx in range(dispossessed_idx + 1, len(df)):
+            candidate = df.iloc[candidate_idx]
+
+            candidate_period = candidate.get('periodId')
+            if (
+                pd.notna(start_period)
+                and pd.notna(candidate_period)
+                and candidate_period != start_period
+            ):
+                break
+
+            candidate_time = candidate.get('total_seconds')
+            if pd.notna(start_time) and pd.notna(candidate_time):
+                elapsed = float(candidate_time) - float(start_time)
+
+                if elapsed < 0:
+                    continue
+
+                if elapsed > max_lookahead_seconds:
+                    break
+
+            if candidate.get('team_name') != team_that_lost_possession:
+                continue
+
+            if candidate.get('type_name') not in FAILED_OPPONENT_CHALLENGE_TYPES:
+                continue
+
+            if candidate.get('outcome') != 'Unsuccessful':
+                continue
+
+            if candidate.get('Out of play') in [1, '1', True]:
+                continue
+
+            candidate_data = _action_in_transition_frame(candidate)
+            candidate_x = pd.to_numeric(
+                candidate_data.get('x'),
+                errors='coerce',
+            )
+            candidate_y = pd.to_numeric(
+                candidate_data.get('y'),
+                errors='coerce',
+            )
+
+            if (
+                pd.notna(start_x)
+                and pd.notna(start_y)
+                and pd.notna(candidate_x)
+                and pd.notna(candidate_y)
+            ):
+                distance = float(
+                    np.hypot(
+                        float(candidate_x) - float(start_x),
+                        float(candidate_y) - float(start_y),
+                    )
+                )
+
+                if distance > max_distance:
+                    continue
+
+            return candidate
+
+        return None
 
     def _find_immediate_penalty_award(
         start_idx,
@@ -592,6 +866,7 @@ def find_buildup_after_possession_loss(df_processed,
         num_passes_in_seq = 0
         sequence_outcome_type = 'Unknown' # Default value
         termination_reason_override = None
+        reached_final_third_in_base_window = False
         current_event_original_df_idx = loss_original_df_idx # Start from the loss event index
 
         # Trace forward to find the opponent's sequence
@@ -621,7 +896,11 @@ def find_buildup_after_possession_loss(df_processed,
                         )
                     break
 
-                # 2. Transition cannot last indefinitely
+                # 2. Transition timing contract
+                #
+                # The base window describes ACTIVE transition development.
+                # It is deliberately not a blind hard cutoff for a shot that
+                # completes an already-advanced attack a few seconds later.
                 action_total_seconds = (
                     action_by_gaining_team.get(
                         'total_seconds'
@@ -637,25 +916,84 @@ def find_buildup_after_possession_loss(df_processed,
                         - loss_total_seconds
                     )
 
-                    if elapsed_seconds > max_transition_seconds:
-                        if current_opponent_sequence_events:
-                            if (
-                                metric_to_analyze
-                                == 'defensive_transitions'
-                            ):
-                                sequence_outcome_type = (
-                                    'Opponent Possession Consolidated'
-                                )
-                            else:
-                                sequence_outcome_type = (
-                                    'Possession Consolidated'
-                                )
+                    # Track whether the team in transition reached the final
+                    # third while the base window was still active. This is the
+                    # eligibility condition for terminal-action grace.
+                    if (
+                        elapsed_seconds <= max_transition_seconds
+                        and action_by_gaining_team.get('team_name')
+                            == team_building_up
+                    ):
+                        action_x = pd.to_numeric(
+                            action_by_gaining_team.get('x'),
+                            errors='coerce',
+                        )
+                        action_end_x = pd.to_numeric(
+                            action_by_gaining_team.get('end_x'),
+                            errors='coerce',
+                        )
 
-                            termination_reason_override = (
-                                'time_window_elapsed'
+                        if (
+                            (
+                                pd.notna(action_x)
+                                and float(action_x)
+                                    >= TRANSITION_ADVANCED_X_THRESHOLD
                             )
+                            or (
+                                pd.notna(action_end_x)
+                                and float(action_end_x)
+                                    >= TRANSITION_ADVANCED_X_THRESHOLD
+                            )
+                        ):
+                            reached_final_third_in_base_window = True
 
-                        break
+                    if elapsed_seconds > max_transition_seconds:
+                        action_is_terminal_shot = (
+                            action_by_gaining_team.get('team_name')
+                                == team_building_up
+                            and action_by_gaining_team.get('type_name')
+                                in shot_types
+                        )
+
+                        inside_terminal_grace = (
+                            elapsed_seconds
+                            <= (
+                                max_transition_seconds
+                                + TRANSITION_TERMINAL_GRACE_SECONDS
+                            )
+                        )
+
+                        can_complete_advanced_transition = (
+                            action_is_terminal_shot
+                            and inside_terminal_grace
+                            and reached_final_third_in_base_window
+                        )
+
+                        if can_complete_advanced_transition:
+                            # Keep tracing this single terminal action through
+                            # the normal shot/goal outcome logic below.
+                            termination_reason_override = (
+                                'terminal_action_grace'
+                            )
+                        else:
+                            if current_opponent_sequence_events:
+                                if (
+                                    metric_to_analyze
+                                    == 'defensive_transitions'
+                                ):
+                                    sequence_outcome_type = (
+                                        'Opponent Possession Consolidated'
+                                    )
+                                else:
+                                    sequence_outcome_type = (
+                                        'Possession Consolidated'
+                                    )
+
+                                termination_reason_override = (
+                                    'time_window_elapsed'
+                                )
+
+                            break
 
                 action_data = _action_in_transition_frame(action_by_gaining_team)
                 action_data['loss_sequence_id'] = sequence_id_counter
@@ -772,6 +1110,24 @@ def find_buildup_after_possession_loss(df_processed,
                         else:
                             sequence_outcome_type = 'Penalty won'
                         break
+
+                # A Dispossessed row is not always a confirmed turnover.
+                # Opta can immediately pair it with an unsuccessful opponent
+                # Tackle/Challenge at the same time/location. In that case the
+                # attacking team retained the loose ball and the transition
+                # remains alive. The opponent row itself will be skipped by the
+                # existing failed-regain branch on the next loop iteration.
+                if (
+                    is_correct_team
+                    and action_by_gaining_team['type_name'] == 'Dispossessed'
+                    and _find_paired_failed_opponent_challenge(
+                        current_event_original_df_idx
+                    ) is not None
+                ):
+                    current_opponent_sequence_events.append(
+                        action_data
+                    )
+                    continue
 
                 if (
                     is_end_sequence
