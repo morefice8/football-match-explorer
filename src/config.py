@@ -77,7 +77,7 @@ DEFAULT_PITCH_WIDTH_METERS = 68.0
 LOSS_TYPES = ['Pass', 'Take On', 'Error', 'Aerial', 'Dispossessed']
 RECOVERY_EVENT_TYPES = ["Interception", "Tackle", "Ball Recovery", "Error"]
 KEYWORDS_PRIORITY_FOR_OFFENSIVE_TRANSITIONS = ["goal", "shot", "chance", "lost", "offside", "foul", "out"]
-TRIGGER_TYPES_FOR_BUILDUPS = ['Out', 'Foul', 'Card', 'Miss', 'Offside provoked', 'Save', 'Claim', 'Keeper pick-up', 'Ball recovery', 'Corner Awarded', 'Attempt Saved'] # Triggers that start a buildup
+TRIGGER_TYPES_FOR_BUILDUPS = ['Throw-in', 'Free Kick', 'Goal Kick', 'Offside provoked', 'Keeper pick-up', 'Claim', 'Ball recovery'] # Triggers that start a buildup
 
 
 # def extract_match_info(opta_data):

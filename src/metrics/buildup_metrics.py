@@ -4,6 +4,7 @@ import numpy as np
 from src import config
 from src.metrics.transition_metrics import get_pitch_third
 from src.utils.sequence_outcomes import apply_sequence_outcome_contract
+from src.metrics.restart_metrics import classify_restart_event
 # --- Set display options to show all columns and more rows ---
 pd.set_option('display.max_columns', None) # Show all columns
 pd.set_option('display.max_rows', None)    # Show all rows (be careful with very large DFs)
@@ -63,13 +64,13 @@ FIRST_PHASE_EXIT_X = 50.0
 MAX_ACTIVE_BUILDUP_SECONDS = 20.0
 
 DEFAULT_FIRST_PHASE_BUILDUP_TRIGGERS = (
-    'Out',
-    'Foul',
+    'Throw-in',
+    'Free Kick',
+    'Goal Kick',
     'Offside provoked',
     'Keeper pick-up',
     'Claim',
     'Ball recovery',
-    'Goal kick',
 )
 GOAL_KICK_FLAG_ALIASES = ('Goal kick', 'Goal kick taken')
 FIRST_PHASE_ACTIVE_EVENT_TYPES = frozenset({
@@ -146,10 +147,23 @@ def classify_buildup_type(sequence_df):
 def _build_first_phase_trigger_mask(df, attacking_team, defending_team, triggers_buildups):
     trigger_types = set(triggers_buildups or DEFAULT_FIRST_PHASE_BUILDUP_TRIGGERS)
 
-    # These are canonical REL-05 triggers even when an older config list omits them.
-    trigger_types.update({'Goal kick', 'Ball recovery'})
+    # Goal kicks and goalkeeper recoveries remain canonical REL-05 origins.
+    trigger_types.update({'Goal Kick', 'Ball recovery'})
 
     mask = pd.Series(False, index=df.index, dtype=bool)
+
+    canonical_restart_types = (
+        {'Throw-in', 'Free Kick', 'Goal Kick'}
+        & trigger_types
+    )
+    if canonical_restart_types:
+        mask |= df.apply(
+            lambda row: (
+                row.get('team_name') == attacking_team
+                and classify_restart_event(row) in canonical_restart_types
+            ),
+            axis=1,
+        )
 
     if 'Out' in trigger_types:
         mask |= (
@@ -196,12 +210,6 @@ def _build_first_phase_trigger_mask(df, attacking_team, defending_team, triggers
             & df['outcome'].eq('Successful')
             & positional_roles.eq('GK')
         )
-    if 'Goal kick' in trigger_types:
-        mask |= df.apply(
-            lambda row: _is_goal_kick_pass(row, attacking_team),
-            axis=1,
-        )
-
     return mask
 
 
@@ -255,6 +263,9 @@ def _find_first_phase_buildup_sequences(
         'positional_role', 'receiver', 'receiver_jersey_number', 'In-swinger',
         'Out-swinger', 'Straight', 'Right footed', 'Left footed', 'Own goal',
         'Penalty', 'Blocked', 'Goal mouth y co-ordinate', 'periodId',
+        'ThrowIn', 'Throw in', 'Throw-in', 'Throw-in taken',
+        'Free kick taken', 'Freekick taken', 'Free Kick taken',
+        'Free kick', 'Freekick',
         *GOAL_KICK_FLAG_ALIASES,
     ]
     cols = required_cols + [
@@ -291,13 +302,25 @@ def _find_first_phase_buildup_sequences(
         trigger_period = trigger_event.get('periodId')
         trigger_x = _attacking_perspective_x(trigger_event, attacking_team)
         trigger_zone = get_pitch_third(trigger_x)
-        trigger_is_goal_kick = _is_goal_kick_pass(trigger_event, attacking_team)
-        trigger_type = 'Goal kick' if trigger_is_goal_kick else str(
-            trigger_event.get('type_name', 'Unknown trigger')
+        canonical_restart_type = classify_restart_event(trigger_event)
+        trigger_is_restart_delivery = canonical_restart_type in {
+            'Throw-in',
+            'Free Kick',
+            'Goal Kick',
+        }
+        trigger_type = (
+            canonical_restart_type
+            if trigger_is_restart_delivery
+            else str(trigger_event.get('type_name', 'Unknown trigger'))
         )
 
         first_active_idx = None
-        scan_start = trigger_idx if trigger_is_goal_kick else trigger_idx + 1
+        # The actual restart delivery is already the first active on-ball action.
+        scan_start = (
+            trigger_idx
+            if trigger_is_restart_delivery
+            else trigger_idx + 1
+        )
 
         for candidate_idx in range(scan_start, len(df)):
             candidate = df.iloc[candidate_idx]

@@ -48,6 +48,7 @@ from src.metrics import (
     transition_metrics,
     sequence_outcome_metrics,
     set_piece_metrics,
+    restart_metrics,
     cross_metrics,
     league_metrics,
     defensive_metrics,
@@ -3126,8 +3127,11 @@ def render_match_tab_content(search_query, stored_data_json):
     elif active_tab == "set-piece":
         return dash_html.Div([
             match_section_header(
-                "Set-piece analysis",
-                "Inspect deliveries, target zones and the attacking outcome of dead-ball situations.",
+                "Restart analysis",
+                (
+                    "Inspect corners, free kicks, throw-ins, goal kicks "
+                    "and penalties from the actual restart delivery."
+                ),
                 "fa-solid fa-flag",
                 eyebrow="RESTARTS",
             ),
@@ -3135,8 +3139,8 @@ def render_match_tab_content(search_query, stored_data_json):
                 id="set-piece-primary-tabs",
                 active_tab="set_piece_home",
                 children=[
-                     dbc.Tab(label="Home Set Pieces", tab_id="set_piece_home"),
-                     dbc.Tab(label="Away Set Pieces", tab_id="set_piece_away"),
+                     dbc.Tab(label="Home Restarts", tab_id="set_piece_home"),
+                     dbc.Tab(label="Away Restarts", tab_id="set_piece_away"),
                  ],
                  className="match-analysis-tabs"
             ),
@@ -7080,7 +7084,7 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 ACOL,
                 title="Buildup progression",
                 description=(
-                    "First phase starts with the first active action, "
+                    "First phase starts from a controlled own-half origin, including the ""actual throw-in, free-kick or goal-kick delivery, "
                     "ends when controlled possession reaches the "
                     "opposition half or the "
                     f"{buildup_metrics.MAX_ACTIVE_BUILDUP_SECONDS:.0f}s "
@@ -9730,29 +9734,24 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
                 ~penalty_award_mask
             ].copy()
 
-        set_piece_triggers = ['Out', 'Foul', 'Corner Awarded']
-        df_sequences_raw = buildup_metrics.find_buildup_sequences(
-            set_piece_source, team_name, defending_team,
-            metric_to_analyze='set_piece',
-            triggers_buildups=set_piece_triggers,
-            start_x=50
+        # REL-09: classify the actual restart delivery. Generic
+        # Out/Foul/Corner Awarded events are not the restart taxonomy.
+        restart_sequences = (
+            restart_metrics.extract_restart_sequences(
+                set_piece_source,
+                team_name,
+            )
         )
 
-        all_sequences = []
-        if df_sequences_raw is not None and not df_sequences_raw.empty:
-            all_sequences.extend([
-                df_sequences_raw[
-                    df_sequences_raw['trigger_sequence_id'] == seq_id
-                ]
-                for seq_id in df_sequences_raw[
-                    'trigger_sequence_id'
-                ].unique()
-            ])
-
+        all_sequences = list(restart_sequences)
         all_sequences.extend(penalty_sequences)
 
         if not all_sequences:
-            return dbc.Alert(f"No offensive set pieces found for {team_name}.", color="warning", className="mt-3")
+            return dbc.Alert(
+                f"No offensive restarts found for {team_name}.",
+                color="warning",
+                className="mt-3",
+            )
 
         df_analyzed, full_stats = set_piece_metrics.analyze_and_summarize_set_pieces(all_sequences)
         player_jersey_map = df_processed.drop_duplicates(subset=['playerName'])[['playerName', 'Mapped Jersey Number']].set_index('playerName').to_dict()['Mapped Jersey Number']
@@ -9818,7 +9817,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
             carousel_section = dash_html.Div([
                 dcc.Store(id='set-piece-sequence-store', data={'sequences': [s.to_json(orient='split') for s in sorted_sequences_for_carousel], 'team_color': team_color, 'is_away': not is_home}),
                 dcc.Store(id='set-piece-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
-                dash_html.H5("Sequence Explorer", className="text-white mt-4"),
+                dash_html.H5("Restart Explorer", className="text-white mt-4"),
                 dcc.Loading(type="circle", children=dash_html.Div(id='set-piece-carousel-content')),
                 dbc.Row([
                     dbc.Col(dbc.Button("‹ Prev", id="set-piece-prev-button", color="secondary"), width="auto"),
@@ -9831,7 +9830,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         return dash_html.Div([
             dash_html.H4(f"Analysis for {team_name}", className="text-white mt-4"),
             dbc.Button(
-                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Analysis Summary"],
+                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Restart Summary"],
                 id="set-piece-toggle-button", # L'ID che il callback si aspetta
                 className="mb-3 w-100",
                 color="info",
@@ -9859,7 +9858,7 @@ def render_set_piece_interface(active_tab, active_filter, stored_data_json):
         ])
 
     except Exception as e:
-        return dbc.Alert(f"Error in Set Piece tab: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
+        return dbc.Alert(f"Error in Restart tab: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
 
 @app.callback(
     Output("set-piece-collapse", "is_open"),

@@ -210,11 +210,11 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
 #     # --- START: Set Piece Specific Logic ---
 #     if metric_to_analyze == 'set_piece':
 #         icon_symbol, icon_text = 'circle-open', ''
-#         if type_of_trigger_str == 'Corner Awarded':
+#         if type_of_trigger_str in ('Corner Awarded', 'Corner'):
 #             icon_symbol, icon_text = 'star-open', 'C'
-#         elif type_of_trigger_str == 'Foul':
+#         elif type_of_trigger_str in ('Foul', 'Free Kick'):
 #             icon_symbol, icon_text = 'cross-open', 'F'
-#         elif type_of_trigger_str == 'Out':
+#         elif type_of_trigger_str in ('Out', 'Throw-in'):
 #             icon_symbol, icon_text = 'square-open', 'T'
         
 #         # Draw the special marker for the set piece location
@@ -223,7 +223,7 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
 #             mode='markers+text',
 #             marker=dict(symbol=icon_symbol, color=color_for_buildup_team, size=22, line=dict(width=2, color='white')),
 #             text=icon_text, textfont=dict(color='white', size=11, family='Arial Black'),
-#             hoverinfo='text', hovertext=f"<b>Set Piece Start</b><br>{type_of_trigger_str}",
+#             hoverinfo='text', hovertext=f"<b>Restart Start</b><br>{type_of_trigger_str}",
 #             showlegend=False
 #         ))
 #         # The first "action" of the sequence is the set piece delivery itself,
@@ -468,12 +468,16 @@ def plot_opponent_buildup_after_loss_plotly(
     # --- START: Set Piece Specific Logic ---
     if metric_to_analyze == 'set_piece':
         icon_symbol, icon_text = 'circle-open', ''
-        if type_of_trigger_str == 'Corner Awarded':
+        if type_of_trigger_str in ('Corner Awarded', 'Corner'):
             icon_symbol, icon_text = 'star-open', 'C'
-        elif type_of_trigger_str == 'Foul':
+        elif type_of_trigger_str in ('Foul', 'Free Kick'):
             icon_symbol, icon_text = 'cross-open', 'F'
-        elif type_of_trigger_str == 'Out':
+        elif type_of_trigger_str in ('Out', 'Throw-in'):
             icon_symbol, icon_text = 'square-open', 'T'
+        elif type_of_trigger_str == 'Goal Kick':
+            icon_symbol, icon_text = 'diamond-open', 'G'
+        elif type_of_trigger_str == 'Penalty':
+            icon_symbol, icon_text = 'star-open', 'P'
         
         # Draw the special marker for the set piece location
         fig.add_trace(go.Scatter(
@@ -481,7 +485,7 @@ def plot_opponent_buildup_after_loss_plotly(
             mode='markers+text',
             marker=dict(symbol=icon_symbol, color=color_for_buildup_team, size=22, line=dict(width=2, color='white')),
             text=icon_text, textfont=dict(color='white', size=11, family='Arial Black'),
-            hoverinfo='text', hovertext=f"<b>Set Piece Start</b><br>{type_of_trigger_str}",
+            hoverinfo='text', hovertext=f"<b>Restart Start</b><br>{type_of_trigger_str}",
             showlegend=False
         ))
         # The first "action" of the sequence is the set piece delivery itself,
@@ -796,7 +800,7 @@ def plot_opponent_buildup_after_loss_plotly(
         'defensive_transitions': f"Transition Conceded after {type_of_loss_str}",
         'offensive_transitions': f"Offensive Transition from {type_of_loss_str}",
         'buildup_phases': f"Buildup from {type_of_loss_str}",
-        'set_piece': f"Set Piece: {type_of_loss_str}"
+        'set_piece': f"Restart: {type_of_loss_str}"
     }
     title_line1 = title_map.get(metric_to_analyze, "Sequence Analysis")
     
@@ -808,9 +812,71 @@ def plot_opponent_buildup_after_loss_plotly(
     if pd.isna(display_outcome) or not str(display_outcome).strip():
         display_outcome = outcome_text
 
+    # REL-09B polish:
+    # Restart Analysis is an execution view, not a possession-sequence view.
+    # Do not show the meaningless 0.00s duration or the compatibility
+    # sequence_outcome_type here. Surface the actual delivery semantics.
+    if metric_to_analyze == 'set_piece':
+        restart_event = df.iloc[0]
+
+        restart_type = restart_event.get(
+            'restart_type',
+            type_of_loss_str,
+        )
+        delivery_type = restart_event.get(
+            'restart_delivery_type',
+        )
+        execution_outcome = restart_event.get(
+            'restart_execution_outcome',
+        )
+        restart_length_m = pd.to_numeric(
+            pd.Series([
+                restart_event.get('restart_length_m')
+            ]),
+            errors='coerce',
+        ).iloc[0]
+
+        title_line1 = f"Restart: {restart_type}"
+
+        restart_details = [
+            f"Time: {time_str}",
+        ]
+
+        if (
+            pd.notna(delivery_type)
+            and str(delivery_type).strip()
+        ):
+            restart_details.append(
+                f"Delivery: {delivery_type}"
+            )
+
+        if pd.notna(restart_length_m):
+            restart_details.append(
+                f"{float(restart_length_m):.1f} m"
+            )
+
+        if (
+            pd.notna(execution_outcome)
+            and str(execution_outcome).strip()
+        ):
+            restart_details.append(
+                f"Outcome: {execution_outcome}"
+            )
+
+        title_detail = " | ".join(
+            restart_details
+        )
+
+    else:
+        title_detail = (
+            f"Time: {time_str} | "
+            f"Duration: {duration_str} | "
+            f"Outcome: {display_outcome}"
+        )
+
     # --- START: AGGIORNAMENTO TITOLO ---
     fig.update_layout(
-        title=f"<b>{title_line1}</b><br>Time: {time_str} | Duration: {duration_str} | Outcome: {display_outcome}",
+        title=f"<b>{title_line1}</b><br>{title_detail}",
         title_font=dict(color='#18344d', size=16, family='Inter, Arial'),
         title_x=0.5,
         title_y=0.97,

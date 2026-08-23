@@ -247,14 +247,20 @@ def calculate_set_piece_stats(sequence_list):
         
         # Determina il tipo di calcio piazzato dal trigger
         trigger_type = first_event.get('type_of_initial_trigger', 'Unknown')
-        if trigger_type == 'Out':
-            action_type = 'Throw-in'
-        elif trigger_type == 'Foul':
+        if trigger_type == 'Foul':
             action_type = 'Free Kick'
         elif trigger_type == 'Corner Awarded':
             action_type = 'Corner'
-        elif trigger_type == 'Penalty':
-            action_type = 'Penalty'
+        elif trigger_type in ('Goal kick', 'Goal kick taken'):
+            action_type = 'Goal Kick'
+        elif trigger_type in (
+            'Corner',
+            'Free Kick',
+            'Throw-in',
+            'Goal Kick',
+            'Penalty',
+        ):
+            action_type = trigger_type
         else:
             action_type = trigger_type
 
@@ -359,9 +365,14 @@ def analyze_and_summarize_set_pieces(sequence_list):
         trigger_type_raw = trigger_event.get('type_of_initial_trigger', 'Unknown')
         
         action_map = {
-            'Out': 'Throw-in',
             'Foul': 'Free Kick',
             'Corner Awarded': 'Corner',
+            'Goal kick': 'Goal Kick',
+            'Goal kick taken': 'Goal Kick',
+            'Corner': 'Corner',
+            'Free Kick': 'Free Kick',
+            'Throw-in': 'Throw-in',
+            'Goal Kick': 'Goal Kick',
             'Penalty': 'Penalty',
         }
         action_type = action_map.get(trigger_type_raw, trigger_type_raw)
@@ -397,6 +408,15 @@ def analyze_and_summarize_set_pieces(sequence_list):
             cross_event = None
             delivery = 'Penalty kick'
 
+        elif (
+            action_type == 'Free Kick'
+            and trigger_event.get('type_name')
+                in ['Goal', 'Miss', 'Attempt Saved', 'Post']
+        ):
+            main_delivery_event = trigger_event
+            cross_event = None
+            delivery = 'Direct shot'
+
         else:
             # L'evento di battuta iniziale (può essere un passaggio corto)
             initial_delivery = seq[seq['type_name'] == 'Pass'].iloc[0] if not seq[seq['type_name'] == 'Pass'].empty else None
@@ -419,6 +439,8 @@ def analyze_and_summarize_set_pieces(sequence_list):
 
             if action_type == 'Throw-in':
                 delivery = 'Throw-in'
+            elif action_type == 'Goal Kick':
+                delivery = 'Goal kick'
 
         # Estrai le altre metriche dall'evento di cross/delivery principale
         player_name = main_delivery_event.get('playerName')
@@ -426,6 +448,16 @@ def analyze_and_summarize_set_pieces(sequence_list):
         if main_delivery_event['x'] > 50:
             if main_delivery_event['y'] > 67: side = "Left"
             elif main_delivery_event['y'] < 33: side = "Right"
+
+        canonical_delivery = trigger_event.get(
+            'restart_delivery_type'
+        )
+        if (
+            canonical_delivery is not None
+            and not pd.isna(canonical_delivery)
+            and str(canonical_delivery).strip()
+        ):
+            delivery = str(canonical_delivery)
 
         player_foot = 'Unknown'
         if main_delivery_event.get('Right footed') == 1: player_foot = 'Right'
@@ -451,7 +483,10 @@ def analyze_and_summarize_set_pieces(sequence_list):
             'terminal_outcome': seq.iloc[-1].get('terminal_outcome', 'unknown'),
             'termination_reason': seq.iloc[-1].get('termination_reason', 'unknown'),
             'viewpoint': seq.iloc[-1].get('viewpoint', 'attacking'),
-            'Outcome': seq.iloc[-1].get('sequence_outcome_type', 'Unknown')
+            'Outcome': trigger_event.get(
+                'restart_execution_outcome',
+                seq.iloc[-1].get('sequence_outcome_type', 'Unknown'),
+            )
         })
         
     if not detailed_data:
@@ -478,7 +513,7 @@ def analyze_and_summarize_set_pieces(sequence_list):
 def create_set_piece_summary_cards(stats, active_filter=None):
     """Creates a full set of detailed, interactive summary cards for set pieces."""
     if not stats or stats.get("total", 0) == 0:
-        return dbc.Alert("No set piece data to display.", color="secondary")
+        return dbc.Alert("No restart data to display.", color="secondary")
 
     def create_card(title, data_dict, filter_type):
         items = []
@@ -509,7 +544,7 @@ def create_set_piece_summary_cards(stats, active_filter=None):
         create_card("Cross Swing", stats.get('swings'), 'swing'),
         create_card("Taker Foot", stats.get('feet'), 'foot'),
         create_card("Corner Cross Destination", stats.get('destinations'), 'destination'),
-        create_card("Outcome", stats.get('outcomes'), 'outcome')
+        create_card("Execution Outcome", stats.get('outcomes'), 'outcome')
     ]
     
     # Rimuoviamo le card che non hanno dati (es. se non ci sono cross, non mostrare la card "Swing")
@@ -526,6 +561,16 @@ def create_takers_card(df_analyzed, player_jersey_map, active_filter=None):
     Crea una card che mostra i giocatori che hanno battuto i calci piazzati.
     VERSIONE CORRETTA E ROBUSTA.
     """
+    if df_analyzed.empty:
+        return None
+
+    # REL-09B: taker patterns are meaningful for corners/free kicks,
+    # not for a mixed list of throw-ins and goal kicks.
+    if 'Action Type' in df_analyzed.columns:
+        df_analyzed = df_analyzed[
+            df_analyzed['Action Type'].isin(['Corner', 'Free Kick'])
+        ].copy()
+
     if df_analyzed.empty:
         return None
 
@@ -564,4 +609,4 @@ def create_takers_card(df_analyzed, player_jersey_map, active_filter=None):
     if not card_items:
         return None
     
-    return dbc.Col(dbc.Card([dbc.CardHeader("Top Set Piece Takers"), dbc.ListGroup(card_items, flush=True)]), md=4)
+    return dbc.Col(dbc.Card([dbc.CardHeader("Set-piece Takers"), dbc.ListGroup(card_items, flush=True)]), md=4)
