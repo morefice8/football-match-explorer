@@ -79,6 +79,7 @@ BG_COLOR = getattr(config, 'BG_COLOR', 'white')
 LINE_COLOR = getattr(config, 'LINE_COLOR', 'black')
 
 # App configuration
+from src.components import defensive_shape_view
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.SLATE, dbc.icons.FONT_AWESOME],
@@ -3391,8 +3392,7 @@ def render_match_tab_content(search_query, stored_data_json):
                 id="def-transition-primary-tabs",
                 active_tab="def_shape",
                 children=[
-                    dbc.Tab(label="Defensive Block", tab_id="def_shape"),
-                    dbc.Tab(label="Defensive Hull", tab_id="def_hull"),
+                    dbc.Tab(label="Defensive Shape", tab_id="def_shape"),
                     dbc.Tab(label="Pressing (PPDA)", tab_id="def_ppda"),
                     dbc.Tab(label="Home Defensive Transitions", tab_id="def_transitions_home"),
                     dbc.Tab(label="Away Defensive Transitions", tab_id="def_transitions_away"),
@@ -7763,44 +7763,7 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
         ATEAM_NAME = match_info.get('ateamName')
 
         if active_tab == 'def_shape':
-            # Prepara i dati per entrambe le squadre usando la nuova funzione in transition_metrics
-            df_home_def_actions, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
-            df_away_def_actions, df_away_agg = defensive_metrics.get_defensive_block_data(df_processed, ATEAM_NAME)
-
-            # Crea i grafici interattivi
-            fig_home = defensive_transitions_plotly.plot_defensive_block_plotly(df_home_def_actions, df_home_agg, HCOL, is_away=False)
-            fig_away = defensive_transitions_plotly.plot_defensive_block_plotly(df_away_def_actions, df_away_agg, ACOL, is_away=True)
-
-            return dbc.Row([
-                dbc.Col([
-                    dash_html.H5(f"{HTEAM_NAME} - Defensive Block", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_home, config={'displayModeBar': False})
-                ], md=6),
-                dbc.Col([
-                    dash_html.H5(f"{ATEAM_NAME} - Defensive Block", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_away, config={'displayModeBar': False})
-                ], md=6)
-            ], className="mt-4")
-
-        elif active_tab == 'def_hull':
-            # Prepara i dati aggregati (la funzione è la stessa)
-            _, df_home_agg = defensive_metrics.get_defensive_block_data(df_processed, HTEAM_NAME)
-            _, df_away_agg = defensive_metrics.get_defensive_block_data(df_processed, ATEAM_NAME)
-
-            # Crea i grafici con la nuova funzione per il Convex Hull
-            fig_home_hull = defensive_transitions_plotly.plot_defensive_hull_plotly(df_home_agg, HCOL, is_away=False)
-            fig_away_hull = defensive_transitions_plotly.plot_defensive_hull_plotly(df_away_agg, ACOL, is_away=True)
-
-            return dbc.Row([
-                dbc.Col([
-                    dash_html.H5(f"{HTEAM_NAME} - Defensive Shape (Hull)", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_home_hull, config={'displayModeBar': False})
-                ], md=6),
-                dbc.Col([
-                    dash_html.H5(f"{ATEAM_NAME} - Defensive Shape (Hull)", className="text-center text-white mt-3"),
-                    dcc.Graph(figure=fig_away_hull, config={'displayModeBar': False})
-                ], md=6)
-            ], className="mt-4")
+            return defensive_shape_view.workspace()
 
         elif active_tab == 'def_ppda':
             home_profile = defensive_metrics.calculate_ppda_profile(
@@ -8727,6 +8690,146 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
         return dbc.Alert(f"Error in Def. Transition tab: {e}\n{tb}", color="danger", style={"whiteSpace": "pre-wrap"})
 
 
+
+
+@app.callback(
+    Output(
+        "defensive-shape-content",
+        "children",
+    ),
+    Input(
+        "defensive-shape-period",
+        "value",
+    ),
+    Input(
+        "defensive-shape-mode",
+        "value",
+    ),
+    State(
+        "store-uploaded-data",
+        "data",
+    ),
+)
+def render_defensive_shape_content(
+    period,
+    mode,
+    stored_data_json,
+):
+    if not stored_data_json:
+        return dbc.Alert(
+            "Match data loading...",
+            color="info",
+            className="mt-3",
+        )
+
+    period = period or "full"
+    mode = mode or "density"
+
+    try:
+        df_processed = pd.read_json(
+            stored_data_json["df"],
+            orient="split",
+        )
+
+        match_info = json.loads(
+            stored_data_json[
+                "match_info"
+            ]
+        )
+
+        home_team = match_info.get(
+            "hteamName"
+        )
+        away_team = match_info.get(
+            "ateamName"
+        )
+
+        home_profile = (
+            defensive_metrics
+            .build_defensive_shape_profile(
+                df_processed,
+                home_team,
+                period=period,
+            )
+        )
+        away_profile = (
+            defensive_metrics
+            .build_defensive_shape_profile(
+                df_processed,
+                away_team,
+                period=period,
+            )
+        )
+
+        home_figure = (
+            defensive_transitions_plotly
+            .plot_defensive_shape_profile(
+                home_profile,
+                HCOL,
+                mode=mode,
+            )
+        )
+        away_figure = (
+            defensive_transitions_plotly
+            .plot_defensive_shape_profile(
+                away_profile,
+                ACOL,
+                mode=mode,
+            )
+        )
+
+        period_label = {
+            "full": "Full Match",
+            "1h": "First Half",
+            "2h": "Second Half",
+        }.get(
+            period,
+            "Full Match",
+        )
+
+        mode_label = (
+            "Action density"
+            if mode == "density"
+            else "Coherent shape"
+        )
+
+        return (
+            defensive_shape_view
+            .comparison(
+                defensive_shape_view
+                .team_panel(
+                    home_team,
+                    home_figure,
+                    home_profile,
+                    side="home",
+                    mode=mode,
+                ),
+                defensive_shape_view
+                .team_panel(
+                    away_team,
+                    away_figure,
+                    away_profile,
+                    side="away",
+                    mode=mode,
+                ),
+                period_label=
+                    period_label,
+                mode_label=
+                    mode_label,
+            )
+        )
+
+    except Exception as exc:
+        logger.exception(
+            "Unable to render Defensive Shape"
+        )
+        return dbc.Alert(
+            (
+                "Unable to build "
+                f"Defensive Shape: {exc}"
+            ),
+            color="danger",
+        )
 @app.callback(
     Output("def-transition-carousel-content", "children"),
     Output("def-transition-indicator-text", "children"),

@@ -522,3 +522,794 @@ def extract_ppda_key_events(df_processed):
             'label': f"Goal · {player} ({team})" if is_goal else f"Red card · {player} ({team})",
         })
     return pd.DataFrame(events, columns=columns)
+
+# ============================================================================
+# PLOT-10 — Defensive Shape
+# ============================================================================
+
+DEFENSIVE_SHAPE_WINDOW_MINUTES = 15
+DEFENSIVE_SHAPE_MIN_OUTFIELD_PLAYERS = 7
+DEFENSIVE_SHAPE_PITCH_LENGTH_M = 105.0
+DEFENSIVE_SHAPE_PITCH_WIDTH_M = 68.0
+
+
+def _defensive_shape_time_minutes(df):
+    """Return a numeric match-minute Series using the best available clock."""
+    import pandas as pd
+
+    candidates = [
+        "expandedMinute",
+        "timeMin",
+        "minute",
+        "matchMinute",
+    ]
+
+    for column in candidates:
+        if column in df.columns:
+            values = pd.to_numeric(df[column], errors="coerce")
+            if values.notna().any():
+                if column == "timeMin" and "timeSec" in df.columns:
+                    seconds = pd.to_numeric(
+                        df["timeSec"],
+                        errors="coerce",
+                    ).fillna(0)
+                    values = values + seconds / 60.0
+                return values
+
+    return pd.Series(
+        float("nan"),
+        index=df.index,
+        dtype=float,
+    )
+
+
+def _defensive_shape_period_mask(df, period):
+    import pandas as pd
+
+    period = (period or "full").lower()
+    minutes = _defensive_shape_time_minutes(df)
+
+    if period == "1h":
+        if "periodId" in df.columns:
+            period_id = pd.to_numeric(
+                df["periodId"],
+                errors="coerce",
+            )
+            return period_id.eq(1)
+        return minutes.lt(45.0)
+
+    if period == "2h":
+        if "periodId" in df.columns:
+            period_id = pd.to_numeric(
+                df["periodId"],
+                errors="coerce",
+            )
+            return period_id.eq(2)
+        return minutes.ge(45.0)
+
+    return pd.Series(
+        True,
+        index=df.index,
+        dtype=bool,
+    )
+
+
+def _defensive_shape_is_goalkeeper(df):
+    import pandas as pd
+
+    mask = pd.Series(
+        False,
+        index=df.index,
+        dtype=bool,
+    )
+
+    for column in (
+        "position",
+        "positionName",
+        "Mapped Position",
+        "mapped_position",
+        "role",
+    ):
+        if column not in df.columns:
+            continue
+
+        values = (
+            df[column]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+            .str.strip()
+        )
+
+        mask = mask | values.isin(
+            {
+                "gk",
+                "goalkeeper",
+                "keeper",
+                "goal keeper",
+            }
+        )
+
+    return mask
+
+
+def _defensive_shape_convex_hull(points):
+    """Monotonic-chain convex hull; returns ordered (x, y) tuples."""
+    unique = sorted(
+        {
+            (float(x), float(y))
+            for x, y in points
+            if x is not None and y is not None
+        }
+    )
+
+    if len(unique) <= 2:
+        return unique
+
+    def cross(origin, a, b):
+        return (
+            (a[0] - origin[0])
+            * (b[1] - origin[1])
+            - (a[1] - origin[1])
+            * (b[0] - origin[0])
+        )
+
+    lower = []
+    for point in unique:
+        while (
+            len(lower) >= 2
+            and cross(
+                lower[-2],
+                lower[-1],
+                point,
+            )
+            <= 0
+        ):
+            lower.pop()
+        lower.append(point)
+
+    upper = []
+    for point in reversed(unique):
+        while (
+            len(upper) >= 2
+            and cross(
+                upper[-2],
+                upper[-1],
+                point,
+            )
+            <= 0
+        ):
+            upper.pop()
+        upper.append(point)
+
+    return lower[:-1] + upper[:-1]
+
+
+def _defensive_shape_polygon_area_m2(hull):
+    if len(hull) < 3:
+        return 0.0
+
+    area_coordinate_units = 0.0
+
+    for index, (x1, y1) in enumerate(hull):
+        x2, y2 = hull[
+            (index + 1) % len(hull)
+        ]
+        area_coordinate_units += (
+            x1 * y2 - x2 * y1
+        )
+
+    area_coordinate_units = (
+        abs(area_coordinate_units)
+        / 2.0
+    )
+
+    return (
+        area_coordinate_units
+        * (
+            DEFENSIVE_SHAPE_PITCH_LENGTH_M
+            / 100.0
+        )
+        * (
+            DEFENSIVE_SHAPE_PITCH_WIDTH_M
+            / 100.0
+        )
+    )
+
+
+def _defensive_shape_snapshot(
+    player_locations,
+    window_start,
+    window_end,
+):
+    points = list(
+        zip(
+            player_locations["median_x"],
+            player_locations["median_y"],
+        )
+    )
+    hull = _defensive_shape_convex_hull(
+        points
+    )
+
+    block_height_m = (
+        float(
+            player_locations[
+                "median_x"
+            ].median()
+        )
+        * DEFENSIVE_SHAPE_PITCH_LENGTH_M
+        / 100.0
+    )
+
+    width_m = (
+        float(
+            player_locations[
+                "median_y"
+            ].max()
+            - player_locations[
+                "median_y"
+            ].min()
+        )
+        * DEFENSIVE_SHAPE_PITCH_WIDTH_M
+        / 100.0
+    )
+
+    footprint_m2 = (
+        _defensive_shape_polygon_area_m2(
+            hull
+        )
+    )
+
+    pitch_area_m2 = (
+        DEFENSIVE_SHAPE_PITCH_LENGTH_M
+        * DEFENSIVE_SHAPE_PITCH_WIDTH_M
+    )
+
+    centroid_x = float(
+        player_locations[
+            "median_x"
+        ].median()
+    )
+    centroid_y = float(
+        player_locations[
+            "median_y"
+        ].median()
+    )
+
+    dx_m = (
+        player_locations[
+            "median_x"
+        ].astype(float)
+        - centroid_x
+    ) * (
+        DEFENSIVE_SHAPE_PITCH_LENGTH_M
+        / 100.0
+    )
+
+    dy_m = (
+        player_locations[
+            "median_y"
+        ].astype(float)
+        - centroid_y
+    ) * (
+        DEFENSIVE_SHAPE_PITCH_WIDTH_M
+        / 100.0
+    )
+
+    compactness_m = float(
+        (
+            (
+                dx_m.pow(2)
+                + dy_m.pow(2)
+            ).mean()
+        )
+        ** 0.5
+    )
+
+    return {
+        "window_start":
+            float(window_start),
+        "window_end":
+            float(window_end),
+        "player_count":
+            int(len(player_locations)),
+        "block_height_m":
+            block_height_m,
+        "width_m":
+            width_m,
+        "footprint_m2":
+            footprint_m2,
+        "compactness_m":
+            compactness_m,
+        "centroid_x":
+            centroid_x,
+        "centroid_y":
+            centroid_y,
+        "player_locations":
+            player_locations.copy(),
+        "hull":
+            hull,
+    }
+
+
+def _defensive_shape_lineup_change_minutes(
+    df,
+    team_name,
+):
+    """Return team substitution minutes used to reject mixed-lineup windows."""
+    import pandas as pd
+
+    if (
+        df is None
+        or df.empty
+        or "team_name"
+        not in df.columns
+    ):
+        return []
+
+    team_df = df.loc[
+        df["team_name"].eq(
+            team_name
+        )
+    ].copy()
+
+    if team_df.empty:
+        return []
+
+    mask = pd.Series(
+        False,
+        index=team_df.index,
+        dtype=bool,
+    )
+
+    if "typeId" in team_df.columns:
+        type_ids = pd.to_numeric(
+            team_df["typeId"],
+            errors="coerce",
+        )
+        mask = mask | type_ids.isin(
+            [18, 19]
+        )
+
+    if "type_name" in team_df.columns:
+        names = (
+            team_df["type_name"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+        )
+
+        mask = mask | names.str.contains(
+            "substitution",
+            regex=False,
+        )
+        mask = mask | names.isin(
+            {
+                "player off",
+                "player on",
+            }
+        )
+
+    if not mask.any():
+        return []
+
+    minutes = (
+        _defensive_shape_time_minutes(
+            team_df.loc[mask]
+        )
+        .dropna()
+        .astype(float)
+        .tolist()
+    )
+
+    return sorted(
+        set(minutes)
+    )
+
+
+def build_defensive_shape_profile(
+    df_processed,
+    team_name,
+    period="full",
+    window_minutes=
+        DEFENSIVE_SHAPE_WINDOW_MINUTES,
+    min_outfield_players=
+        DEFENSIVE_SHAPE_MIN_OUTFIELD_PLAYERS,
+):
+    """
+    Build an event-derived defensive shape profile.
+
+    Density uses all defensive actions in the selected period.
+
+    Shape never creates one whole-match hull. It creates player-location
+    snapshots inside stable-lineup match-time windows, rejects windows that
+    contain substitutions, requires at least seven outfield contributors and
+    displays one real representative window closest to the period median
+    structure.
+    """
+    import numpy as np
+    import pandas as pd
+
+    empty = {
+        "team_name": team_name,
+        "period": period or "full",
+        "actions": pd.DataFrame(),
+        "action_count": 0,
+        "snapshot_count": 0,
+        "block_height_m": None,
+        "width_m": None,
+        "compactness_m": None,
+        "footprint_m2": None,
+        "representative": None,
+        "window_minutes":
+            int(window_minutes),
+    }
+
+    if (
+        df_processed is None
+        or df_processed.empty
+    ):
+        return empty
+
+    required = {
+        "team_name",
+        "type_name",
+        "x",
+        "y",
+    }
+    if not required.issubset(
+        df_processed.columns
+    ):
+        return empty
+
+    # Keep timing / period / positional metadata on the source frame.
+    #
+    # get_defensive_actions intentionally returns a compact projection with
+    # event, player and location columns only. Defensive Shape also needs the
+    # match clock to build coherent time windows, so filter the source first
+    # and then reattach the derived clock by preserved original index.
+    source_df = df_processed.copy()
+
+    lineup_change_minutes = (
+        _defensive_shape_lineup_change_minutes(
+            source_df,
+            team_name,
+        )
+    )
+
+    source_df[
+        "__match_minute"
+    ] = (
+        _defensive_shape_time_minutes(
+            source_df
+        )
+    )
+
+    period_mask = (
+        _defensive_shape_period_mask(
+            source_df,
+            period,
+        )
+    )
+    source_df = source_df.loc[
+        period_mask
+    ].copy()
+
+    source_df = source_df.loc[
+        ~_defensive_shape_is_goalkeeper(
+            source_df
+        )
+    ].copy()
+
+    actions = get_defensive_actions(
+        source_df
+    )
+
+    if (
+        actions is None
+        or actions.empty
+    ):
+        return empty
+
+    actions = actions.loc[
+        actions["team_name"].eq(
+            team_name
+        )
+    ].copy()
+
+    if actions.empty:
+        return empty
+
+    actions[
+        "__match_minute"
+    ] = source_df.loc[
+        actions.index,
+        "__match_minute",
+    ].to_numpy()
+
+    actions = actions.loc[
+        actions["x"].notna()
+        & actions["y"].notna()
+        & actions[
+            "__match_minute"
+        ].notna()
+    ].copy()
+
+    if actions.empty:
+        return empty
+
+    player_column = next(
+        (
+            candidate
+            for candidate in (
+                "playerName",
+                "player_name",
+                "playerId",
+                "player_id",
+            )
+            if candidate
+            in actions.columns
+        ),
+        None,
+    )
+
+    result = {
+        **empty,
+        "actions": actions,
+        "action_count":
+            int(len(actions)),
+    }
+
+    if player_column is None:
+        return result
+
+    actions["__window_start"] = (
+        np.floor(
+            actions[
+                "__match_minute"
+            ].astype(float)
+            / float(window_minutes)
+        )
+        * float(window_minutes)
+    )
+
+    snapshots = []
+
+    for (
+        window_start,
+        window_df,
+    ) in actions.groupby(
+        "__window_start"
+    ):
+        window_start = float(
+            window_start
+        )
+        window_end = (
+            window_start
+            + float(
+                window_minutes
+            )
+        )
+
+        contains_lineup_change = any(
+            (
+                minute
+                >= window_start
+                and minute
+                < window_end
+            )
+            for minute
+            in lineup_change_minutes
+        )
+
+        if contains_lineup_change:
+            continue
+
+        aggregations = {
+            "median_x":
+                ("x", "median"),
+            "median_y":
+                ("y", "median"),
+            "action_count":
+                ("x", "size"),
+        }
+
+        jersey_column = next(
+            (
+                candidate
+                for candidate in (
+                    "Mapped Jersey Number",
+                    "jersey_number",
+                    "shirtNumber",
+                )
+                if candidate
+                in window_df.columns
+            ),
+            None,
+        )
+
+        if jersey_column is not None:
+            aggregations[
+                "jersey_number"
+            ] = (
+                jersey_column,
+                "first",
+            )
+
+        player_locations = (
+            window_df
+            .groupby(
+                player_column,
+                dropna=True,
+            )
+            .agg(**aggregations)
+            .reset_index()
+            .rename(
+                columns={
+                    player_column:
+                        "player_name"
+                }
+            )
+        )
+
+        player_locations = (
+            player_locations.loc[
+                player_locations[
+                    "median_x"
+                ].notna()
+                & player_locations[
+                    "median_y"
+                ].notna()
+            ].copy()
+        )
+
+        if (
+            len(player_locations)
+            < int(
+                min_outfield_players
+            )
+        ):
+            continue
+
+        snapshots.append(
+            _defensive_shape_snapshot(
+                player_locations,
+                window_start=
+                    window_start,
+                window_end=
+                    window_end,
+            )
+        )
+
+    result[
+        "snapshot_count"
+    ] = int(len(snapshots))
+
+    if not snapshots:
+        return result
+
+    block_values = np.array(
+        [
+            snapshot[
+                "block_height_m"
+            ]
+            for snapshot
+            in snapshots
+        ],
+        dtype=float,
+    )
+    width_values = np.array(
+        [
+            snapshot["width_m"]
+            for snapshot
+            in snapshots
+        ],
+        dtype=float,
+    )
+    compact_values = np.array(
+        [
+            snapshot[
+                "compactness_m"
+            ]
+            for snapshot
+            in snapshots
+        ],
+        dtype=float,
+    )
+    footprint_values = np.array(
+        [
+            snapshot[
+                "footprint_m2"
+            ]
+            for snapshot
+            in snapshots
+        ],
+        dtype=float,
+    )
+
+    median_block = float(
+        np.median(block_values)
+    )
+    median_width = float(
+        np.median(width_values)
+    )
+    median_compact = float(
+        np.median(compact_values)
+    )
+    median_footprint = float(
+        np.median(footprint_values)
+    )
+
+    def distance(snapshot):
+        block_scale = max(
+            float(
+                np.ptp(
+                    block_values
+                )
+            ),
+            1.0,
+        )
+        width_scale = max(
+            float(
+                np.ptp(
+                    width_values
+                )
+            ),
+            1.0,
+        )
+        compact_scale = max(
+            float(
+                np.ptp(
+                    compact_values
+                )
+            ),
+            1.0,
+        )
+
+        return (
+            abs(
+                snapshot[
+                    "block_height_m"
+                ]
+                - median_block
+            )
+            / block_scale
+            + abs(
+                snapshot["width_m"]
+                - median_width
+            )
+            / width_scale
+            + abs(
+                snapshot[
+                    "compactness_m"
+                ]
+                - median_compact
+            )
+            / compact_scale
+        )
+
+    representative = min(
+        snapshots,
+        key=distance,
+    )
+
+    result.update(
+        {
+            "block_height_m":
+                median_block,
+            "width_m":
+                median_width,
+            "compactness_m":
+                median_compact,
+            "footprint_m2":
+                median_footprint,
+            "representative":
+                representative,
+            "snapshots":
+                snapshots,
+        }
+    )
+
+    return result
+

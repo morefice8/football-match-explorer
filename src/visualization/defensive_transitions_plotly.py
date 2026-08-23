@@ -940,3 +940,354 @@ def plot_ppda_timeline(
         borderpad=4,
     )
     return fig
+
+# ============================================================================
+# PLOT-10 — Defensive Shape
+# ============================================================================
+
+def plot_defensive_shape_profile(
+    profile,
+    team_color,
+    mode="density",
+):
+    """Render defensive action density or one coherent representative shape."""
+    import pandas as pd
+    import plotly.graph_objects as go
+
+    mode = (
+        mode
+        or "density"
+    ).lower()
+
+    fig = go.Figure()
+    fig = draw_plotly_pitch(fig)
+
+    fig.update_xaxes(
+        range=[0, 100],
+        visible=False,
+        fixedrange=True,
+    )
+    fig.update_yaxes(
+        range=[0, 100],
+        visible=False,
+        fixedrange=True,
+        scaleanchor="x",
+        scaleratio=1,
+    )
+
+    fig.update_layout(
+        height=500,
+        margin=dict(
+            l=12,
+            r=12,
+            t=18,
+            b=12,
+        ),
+        paper_bgcolor="white",
+        plot_bgcolor="#27343e",
+        showlegend=False,
+        hovermode="closest",
+        font=dict(
+            family="Inter, Arial",
+            color="#0b3150",
+        ),
+    )
+
+    actions = profile.get(
+        "actions"
+    )
+
+    if mode == "density":
+        if (
+            actions is not None
+            and not actions.empty
+        ):
+            fig.add_trace(
+                go.Histogram2dContour(
+                    x=actions["x"],
+                    y=actions["y"],
+                    colorscale=[
+                        [
+                            0.0,
+                            "rgba(39,52,62,0.05)",
+                        ],
+                        [
+                            0.35,
+                            team_color,
+                        ],
+                        [
+                            1.0,
+                            team_color,
+                        ],
+                    ],
+                    contours=dict(
+                        coloring="fill",
+                        showlines=False,
+                    ),
+                    opacity=0.72,
+                    showscale=False,
+                    hoverinfo="skip",
+                    ncontours=7,
+                    name="Action density",
+                )
+            )
+
+            customdata = (
+                actions["type_name"]
+                if "type_name"
+                in actions.columns
+                else pd.Series(
+                    "Defensive action",
+                    index=actions.index,
+                )
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=actions["x"],
+                    y=actions["y"],
+                    mode="markers",
+                    marker=dict(
+                        size=5,
+                        color=team_color,
+                        opacity=0.45,
+                        line=dict(
+                            width=0.5,
+                            color="white",
+                        ),
+                    ),
+                    customdata=
+                        customdata,
+                    hovertemplate=(
+                        "<b>%{customdata}</b>"
+                        "<br>x: %{x:.1f}"
+                        "<br>y: %{y:.1f}"
+                        "<extra></extra>"
+                    ),
+                    showlegend=False,
+                )
+            )
+        else:
+            fig.add_annotation(
+                x=50,
+                y=50,
+                text=(
+                    "No defensive actions "
+                    "in this period"
+                ),
+                showarrow=False,
+                font=dict(
+                    color="white",
+                    size=14,
+                ),
+            )
+
+    else:
+        representative = (
+            profile.get(
+                "representative"
+            )
+        )
+
+        if representative is None:
+            fig.add_annotation(
+                x=50,
+                y=50,
+                text=(
+                    "No coherent shape "
+                    "window available"
+                    "<br><span "
+                    "style='font-size:11px'>"
+                    "Not enough outfield "
+                    "players with defensive "
+                    "actions inside the same "
+                    "time window."
+                    "</span>"
+                ),
+                showarrow=False,
+                align="center",
+                font=dict(
+                    color="white",
+                    size=14,
+                ),
+            )
+        else:
+            hull = (
+                representative.get(
+                    "hull"
+                )
+                or []
+            )
+
+            if len(hull) >= 3:
+                hull_closed = (
+                    hull
+                    + [hull[0]]
+                )
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=[
+                            point[0]
+                            for point
+                            in hull_closed
+                        ],
+                        y=[
+                            point[1]
+                            for point
+                            in hull_closed
+                        ],
+                        mode="lines",
+                        fill="toself",
+                        fillcolor=
+                            team_color,
+                        opacity=0.18,
+                        line=dict(
+                            color=
+                                team_color,
+                            width=2.5,
+                        ),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    )
+                )
+
+            players = (
+                representative[
+                    "player_locations"
+                ]
+            )
+
+            marker_text = []
+
+            for _, row in (
+                players.iterrows()
+            ):
+                jersey = row.get(
+                    "jersey_number"
+                )
+
+                if (
+                    jersey is None
+                    or pd.isna(jersey)
+                ):
+                    marker_text.append(
+                        ""
+                    )
+                else:
+                    try:
+                        marker_text.append(
+                            str(
+                                int(
+                                    float(
+                                        jersey
+                                    )
+                                )
+                            )
+                        )
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        marker_text.append(
+                            str(jersey)
+                        )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=players[
+                        "median_x"
+                    ],
+                    y=players[
+                        "median_y"
+                    ],
+                    mode="markers+text",
+                    marker=dict(
+                        size=22,
+                        color=team_color,
+                        line=dict(
+                            color="white",
+                            width=1.5,
+                        ),
+                    ),
+                    text=marker_text,
+                    textposition=
+                        "middle center",
+                    textfont=dict(
+                        color="white",
+                        size=9,
+                        family=
+                            "Inter, Arial",
+                    ),
+                    customdata=players[
+                        [
+                            "player_name",
+                            "action_count",
+                        ]
+                    ].to_numpy(),
+                    hovertemplate=(
+                        "<b>%{customdata[0]}"
+                        "</b>"
+                        "<br>Defensive actions: "
+                        "%{customdata[1]}"
+                        "<br>Median x: %{x:.1f}"
+                        "<br>Median y: %{y:.1f}"
+                        "<extra></extra>"
+                    ),
+                    showlegend=False,
+                )
+            )
+
+            start = representative[
+                "window_start"
+            ]
+            end = representative[
+                "window_end"
+            ]
+
+            fig.add_annotation(
+                x=0.02,
+                y=0.98,
+                xref="paper",
+                yref="paper",
+                text=(
+                    "<b>Representative "
+                    "coherent window</b>"
+                    f"<br>{start:.0f}'–"
+                    f"{end:.0f}'"
+                    " · "
+                    f"{representative['player_count']} "
+                    "outfield players"
+                ),
+                showarrow=False,
+                align="left",
+                bgcolor=
+                    "rgba(11,49,80,0.88)",
+                bordercolor=
+                    "rgba(255,255,255,0.20)",
+                borderwidth=1,
+                font=dict(
+                    color="white",
+                    size=11,
+                ),
+            )
+
+    fig.add_annotation(
+        x=0.99,
+        y=0.01,
+        xref="paper",
+        yref="paper",
+        text="<b>Attacking →</b>",
+        showarrow=False,
+        xanchor="right",
+        yanchor="bottom",
+        bgcolor=
+            "rgba(11,49,80,0.88)",
+        font=dict(
+            color="white",
+            size=10,
+        ),
+    )
+
+    return fig
+
