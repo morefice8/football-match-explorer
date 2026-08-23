@@ -51,6 +51,7 @@ from src import config
 from src.metrics import pass_network_metrics
 from src.components import pass_network_view
 from src.components import progressive_pass_view
+from src.components import final_third_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -4958,569 +4959,188 @@ def generate_final_third_plot(stored_data_json):
         tb_str = traceback.format_exc()
         return dash_html.P(f"❌ Error in Final Third plot: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
 
+# PLOT-06 — Final Third Entries summary workspace
+def _final_third_analysis_from_store(stored_data_json):
+    if not stored_data_json:
+        return None
+
+    df_processed = pd.read_json(
+        io.StringIO(stored_data_json["df"]),
+        orient="split",
+    )
+
+    match_info = json.loads(
+        stored_data_json.get("match_info", "{}")
+    )
+
+    home_team = match_info.get("hteamName", "Home")
+    away_team = match_info.get("ateamName", "Away")
+
+    passes_df = pass_processing.get_passes_df(
+        df_processed.copy()
+    )
+
+    if (
+        passes_df is None
+        or passes_df.empty
+        or "outcome" not in passes_df.columns
+    ):
+        successful_passes = pd.DataFrame()
+    else:
+        successful_passes = passes_df[
+            passes_df["outcome"].eq("Successful")
+        ].copy()
+
+    carries_df = pass_processing.infer_carries(
+        df_processed.copy()
+    )
+    if carries_df is None:
+        carries_df = pd.DataFrame()
+
+    def analyse_team(team_name):
+        if (
+            not successful_passes.empty
+            and "team_name" in successful_passes.columns
+        ):
+            team_passes = successful_passes[
+                successful_passes["team_name"].eq(team_name)
+            ].copy()
+        else:
+            team_passes = pd.DataFrame()
+
+        if (
+            not carries_df.empty
+            and "team_name" in carries_df.columns
+        ):
+            team_carries = carries_df[
+                carries_df["team_name"].eq(team_name)
+            ].copy()
+        else:
+            team_carries = pd.DataFrame()
+
+        return pass_metrics.analyze_final_third_entries(
+            team_passes,
+            team_carries,
+        )
+
+    home_entries, home_stats = analyse_team(home_team)
+    away_entries, away_stats = analyse_team(away_team)
+
+    return {
+        "df_processed": df_processed,
+        "match_info": match_info,
+        "passes_df": passes_df,
+        "successful_passes": successful_passes,
+        "carries_df": carries_df,
+        "home_team": home_team,
+        "away_team": away_team,
+        "home_entries": home_entries,
+        "home_stats": home_stats,
+        "away_entries": away_entries,
+        "away_stats": away_stats,
+    }
+
+
+def _final_third_panels_from_analysis(
+    analysis,
+    entry_type=final_third_view.ENTRY_ALL,
+    show_entries=False,
+):
+    if not analysis:
+        return []
+
+    return final_third_view.panels(
+        analysis["home_entries"],
+        analysis["home_stats"],
+        analysis["away_entries"],
+        analysis["away_stats"],
+        analysis["home_team"],
+        analysis["away_team"],
+        HCOL,
+        ACOL,
+        entry_type=(
+            entry_type
+            or final_third_view.ENTRY_ALL
+        ),
+        show_entries=bool(show_entries),
+    )
+
+
+def _build_final_third_view(
+    stored_data_json,
+    entry_type=final_third_view.ENTRY_ALL,
+    show_entries=False,
+):
+    analysis = _final_third_analysis_from_store(
+        stored_data_json
+    )
+    return _final_third_panels_from_analysis(
+        analysis,
+        entry_type=entry_type,
+        show_entries=show_entries,
+    )
+
+
 @app.callback(
     Output("div-final-third-content", "children"),
     Input("store-df-match", "data"),
-    Input("passes-nested-tabs", "active_tab")
+    Input("passes-nested-tabs", "active_tab"),
 )
-def show_final_third_content_callback(stored_data_json, active_nested_tab):
-    if active_nested_tab != "final_third_entries" or not stored_data_json:
+def show_final_third_content_callback(
+    stored_data_json,
+    active_nested_tab,
+):
+    if (
+        active_nested_tab != "final_third_entries"
+        or not stored_data_json
+    ):
         return no_update
 
     try:
-        df_processed = pd.read_json(
-            io.StringIO(stored_data_json['df']),
-            orient='split',
-        )
-        match_info = json.loads(stored_data_json['match_info'])
-
-        HTEAM_NAME = match_info.get('hteamName', 'Home')
-        ATEAM_NAME = match_info.get('ateamName', 'Away')
-
-        # -----------------------------------------------------
-        # PASSES + CARRIES
-        # -----------------------------------------------------
-        passes_df = pass_processing.get_passes_df(df_processed.copy())
-
-        successful_passes = passes_df[
-            passes_df['outcome'] == 'Successful'
-        ].copy()
-
-        carries_df = pass_processing.infer_carries(
-            df_processed.copy()
+        analysis = _final_third_analysis_from_store(
+            stored_data_json
         )
 
-        if successful_passes.empty and carries_df.empty:
+        if not analysis:
             return dbc.Alert(
-                "No pass or carry data available for Final Third analysis.",
+                "No data available for Final Third Entries.",
                 color="warning",
             )
 
-        # -----------------------------------------------------
-        # TEAM PANEL
-        # -----------------------------------------------------
-        def create_final_third_layout_for_team(
-            team_name,
-            team_color,
-            is_away,
-        ):
-            team_passes = successful_passes[
-                successful_passes['team_name'] == team_name
-            ].copy()
-
-            if (
-                carries_df is not None
-                and not carries_df.empty
-                and 'team_name' in carries_df.columns
-            ):
-                team_carries = carries_df[
-                    carries_df['team_name'] == team_name
-                ].copy()
-            else:
-                team_carries = pd.DataFrame()
-
-            entries_df, stats = (
-                pass_metrics.analyze_final_third_entries(
-                    team_passes,
-                    team_carries,
-                )
-            )
-
-            # -------------------------------------------------
-            # PITCH
-            # -------------------------------------------------
-            fig = pass_plotly.plot_final_third_entries_plotly(
-                entries_df,
-                stats,
-                team_name,
-                team_color,
-                is_away=is_away,
-            )
-
-            graph_component = dcc.Graph(
-                figure=fig,
-                config={
-                    'displayModeBar': False,
-                    'responsive': True,
-                },
-                className='progressive-map-graph',
-            )
-
-            # -------------------------------------------------
-            # KPI
-            # -------------------------------------------------
-            def metric_card(
-                label,
-                value,
-                detail,
-                tooltip=None,
-            ):
-                if tooltip:
-                    tooltip_id = (
-                        "final-third-kpi-info-"
-                        f"{uuid.uuid4().hex}"
-                    )
-
-                    label_component = dash_html.Div([
-
-                        dash_html.Span(
-                            label,
-                            className='progressive-kpi-label',
-                        ),
-
-                        dash_html.I(
-                            id=tooltip_id,
-                            className=(
-                                "fa-regular "
-                                "fa-circle-question "
-                                "metric-definition-icon"
-                            ),
-                        ),
-
-                        dbc.Tooltip(
-                            tooltip,
-                            target=tooltip_id,
-                            placement="top",
-                            delay={
-                                "show": 250,
-                                "hide": 80,
-                            },
-                        ),
-
-                    ], className="metric-label-with-info")
-
-                else:
-                    label_component = dash_html.Span(
-                        label,
-                        className='progressive-kpi-label',
-                    )
-
-                return dash_html.Div([
-
-                    label_component,
-
-                    dash_html.Strong(
-                        value,
-                        className='progressive-kpi-value',
-                    ),
-
-                    dash_html.Small(
-                        detail,
-                        className='progressive-kpi-detail',
-                    ),
-
-                ], className='progressive-kpi-card')
-
-            total_entries = stats.get('total_final_third', 0)
-            pass_count = stats.get('pass_entries', 0)
-            carry_count = stats.get('carry_entries', 0)
-            carry_candidate_count = stats.get(
-                'carry_entry_candidates',
-                0,
-            )
-            excluded_carry_count = stats.get(
-                'carry_entries_excluded_total',
-                0,
-            )
-
-            channel_counts = {
-                'Left': stats.get('channel_left', 0),
-                'Central': stats.get('channel_central', 0),
-                'Right': stats.get('channel_right', 0),
-            }
-
-            if total_entries:
-                main_channel = max(
-                    channel_counts,
-                    key=channel_counts.get,
-                )
-                main_channel_count = channel_counts[main_channel]
-            else:
-                main_channel = '—'
-                main_channel_count = 0
-
-            inside_entries = (
-                stats.get('zone14', 0)
-                + stats.get('hs_left', 0)
-                + stats.get('hs_right', 0)
-            )
-
-            inside_pct = (
-                inside_entries / total_entries * 100
-                if total_entries
-                else 0.0
-            )
-
-            kpis = dash_html.Div([
-
-                metric_card(
-                    'Total entries',
-                    str(total_entries),
-                    (
-                        'Completed passes + high-confidence '
-                        'inferred carries'
-                    ),
-                    (
-                        "Passes use the exact final-third boundary. "
-                        "Inferred carries also require a robust "
-                        "crossing and high confidence."
-                    ),
-                ),
-
-                metric_card(
-                    'Pass / inferred carry',
-                    f"{pass_count} / {carry_count}",
-                    (
-                        f"{excluded_carry_count} of "
-                        f"{carry_candidate_count} inferred carry "
-                        "candidates excluded"
-                        if carry_candidate_count
-                        else "No inferred carry candidates"
-                    ),
-                    (
-                        "Only high-confidence inferred carries are "
-                        "included. They must start at least 1 Opta "
-                        "point before the boundary, finish at least "
-                        "1 point beyond it and advance at least 3 "
-                        "points longitudinally."
-                    ),
-                ),
-
-                metric_card(
-                    'Main entry channel',
-                    main_channel,
-                    (
-                        f"{main_channel_count} of "
-                        f"{total_entries} entries"
-                    ),
-                    (
-                        "Left, Central and Right are based on the "
-                        "entry destination y-coordinate. "
-                        "The denominator is all final-third entries."
-                    ),
-                ),
-
-                metric_card(
-                    'Inside channels',
-                    str(inside_entries),
-                    (
-                        f"{inside_pct:.1f}% of "
-                        f"{total_entries} entries"
-                    ),
-                    (
-                        "Counts entries ending in Zone 14, "
-                        "the Left Half-Space or the Right Half-Space. "
-                        "The denominator is all final-third entries."
-                    ),
-                ),
-
-            ], className='progressive-kpi-grid')
-
-            # -------------------------------------------------
-            # PROFILE BARS
-            # -------------------------------------------------
-            profile_total = max(total_entries, 1)
-
-            def build_profile(counts):
-                return dash_html.Div([
-                    dash_html.Div([
-                        dash_html.Span(label),
-
-                        dash_html.Div(
-                            dash_html.Span(
-                                style={
-                                    'width': (
-                                        f"{value / profile_total * 100:.1f}%"
-                                    )
-                                }
-                            ),
-                            className='progressive-channel-track',
-                        ),
-
-                        dash_html.Strong(str(value)),
-
-                    ], className='progressive-channel-row')
-
-                    for label, value in counts.items()
-
-                ], className='progressive-channel-profile')
-
-            channel_profile = build_profile(
-                channel_counts
-            )
-
-            destination_counts = {
-                'Zone 14': stats.get('zone14', 0),
-                'Left HS': stats.get('hs_left', 0),
-                'Right HS': stats.get('hs_right', 0),
-                'Other': stats.get('other', 0),
-            }
-
-            destination_profile = build_profile(
-                destination_counts
-            )
-
-            # -------------------------------------------------
-            # TOP CONTRIBUTORS
-            # -------------------------------------------------
-            if entries_df is None or entries_df.empty:
-                table_content = dbc.Alert(
-                    'No player data',
-                    color='secondary',
-                )
-
-            else:
-                pass_entries = entries_df[
-                    entries_df['entry_type'] == 'Pass'
-                ]
-
-                carry_entries = entries_df[
-                    entries_df['entry_type'] == 'Carry'
-                ]
-
-                pass_contributors = (
-                    pass_entries['playerName']
-                    .dropna()
-                    .value_counts()
-                    .rename('Pass')
-                )
-
-                carry_contributors = (
-                    carry_entries['playerName']
-                    .dropna()
-                    .value_counts()
-                    .rename('Carry')
-                )
-
-                contributors = pd.concat(
-                    [
-                        pass_contributors,
-                        carry_contributors,
-                    ],
-                    axis=1,
-                ).fillna(0)
-
-                if contributors.empty:
-                    table_content = dbc.Alert(
-                        'No player data',
-                        color='secondary',
-                    )
-
-                else:
-                    contributors['Pass'] = (
-                        contributors['Pass'].astype(int)
-                    )
-                    contributors['Carry'] = (
-                        contributors['Carry'].astype(int)
-                    )
-                    contributors['Total'] = (
-                        contributors['Pass']
-                        + contributors['Carry']
-                    )
-
-                    contributors = (
-                        contributors
-                        .sort_values(
-                            ['Total', 'Pass'],
-                            ascending=False,
-                        )
-                        .head(5)
-                        .reset_index()
-                    )
-
-                    if 'playerName' in contributors.columns:
-                        contributors = contributors.rename(
-                            columns={'playerName': 'Player'}
-                        )
-                    elif 'index' in contributors.columns:
-                        contributors = contributors.rename(
-                            columns={'index': 'Player'}
-                        )
-
-                    # Jersey numbers
-                    jersey_source = (
-                        df_processed[
-                            df_processed['team_name'] == team_name
-                        ]
-                        .dropna(subset=['playerName'])
-                        .drop_duplicates(
-                            'playerName',
-                            keep='last',
-                        )
-                    )
-
-                    if (
-                        not jersey_source.empty
-                        and 'Mapped Jersey Number'
-                        in jersey_source.columns
-                    ):
-                        jersey_map = jersey_source.set_index(
-                            'playerName'
-                        )['Mapped Jersey Number']
-                    else:
-                        jersey_map = pd.Series(dtype='object')
-
-                    def format_player_name(player_name):
-                        jersey_raw = jersey_map.get(player_name)
-
-                        try:
-                            jersey = str(
-                                int(float(jersey_raw))
-                            )
-                        except (ValueError, TypeError):
-                            jersey = '?'
-
-                        return f"#{jersey} · {player_name}"
-
-                    contributors['Player'] = (
-                        contributors['Player']
-                        .apply(format_player_name)
-                    )
-
-                    display_table = contributors[
-                        [
-                            'Player',
-                            'Pass',
-                            'Carry',
-                            'Total',
-                        ]
-                    ].rename(columns={
-                        'Carry': 'Inferred carry',
-                    })
-
-                    table_content = dbc.Table.from_dataframe(
-                        display_table,
-                        striped=False,
-                        bordered=False,
-                        hover=True,
-                        responsive=True,
-                        className='progressive-player-table',
-                    )
-
-            # -------------------------------------------------
-            # SIDEBAR
-            # -------------------------------------------------
-            sidebar = dash_html.Div([
-                kpis,
-
-                dash_html.Div([
-                    dash_html.H6(
-                        'Entry-channel profile'
-                    ),
-                    channel_profile,
-                ], className='progressive-sidebar-section'),
-
-                dash_html.Div([
-                    dash_html.H6(
-                        'Destination profile'
-                    ),
-                    destination_profile,
-                ], className='progressive-sidebar-section'),
-
-                dash_html.Div([
-                    dash_html.H6(
-                        'Top entry contributors'
-                    ),
-                    table_content,
-                ], className='progressive-sidebar-section'),
-
-            ], className='progressive-sidebar')
-
-            # -------------------------------------------------
-            # PANEL — SAME STRUCTURE AS PROGRESSIVE PASSES
-            # -------------------------------------------------
-            return dash_html.Section([
-                dash_html.Div([
-                    dash_html.Div([
-                        dash_html.Span(
-                            'HOME TEAM' if not is_away else 'AWAY TEAM',
-                            className='match-panel-eyebrow',
-                        ),
-                        dash_html.H4(team_name,className="match-team-name"),
-                    ]),
-
-                    dash_html.Div([
-
-                        dash_html.Span(
-                            f"n = {total_entries} entries",
-                            className="progressive-sample-size",
-                        ),
-
-                        dash_html.Span(
-                            "All teams attack left to right",
-                            className='match-panel-hint',
-                        ),
-
-                    ], className="progressive-panel-meta"),
-
-                ], className='match-panel-header'),
-
-                dbc.Row([
-                    dbc.Col(
-                        graph_component,
-                        lg=8,
-                    ),
-                    dbc.Col(
-                        sidebar,
-                        lg=4,
-                    ),
-                ], className='g-0'),
-
-            ], className='match-panel progressive-team-panel')
-
-        # -----------------------------------------------------
-        # HOME / AWAY
-        # -----------------------------------------------------
-        home_layout = create_final_third_layout_for_team(
-            HTEAM_NAME,
-            HCOL,
-            is_away=False,
+        initial_panels = _final_third_panels_from_analysis(
+            analysis,
+            entry_type=final_third_view.ENTRY_ALL,
+            show_entries=False,
         )
 
-        away_layout = create_final_third_layout_for_team(
-            ATEAM_NAME,
-            ACOL,
-            is_away=True,
+        dynamic_panels = dash_html.Div(
+            initial_panels,
+            id="final-third-view-content",
+            className=(
+                "progressive-summary-panel-stack "
+                "final-third-panel-stack"
+            ),
         )
 
-        def _final_third_stats_for_coverage(team_name):
-            coverage_passes = successful_passes[
-                successful_passes["team_name"] == team_name
-            ].copy()
-
-            if (
-                carries_df is not None
-                and not carries_df.empty
-                and "team_name" in carries_df.columns
-            ):
-                coverage_carries = carries_df[
-                    carries_df["team_name"] == team_name
-                ].copy()
-            else:
-                coverage_carries = pd.DataFrame()
-
-            _, coverage_stats = pass_metrics.analyze_final_third_entries(
-                coverage_passes,
-                coverage_carries,
-            )
-            return coverage_stats
-
-        home_final_third_coverage_stats = (
-            _final_third_stats_for_coverage(HTEAM_NAME)
-        )
-        away_final_third_coverage_stats = (
-            _final_third_stats_for_coverage(ATEAM_NAME)
-        )
+        passes_df = analysis["passes_df"]
+        if passes_df is None:
+            passes_df = pd.DataFrame()
 
         final_third_coverage_panel = render_data_coverage_panel(
             [
                 _carry_coverage_item(
-                    home_final_third_coverage_stats,
-                    label=f"{HTEAM_NAME} carry candidates",
+                    analysis["home_stats"],
+                    label=(
+                        f"{analysis['home_team']} "
+                        "carry candidates"
+                    ),
                 ),
                 _carry_coverage_item(
-                    away_final_third_coverage_stats,
-                    label=f"{ATEAM_NAME} carry candidates",
+                    analysis["away_stats"],
+                    label=(
+                        f"{analysis['away_team']} "
+                        "carry candidates"
+                    ),
                 ),
                 _coordinate_coverage_item(
                     passes_df,
@@ -5533,101 +5153,82 @@ def show_final_third_content_callback(stored_data_json, active_nested_tab):
                 ),
             ],
             note=(
-                "Carry inclusion is informative by default: a conservative "
-                "inference can legitimately exclude ambiguous candidates."
+                "Carry inclusion remains conservative: "
+                "ambiguous inferred candidates can be excluded "
+                "without being promoted to the primary entry count."
             ),
         )
 
-        # -----------------------------------------------------
-        # DEFINITION
-        # -----------------------------------------------------
-        definition_note = dash_html.Div([
-            dash_html.I(
-                className='fas fa-info-circle'
+        shell = match_graph_shell(
+            methodology=(
+                "A final-third entry crosses from x < 66.67 to "
+                "x ≥ 66.67. Pass entries are completed observed "
+                "passes. Carry entries are inferred and included "
+                "only when high-confidence candidates cross the "
+                "boundary robustly. Left, Central and Right use "
+                "the destination y-coordinate; Zone 14 and the "
+                "half-spaces describe the destination, not the "
+                "definition of an entry."
             ),
-            dash_html.Span(
-                (
-                    'A pass entry is recorded when the ball moves from '
-                    'x < 66.67 to x ≥ 66.67. Carry entries are inferred '
-                    'from consecutive events rather than observed '
-                    'directly: the primary KPI includes only '
-                    'high-confidence candidates that start at least 1 '
-                    'Opta point before the boundary, finish at least 1 '
-                    'point beyond it and advance at least 3 points '
-                    'longitudinally. Rejected candidates are disclosed '
-                    'in the KPI card. Entry channels are classified from '
-                    'the destination y-coordinate. Zone 14 and the '
-                    'half-spaces describe the destination of the entry, '
-                    'not the definition of the metric.'
-                )
-            ),
-        ], className=(
-            'match-analysis-note '
-            'progressive-definition-note'
-        ))
-
-        # -----------------------------------------------------
-        # COMMENTS
-        # -----------------------------------------------------
-        comment_panel = dash_html.Section([
-            dash_html.Div([
-                dash_html.I(
-                    className='fa-regular fa-note-sticky'
+            panels=[
+                final_third_coverage_panel,
+                dynamic_panels,
+            ],
+            analyst_notes={
+                "textarea_id": "comment-final-third",
+                "save_button_id": "save-comment-final-third",
+                "status_id": "save-status-final-third",
+                "description": (
+                    "Record the main channels, destinations "
+                    "and entry mechanisms."
                 ),
-                dash_html.Div([
-                    dash_html.H3(
-                        'Analyst notes',
-                        className='match-panel-title',
-                    ),
-                    dash_html.P(
-                        'Summarise the most meaningful final-third access patterns.',
-                        className='match-panel-description',
-                    ),
-                ]),
-            ], className='match-comment-heading'),
-
-            dcc.Textarea(
-                id='comment-final-third',
-                placeholder='Write your Final Third Entries analysis...',
-                className='match-comment-input',
-            ),
-
-            dash_html.Div([
-                dbc.Button(
-                    [
-                        dash_html.I(
-                            className='fa-solid fa-floppy-disk me-2'
-                        ),
-                        'Save note',
-                    ],
-                    id='save-comment-final-third',
-                    className='match-action-button',
-                    size='sm',
+                "placeholder": (
+                    "Add analyst notes for Final Third Entries..."
                 ),
-                dash_html.Div(
-                    id='save-status-final-third',
-                    className='small',
-                ),
-            ], className='match-comment-actions'),
+            },
+            class_name="final-third-analysis",
+        )
 
-        ], className='match-panel match-comment-panel')
+        return final_third_view.workspace(shell)
 
-        return dash_html.Div([
-            definition_note,
-            final_third_coverage_panel,
-            home_layout,
-            away_layout,
-            comment_panel,
-        ], className='progressive-analysis')
-
-    except Exception as e:
-        tb_str = traceback.format_exc()
-
+    except Exception as exc:
+        logger.exception(
+            "Error generating Final Third Entries"
+        )
         return dbc.Alert(
-            f"Error generating final third plot: {e}\n{tb_str}",
+            (
+                "Error generating Final Third Entries: "
+                f"{exc}"
+            ),
             color="danger",
-            style={"whiteSpace": "pre-wrap"},
         )
+
+
+@app.callback(
+    Output("final-third-view-content", "children"),
+    Input("final-third-entry-type", "value"),
+    Input("final-third-show-entries", "value"),
+    State("store-df-match", "data"),
+    prevent_initial_call=True,
+)
+def update_final_third_view(
+    entry_type,
+    show_entries_value,
+    stored_data_json,
+):
+    return _build_final_third_view(
+        stored_data_json,
+        entry_type=(
+            entry_type
+            or final_third_view.ENTRY_ALL
+        ),
+        show_entries=(
+            final_third_view.show_entries_enabled(
+                show_entries_value
+            )
+        ),
+    )
+
 
 # --- COMMENT CALLBACKS FOR FINAL THIRD ENTRIES ---
 @app.callback(

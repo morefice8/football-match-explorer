@@ -861,6 +861,352 @@ def plot_final_third_plotly(df_zone14, df_lhs, df_rhs, stats, team_name, team_co
 
     return fig
 
+def _final_third_rgba(color, alpha):
+    text = str(color or "#1597c2").strip()
+
+    if text.startswith("#") and len(text) == 7:
+        try:
+            red = int(text[1:3], 16)
+            green = int(text[3:5], 16)
+            blue = int(text[5:7], 16)
+            return (
+                f"rgba({red},{green},{blue},"
+                f"{float(alpha):.3f})"
+            )
+        except ValueError:
+            pass
+
+    return f"rgba(21,151,194,{float(alpha):.3f})"
+
+
+def plot_final_third_entries_detail_plotly(
+    entries_df,
+    stats,
+    team_name,
+    team_color,
+    is_away=False,
+):
+    """
+    Clean detail wrapper for PLOT-06.
+
+    Reuses the canonical individual-entry renderer but removes the
+    legacy internal title and summary subtitle. The team panel already
+    provides team name and sample size, so the pitch only needs the
+    trajectories, legend and attacking-direction annotation.
+    """
+    fig = plot_final_third_entries_plotly(
+        entries_df,
+        stats,
+        team_name,
+        team_color,
+        is_away=is_away,
+    )
+
+    fig.update_layout(
+        title=None,
+    )
+
+    cleaned_annotations = []
+
+    for annotation in (
+        fig.layout.annotations
+        or []
+    ):
+        text = str(
+            getattr(
+                annotation,
+                "text",
+                "",
+            )
+            or ""
+        )
+
+        normalized = (
+            text
+            .replace("<b>", "")
+            .replace("</b>", "")
+            .lower()
+        )
+
+        if (
+            "final third entries"
+            in normalized
+        ):
+            continue
+
+        if (
+            " total"
+            in normalized
+            and " pass"
+            in normalized
+            and "carry"
+            in normalized
+        ):
+            continue
+
+        cleaned_annotations.append(
+            annotation
+        )
+
+    fig.update_layout(
+        annotations=cleaned_annotations,
+    )
+
+    return fig
+
+def plot_final_third_summary_plotly(
+    entries_df,
+    stats,
+    team_name,
+    team_color,
+    is_away=False,
+):
+    """
+    PLOT-06 summary view.
+
+    The pitch answers one question only: through which channel is the
+    final third entered? Destination zones remain spatially highlighted,
+    while their counts live exclusively in the sidebar.
+    """
+    del team_name
+    del is_away
+
+    fig = go.Figure()
+
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.24)",
+        "rgba(255,255,255,0.82)",
+    )
+
+    final_third_x = 100.0 * 2.0 / 3.0
+
+    channel_fill = _final_third_rgba(
+        team_color,
+        0.055,
+    )
+    channel_line = _final_third_rgba(
+        team_color,
+        0.36,
+    )
+    destination_fill = _final_third_rgba(
+        team_color,
+        0.10,
+    )
+    destination_line = _final_third_rgba(
+        team_color,
+        0.62,
+    )
+
+    pitch_shapes.extend([
+        dict(
+            type="line",
+            x0=final_third_x,
+            x1=final_third_x,
+            y0=0,
+            y1=100,
+            line=dict(
+                color="rgba(255,255,255,0.52)",
+                width=1.5,
+                dash="dot",
+            ),
+            layer="below",
+        ),
+
+        # Left / Central / Right entry channels.
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=100,
+            y0=200 / 3,
+            y1=100,
+            fillcolor=channel_fill,
+            line=dict(
+                color=channel_line,
+                width=1,
+            ),
+            layer="below",
+        ),
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=100,
+            y0=100 / 3,
+            y1=200 / 3,
+            fillcolor=channel_fill,
+            line=dict(
+                color=channel_line,
+                width=1,
+            ),
+            layer="below",
+        ),
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=100,
+            y0=0,
+            y1=100 / 3,
+            fillcolor=channel_fill,
+            line=dict(
+                color=channel_line,
+                width=1,
+            ),
+            layer="below",
+        ),
+
+        # Destination-zone geometry only.
+        # Counts are intentionally kept out of the pitch and shown
+        # exclusively in the sidebar Destination Profile.
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=82.0,
+            y0=100 / 3,
+            y1=200 / 3,
+            fillcolor=destination_fill,
+            line=dict(
+                color=destination_line,
+                width=1.4,
+                dash="dash",
+            ),
+            layer="below",
+        ),
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=100,
+            y0=200 / 3,
+            y1=500 / 6,
+            fillcolor=destination_fill,
+            line=dict(
+                color=destination_line,
+                width=1.4,
+                dash="dash",
+            ),
+            layer="below",
+        ),
+        dict(
+            type="rect",
+            x0=final_third_x,
+            x1=100,
+            y0=100 / 6,
+            y1=100 / 3,
+            fillcolor=destination_fill,
+            line=dict(
+                color=destination_line,
+                width=1.4,
+                dash="dash",
+            ),
+            layer="below",
+        ),
+    ])
+
+    total = int(
+        stats.get(
+            "total_final_third",
+            0,
+        )
+    )
+
+    channel_rows = [
+        (
+            "LEFT",
+            int(
+                stats.get(
+                    "channel_left",
+                    0,
+                )
+            ),
+            91.0,
+        ),
+        (
+            "CENTRAL",
+            int(
+                stats.get(
+                    "channel_central",
+                    0,
+                )
+            ),
+            50.0,
+        ),
+        (
+            "RIGHT",
+            int(
+                stats.get(
+                    "channel_right",
+                    0,
+                )
+            ),
+            9.0,
+        ),
+    ]
+
+    for label, count, y_value in channel_rows:
+        percentage = (
+            count
+            / total
+            * 100.0
+            if total
+            else 0.0
+        )
+
+        fig.add_annotation(
+            x=70.3,
+            y=y_value,
+            text=(
+                f"<b>{label}</b>"
+                f"<br><span style='font-size:17px'>"
+                f"{count}</span>"
+                f"<br>{percentage:.0f}%"
+            ),
+            showarrow=False,
+            xanchor="left",
+            align="left",
+            font=dict(
+                color="#ffffff",
+                size=11,
+            ),
+            bgcolor="rgba(16,47,69,0.82)",
+            borderpad=5,
+        )
+
+    fig.add_annotation(
+        x=final_third_x + 0.8,
+        y=101.5,
+        text="<b>FINAL THIRD</b>",
+        showarrow=False,
+        xanchor="left",
+        font=dict(
+            color="rgba(255,255,255,0.72)",
+            size=10,
+        ),
+    )
+
+    if (
+        entries_df is None
+        or entries_df.empty
+    ):
+        add_zero_state(
+            fig,
+            "No final-third entries for the selected filter",
+            dark_pitch=True,
+        )
+
+    apply_match_pitch_layout(
+        fig,
+        pitch_shapes=pitch_shapes,
+        height=MATCH_COMPARE_HEIGHT,
+        showlegend=False,
+        x_range=(-2, 102),
+        y_range=(-5, 105),
+    )
+
+    add_attacking_direction(
+        fig,
+        dark=True,
+    )
+
+    return fig
+
 def plot_final_third_entries_plotly(
     entries_df,
     stats,

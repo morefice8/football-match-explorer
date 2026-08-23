@@ -5015,3 +5015,103 @@ td.cell--selected {
 .progressive-top-stats strong {
   font-size: .92rem;
 }
+
+/* PLOT-06 — Final Third Entries */
+
+.final-third-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.final-third-controls {
+    grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.8fr);
+}
+
+.final-third-entry-radio {
+    margin-top: 8px;
+}
+
+.final-third-detail-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.final-third-show-switch {
+    flex: 0 0 auto;
+    margin-top: 4px;
+}
+
+.final-third-show-switch .form-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+}
+
+.final-third-show-switch .form-check-label {
+    color: #18344d;
+    font-weight: 750;
+    font-size: 0.82rem;
+}
+
+.final-third-panel-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.final-third-sidebar-section h6 {
+    margin: 3px 0 12px;
+    color: #102f45;
+    font-weight: 800;
+}
+
+.final-third-profile {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.final-third-profile-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.final-third-profile-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.final-third-profile-label {
+    color: #536d80;
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+
+.final-third-profile-value {
+    color: #102f45;
+    font-size: 0.78rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.final-third-map-graph {
+    min-width: 0;
+}
+
+@media (max-width: 900px) {
+    .final-third-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .final-third-detail-control {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
