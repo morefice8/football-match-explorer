@@ -3,6 +3,7 @@ import math
 
 import numpy as np
 import pandas as pd
+from src.utils.derived_cache import cache_derived_result
 from ..metrics import pass_metrics  # Assuming this is a module you have for pass metrics
 
 
@@ -73,6 +74,7 @@ def _is_administrative_event(row):
     return type_name in RECEIVER_ADMIN_EVENT_NAMES
 
 
+@cache_derived_result("pass_receivers")
 def infer_pass_receivers(
     df_processed,
     max_time_gap_seconds=12.0,
@@ -254,6 +256,7 @@ def _same_player(event_a, event_b):
     )
 
 
+@cache_derived_result("carries")
 def infer_carries(
     df_processed,
     min_distance_m=2.0,
@@ -499,6 +502,7 @@ def receiver_coverage_summary(passes_df):
         'coverage_pct': (resolved / total * 100) if total else 0.0,
     }
 
+@cache_derived_result("passes")
 def get_passes_df(df_processed):
     """
     Versione 3: Corregge il calcolo dei passaggi progressivi e assicura che

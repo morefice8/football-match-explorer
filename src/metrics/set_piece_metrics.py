@@ -1,6 +1,7 @@
 # src/metrics/set_piece_metrics.py
 
 import pandas as pd
+from src.utils.derived_cache import cache_derived_result
 import numpy as np
 import dash_bootstrap_components as dbc
 from dash import html
@@ -22,6 +23,7 @@ PENALTY_SHOT_TYPES = {
 }
 
 
+@cache_derived_result("penalty_restart_sequences")
 def extract_penalty_set_piece_sequences(
     df_processed,
     team_name,

@@ -1,5 +1,6 @@
 # src/metrics/transition_metrics.py
 import pandas as pd
+from src.utils.derived_cache import cache_derived_result
 from src.metrics.data_quality import attach_sequence_coverage
 import numpy as np
 from src import config
@@ -909,6 +910,7 @@ def _find_legacy_buildup_sequences(df_processed, attacking_team,
     return df_all_sequences
 
 
+@cache_derived_result("buildup_sequences")
 def find_buildup_sequences(
     df_processed,
     attacking_team,

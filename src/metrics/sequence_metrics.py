@@ -1,10 +1,12 @@
 # src/metrics/sequence_metrics.py
 import pandas as pd
+from src.utils.derived_cache import cache_derived_result
 import numpy as np
 from collections import Counter # For counting sequences
 
 # --- Find_shot_sequences ---
 # This function identifies sequences of passes leading to a shot
+@cache_derived_result("shot_sequences")
 def find_shot_sequences(df_processed,
                         shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'],
                         goal_mouth_y_col='GoalMouthY'): # Adjust if your col name is 'Goal mouth y co-ordinate'

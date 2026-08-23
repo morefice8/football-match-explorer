@@ -14,6 +14,7 @@ import math
 
 import pandas as pd
 
+from src.utils.derived_cache import cache_derived_result
 from src.utils.sequence_outcomes import apply_sequence_outcome_contract
 
 
@@ -197,6 +198,7 @@ def _legacy_sequence_outcome(row):
     return "Unknown"
 
 
+@cache_derived_result("restart_sequences")
 def extract_restart_sequences(df_processed, team_name):
     """Return one immediate-execution sequence per actual restart delivery.
 

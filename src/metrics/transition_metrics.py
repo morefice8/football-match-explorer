@@ -1,5 +1,6 @@
 # src/metrics/transition_metrics.py
 import pandas as pd
+from src.utils.derived_cache import cache_derived_result
 from src.metrics.data_quality import attach_sequence_coverage
 import numpy as np
 import dash_bootstrap_components as dbc
@@ -325,6 +326,7 @@ def find_recovery_to_first_pass(df_processed,
     return df_final
 
 # --- Function: Find Opponent Buildup After Specific Team's Loss ---
+@cache_derived_result("transition_sequences")
 def find_buildup_after_possession_loss(df_processed,
                                        team_that_lost_possession, # Team that lost possession
                                        possession_loss_types=['Pass', 'Take On', 'Error', 'Dispossessed', 'Aerial', 'Challenge', 'Clearance', 'Save'], # Types of loss
