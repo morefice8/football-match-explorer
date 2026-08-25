@@ -688,6 +688,12 @@ def _summary_annotation(
         )
     )
 
+    match_time = _time_label(
+        sequence.get(
+            "start_second"
+        )
+    )
+
     line_one = (
         f"<b>{_safe_text(sequence_label)}</b>"
     )
@@ -702,16 +708,38 @@ def _summary_annotation(
         sequence.get("sequence_type")
         == "set_piece"
     ):
-        # Restart Analysis ends at delivery; do not present it as a
-        # possession with a missing duration.
-        line_two = _restart_detail_line(
+        detail = _restart_detail_line(
             sequence
         )
-    else:
+
         line_two = (
-            f"Duration {duration}"
-            f" · Outcome: {outcome}"
+            (
+                f"Match time {match_time}"
+                f" · {detail}"
+            )
+            if match_time != "—"
+            else detail
         )
+
+        return (
+            line_one
+            + "<br>"
+            + line_two
+        )
+
+    line_two = (
+        (
+            f"Match time {match_time}"
+            " · "
+        )
+        if match_time != "—"
+        else ""
+    )
+
+    line_two += (
+        f"Duration {duration}"
+        f" · Outcome: {outcome}"
+    )
 
     line_three = (
         f"Passes {counts.get('pass', 0)}"
@@ -720,18 +748,6 @@ def _summary_annotation(
         f" · Turnovers {counts.get('turnover', 0)}"
     )
 
-    if (
-        sequence.get("sequence_type")
-        == "set_piece"
-    ):
-        # Restart Analysis stops at the delivery. Zero possession-action
-        # counters add noise without adding analytical value.
-        return (
-            line_one
-            + "<br>"
-            + line_two
-        )
-
     return (
         line_one
         + "<br>"
@@ -739,6 +755,7 @@ def _summary_annotation(
         + "<br>"
         + line_three
     )
+
 
 
 def plot_sequence_explorer(
