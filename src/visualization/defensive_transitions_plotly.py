@@ -797,153 +797,265 @@ def plot_ppda_timeline(
     home_color,
     away_color,
 ):
-    """Compare fixed 15-minute pressing rates with goals and dismissals."""
+    """Polish the validated 15-minute PPDA timeline without changing its definition."""
     fig = go.Figure()
+    max_pressure_rate = 0.0
 
     for profile, team_name, color in (
         (home_profile, home_team, home_color),
         (away_profile, away_team, away_color),
     ):
-        timeline = profile.get('timeline', pd.DataFrame())
+        timeline = profile.get("timeline", pd.DataFrame())
         if timeline.empty:
             continue
-        timeline = timeline.sort_values('minute').copy()
-        timeline['ppda_label'] = timeline['ppda'].map(
-            lambda value: f"{value:.2f}" if pd.notna(value) and np.isfinite(value) else "N/A"
-        )
-        timeline['sample_label'] = np.where(
-            timeline['low_sample'],
-            'Limited sample · fewer than 2 pressing actions',
-            'Stable sample',
-        )
-        customdata = np.column_stack([
-            timeline['interval_label'],
-            timeline['ppda_label'],
-            timeline['opponent_passes'],
-            timeline['defensive_actions'],
-            timeline['sample_label'],
-        ])
-        fig.add_trace(go.Bar(
-            x=timeline['minute'],
-            y=timeline['pressure_rate'],
-            width=5.8,
-            name=team_name,
-            legendgroup=team_name,
-            offsetgroup=team_name,
-            marker=dict(
-                color=color,
-                opacity=0.88,
-                line=dict(color='white', width=1.3),
-            ),
-            text=timeline['pressure_rate'].map(lambda value: f"{value:.1f}"),
-            textposition='outside',
-            textfont=dict(size=10, color='#18344d'),
-            cliponaxis=False,
-            customdata=customdata,
-            hovertemplate=(
-                f"<b>{team_name}</b><br>"
-                "%{customdata[0]}<br>"
-                "Pressing intensity: <b>%{y:.1f}</b> actions per 100 opponent passes<br>"
-                "Official PPDA: %{customdata[1]}<br>"
-                "Opponent passes: %{customdata[2]}<br>"
-                "Pressing actions: %{customdata[3]}<br>"
-                "%{customdata[4]}<extra></extra>"
-            ),
-        ))
 
-    fig.add_vline(x=45, line_width=1.5, line_dash='dash', line_color='#8ba0af')
+        timeline = timeline.sort_values("minute").copy()
+        timeline["ppda_label"] = timeline["ppda"].map(
+            lambda value: (
+                f"{value:.2f}"
+                if pd.notna(value) and np.isfinite(value)
+                else "N/A"
+            )
+        )
+        timeline["sample_label"] = np.where(
+            timeline["low_sample"],
+            "Limited sample · fewer than 2 pressing actions",
+            "Stable sample",
+        )
+
+        overall = profile.get("overall", {})
+        overall_passes = float(overall.get("opponent_passes", 0) or 0)
+        overall_actions = float(overall.get("defensive_actions", 0) or 0)
+        overall_pressure_rate = (
+            overall_actions / overall_passes * 100.0
+            if overall_passes > 0
+            else np.nan
+        )
+
+        def pressure_level(value):
+            if pd.isna(overall_pressure_rate) or not np.isfinite(overall_pressure_rate):
+                return "Pressure context unavailable"
+
+            value = float(value)
+
+            if np.isclose(
+                value,
+                overall_pressure_rate,
+                rtol=0.05,
+                atol=0.35,
+            ):
+                return "Near match-average pressure"
+
+            if value > overall_pressure_rate:
+                return "Higher pressure than team match average"
+
+            return "Lower pressure than team match average"
+
+        timeline["pressure_level"] = timeline["pressure_rate"].map(
+            pressure_level
+        )
+
+        customdata = np.column_stack(
+            [
+                timeline["interval_label"],
+                timeline["ppda_label"],
+                timeline["opponent_passes"],
+                timeline["defensive_actions"],
+                timeline["sample_label"],
+                timeline["pressure_level"],
+            ]
+        )
+
+        max_pressure_rate = max(
+            max_pressure_rate,
+            float(timeline["pressure_rate"].max()),
+        )
+
+        fig.add_trace(
+            go.Bar(
+                x=timeline["minute"],
+                y=timeline["pressure_rate"],
+                width=5.8,
+                name=team_name,
+                legendgroup=team_name,
+                offsetgroup=team_name,
+                marker=dict(
+                    color=color,
+                    opacity=0.88,
+                    line=dict(color="white", width=1.3),
+                ),
+                text=timeline["pressure_rate"].map(
+                    lambda value: f"{value:.1f}"
+                ),
+                textposition="outside",
+                textfont=dict(size=10, color="#18344d"),
+                cliponaxis=False,
+                customdata=customdata,
+                hovertemplate=(
+                    f"<b>{team_name}</b><br>"
+                    "%{customdata[0]}<br>"
+                    "<b>%{customdata[5]}</b><br>"
+                    "Pressing intensity: <b>%{y:.1f}</b> actions per 100 opponent passes<br>"
+                    "Official PPDA: %{customdata[1]}<br>"
+                    "Opponent passes: %{customdata[2]}<br>"
+                    "Pressing actions: %{customdata[3]}<br>"
+                    "%{customdata[4]}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.add_vline(
+        x=45,
+        line_width=1.5,
+        line_dash="dash",
+        line_color="#8ba0af",
+    )
     fig.add_annotation(
         x=45,
         y=1.02,
-        xref='x',
-        yref='paper',
-        text='Half-time',
+        xref="x",
+        yref="paper",
+        text="Half-time",
         showarrow=False,
-        font=dict(size=10, color='#647c8e'),
-        bgcolor='white',
+        font=dict(size=10, color="#647c8e"),
+        bgcolor="white",
     )
+
+    event_ceiling = max(max_pressure_rate, 10.0)
+    event_max_y = 0.0
 
     if key_events is not None and not key_events.empty:
         for event_index, (_, event) in enumerate(key_events.iterrows()):
-            minute = float(event['minute'])
-            is_red = event['event_type'] == 'red_card'
-            event_color = '#d64141' if is_red else '#d89100'
-            event_symbol = '■' if is_red else '⚽'
+            minute = float(event["minute"])
+            is_red = event["event_type"] == "red_card"
+            event_color = "#d64141" if is_red else "#d89100"
+            marker_symbol = "square" if is_red else "star"
+            marker_text = "RC" if is_red else "G"
+            event_y = event_ceiling * (1.10 + (event_index % 2) * 0.10)
+            event_max_y = max(event_max_y, event_y)
+
             fig.add_vline(
                 x=minute,
                 line_width=1.2,
-                line_dash='dot',
+                line_dash="dot",
                 line_color=event_color,
-                opacity=0.72,
-            )
-            fig.add_annotation(
-                x=minute,
-                y=1.105 + (event_index % 2) * 0.065,
-                xref='x',
-                yref='paper',
-                text=f"{event_symbol} {minute:.0f}'",
-                showarrow=False,
-                font=dict(size=10, color=event_color),
-                hovertext=event['label'],
-                bgcolor='rgba(255,255,255,0.94)',
-                bordercolor=event_color,
-                borderwidth=1,
-                borderpad=3,
+                opacity=0.68,
             )
 
+            fig.add_trace(
+                go.Scatter(
+                    x=[minute],
+                    y=[event_y],
+                    mode="markers+text",
+                    marker=dict(
+                        size=22,
+                        symbol=marker_symbol,
+                        color=event_color,
+                        line=dict(color="white", width=1.5),
+                    ),
+                    text=[marker_text],
+                    textposition="middle center",
+                    textfont=dict(
+                        size=8,
+                        color="white",
+                        family="Inter, Arial",
+                    ),
+                    customdata=[
+                        [
+                            "Red card" if is_red else "Goal",
+                            event["label"],
+                        ]
+                    ],
+                    hovertemplate=(
+                        "<b>%{customdata[0]}</b>"
+                        "<br>%{customdata[1]}"
+                        "<br>Minute: %{x:.0f}'"
+                        "<extra></extra>"
+                    ),
+                    name="Match event",
+                    legendgroup="match-events",
+                    showlegend=False,
+                )
+            )
+
+    x_upper = (
+        max(90.0, float(key_events["minute"].max()) + 3.0)
+        if key_events is not None and not key_events.empty
+        else 90.0
+    )
+
+    y_upper = max(
+        max_pressure_rate * 1.28,
+        event_max_y * 1.08,
+        12.0,
+    )
+
     fig.update_layout(
-        height=430,
-        margin=dict(l=58, r=28, t=86, b=58),
-        paper_bgcolor='white',
-        plot_bgcolor='#f8fbfc',
-        font=dict(color='#18344d', family='Arial'),
-        hovermode='x unified',
-        barmode='group',
+        height=450,
+        margin=dict(l=58, r=28, t=90, b=58),
+        paper_bgcolor="white",
+        plot_bgcolor="#f8fbfc",
+        font=dict(color="#18344d", family="Inter, Arial"),
+        hovermode="x unified",
+        barmode="group",
         bargap=0.30,
         bargroupgap=0.08,
         legend=dict(
-            orientation='h',
+            orientation="h",
             x=0,
             y=1.18,
-            xanchor='left',
-            yanchor='bottom',
-            bgcolor='rgba(255,255,255,0.8)',
+            xanchor="left",
+            yanchor="bottom",
+            bgcolor="rgba(255,255,255,0.8)",
         ),
         xaxis=dict(
-            title='Match phase',
-            range=[0, max(90, float(key_events['minute'].max()) + 3) if key_events is not None and not key_events.empty else 90],
-            tickmode='array',
+            title="Match phase",
+            range=[0, x_upper],
+            tickmode="array",
             tickvals=[7.5, 22.5, 37.5, 52.5, 67.5, 82.5],
-            ticktext=['0–15', '15–30', '30–45+', '45–60', '60–75', '75–90+'],
-            gridcolor='#e5edf1',
+            ticktext=["0–15", "15–30", "30–45+", "45–60", "60–75", "75–90+"],
+            gridcolor="#e5edf1",
             zeroline=False,
         ),
         yaxis=dict(
-            title='Pressing actions per 100 opponent passes · higher = more intense',
-            rangemode='tozero',
-            gridcolor='#e5edf1',
+            title="Pressing actions per 100 opponent passes",
+            range=[0, y_upper],
+            gridcolor="#e5edf1",
             zeroline=False,
         ),
     )
+
     fig.add_annotation(
         x=0,
         y=1.025,
-        xref='paper',
-        yref='paper',
-        text='MORE INTENSE PRESSURE ↑',
+        xref="paper",
+        yref="paper",
+        text="<b>HIGHER PRESSURE ↑</b> · taller bar",
         showarrow=False,
-        xanchor='left',
-        font=dict(size=10, color='#15845f'),
-        bgcolor='rgba(231,247,240,0.92)',
-        bordercolor='#b9e2d2',
+        xanchor="left",
+        font=dict(size=10, color="#15845f"),
+        bgcolor="rgba(231,247,240,0.92)",
+        bordercolor="#b9e2d2",
         borderwidth=1,
         borderpad=4,
     )
+    fig.add_annotation(
+        x=1,
+        y=1.025,
+        xref="paper",
+        yref="paper",
+        text="<b>LOWER PRESSURE ↓</b> · shorter bar",
+        showarrow=False,
+        xanchor="right",
+        font=dict(size=10, color="#8a5b47"),
+        bgcolor="rgba(252,242,237,0.94)",
+        bordercolor="#eed5c8",
+        borderwidth=1,
+        borderpad=4,
+    )
+
     return fig
 
-# ============================================================================
-# PLOT-10 — Defensive Shape
-# ============================================================================
 
 def plot_defensive_shape_profile(
     profile,

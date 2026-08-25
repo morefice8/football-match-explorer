@@ -7807,37 +7807,130 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
             )
 
             def format_ppda(value):
-                return f"{value:.2f}" if pd.notna(value) and np.isfinite(value) else "N/A"
+                return (
+                    f"{value:.2f}"
+                    if pd.notna(value) and np.isfinite(value)
+                    else "N/A"
+                )
 
-            def period_metric(label, snapshot):
-                return dash_html.Div([
-                    dash_html.Span(label, className="ppda-period-label"),
-                    dash_html.Strong(format_ppda(snapshot['ppda']), className="ppda-period-value"),
-                    dash_html.Small(
-                        (
-                            f"{snapshot['opponent_passes']} opp. passes "
-                            f"÷ {snapshot['defensive_actions']} "
-                            "pressing actions"
+            def pressure_relation(team_snapshot, opponent_snapshot):
+                team_ppda = team_snapshot.get("ppda")
+                opponent_ppda = opponent_snapshot.get("ppda")
+
+                if not all(
+                    pd.notna(value) and np.isfinite(value)
+                    for value in (team_ppda, opponent_ppda)
+                ):
+                    return "No comparison", "neutral"
+
+                if np.isclose(
+                    float(team_ppda),
+                    float(opponent_ppda),
+                    rtol=0.0,
+                    atol=1e-9,
+                ):
+                    return "Similar pressure", "neutral"
+
+                if float(team_ppda) < float(opponent_ppda):
+                    return "Higher pressure vs opponent", "higher"
+
+                return "Lower pressure vs opponent", "lower"
+
+            def period_metric(label, snapshot, opponent_snapshot):
+                relation_label, relation_tone = pressure_relation(
+                    snapshot,
+                    opponent_snapshot,
+                )
+
+                return dash_html.Div(
+                    [
+                        dash_html.Div(
+                            [
+                                dash_html.Span(
+                                    label,
+                                    className="ppda-period-label",
+                                ),
+                                dash_html.Span(
+                                    relation_label,
+                                    className=(
+                                        "ppda-period-relation "
+                                        f"ppda-period-relation--{relation_tone}"
+                                    ),
+                                ),
+                            ],
+                            className="ppda-period-heading",
                         ),
-                        className="ppda-period-detail",
+                        dash_html.Strong(
+                            format_ppda(snapshot["ppda"]),
+                            className="ppda-period-value",
+                        ),
+                        dash_html.Small(
+                            (
+                                f"{snapshot['opponent_passes']} passes ÷ "
+                                f"{snapshot['defensive_actions']} actions"
+                            ),
+                            className="ppda-period-detail",
+                        ),
+                    ],
+                    className=(
+                        "ppda-period-metric "
+                        f"ppda-period-metric--{relation_tone}"
                     ),
-                ], className="ppda-period-metric")
+                )
 
-            def summary_card(team_name, profile, team_color):
-                return dash_html.Section([
-                    dash_html.Div([
-                        dash_html.Div([
-                            dash_html.Span("PRESSING INTENSITY", className="match-panel-eyebrow"),
-                            dash_html.H3(team_name, className="match-panel-title"),
-                        ]),
-                        dash_html.Span("Lower is more intense", className="ppda-direction-badge"),
-                    ], className="match-panel-header"),
-                    dash_html.Div([
-                        period_metric("Full match", profile['overall']),
-                        period_metric("First half", profile['first_half']),
-                        period_metric("Second half", profile['second_half']),
-                    ], className="ppda-period-grid"),
-                ], className="match-panel ppda-summary-card", style={"borderTop": f"4px solid {team_color}"})
+            def summary_card(
+                team_name,
+                profile,
+                opponent_profile,
+                team_color,
+            ):
+                return dash_html.Section(
+                    [
+                        dash_html.Div(
+                            [
+                                dash_html.Div(
+                                    [
+                                        dash_html.Span(
+                                            "PPDA SUMMARY",
+                                            className="match-panel-eyebrow",
+                                        ),
+                                        dash_html.H3(
+                                            team_name,
+                                            className="match-panel-title",
+                                        ),
+                                    ]
+                                ),
+                                dash_html.Span(
+                                    "Lower PPDA = higher pressure",
+                                    className="ppda-direction-badge",
+                                ),
+                            ],
+                            className="match-panel-header",
+                        ),
+                        dash_html.Div(
+                            [
+                                period_metric(
+                                    "Full match",
+                                    profile["overall"],
+                                    opponent_profile["overall"],
+                                ),
+                                period_metric(
+                                    "First half",
+                                    profile["first_half"],
+                                    opponent_profile["first_half"],
+                                ),
+                                period_metric(
+                                    "Second half",
+                                    profile["second_half"],
+                                    opponent_profile["second_half"],
+                                ),
+                            ],
+                            className="ppda-period-grid",
+                        ),
+                    ],
+                    className="match-panel ppda-summary-card",
+                    style={"borderTop": f"4px solid {team_color}"},
+                )
 
             def pressing_table(dataframe):
                 return dash_table.DataTable(
@@ -7899,8 +7992,18 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                 )),
 
                 dash_html.Div([
-                    summary_card(HTEAM_NAME, home_profile, HCOL),
-                    summary_card(ATEAM_NAME, away_profile, ACOL),
+                    summary_card(
+                        HTEAM_NAME,
+                        home_profile,
+                        away_profile,
+                        HCOL,
+                    ),
+                    summary_card(
+                        ATEAM_NAME,
+                        away_profile,
+                        home_profile,
+                        ACOL,
+                    ),
                 ], className="ppda-summary-grid"),
 
                 dash_html.Section([
@@ -7909,11 +8012,35 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
                             dash_html.Span("MATCH FLOW", className="match-panel-eyebrow"),
                             dash_html.H3("Pressing intensity by match phase", className="match-panel-title"),
                             dash_html.P(
-                                "Each bar is an independent 15-minute phase. Height shows pressing actions per 100 opponent passes; official PPDA remains available in the hover.",
+                                (
+                                    "Each bar is an independent 15-minute phase. "
+                                    "Bar height uses pressing actions per 100 opponent "
+                                    "passes: taller = higher pressure. Official PPDA "
+                                    "keeps the validated inverse direction, so lower "
+                                    "PPDA = higher pressure, and remains in the hover."
+                                ),
                                 className="match-panel-description",
                             ),
                         ]),
-                        dash_html.Span("Higher bar = more intense pressure", className="match-panel-hint"),
+                        dash_html.Div(
+                            [
+                                dash_html.Span(
+                                    "Higher pressure ↑",
+                                    className=(
+                                        "ppda-pressure-key "
+                                        "ppda-pressure-key--higher"
+                                    ),
+                                ),
+                                dash_html.Span(
+                                    "Lower pressure ↓",
+                                    className=(
+                                        "ppda-pressure-key "
+                                        "ppda-pressure-key--lower"
+                                    ),
+                                ),
+                            ],
+                            className="ppda-pressure-key-row",
+                        ),
                     ], className="match-panel-header"),
                     dcc.Graph(
                         figure=fig_timeline,

@@ -5624,4 +5624,88 @@ td.cell--selected {
         flex-direction: column;
     }
 }
+/* ==========================================================================
+   PLOT-11 — PPDA polish
+   ========================================================================== */
 
+.ppda-period-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.ppda-period-relation {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.56rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ppda-period-relation--higher {
+  color: #16765b;
+  background: #e7f5ef;
+  border: 1px solid #c2e6d8;
+}
+
+.ppda-period-relation--lower {
+  color: #9a5c45;
+  background: #fbefe9;
+  border: 1px solid #edd1c5;
+}
+
+.ppda-period-relation--neutral {
+  color: #61798a;
+  background: #eff5f7;
+  border: 1px solid #d7e4e9;
+}
+
+.ppda-period-metric--higher {
+  background: linear-gradient(180deg, rgba(231,245,239,.56), rgba(255,255,255,0));
+}
+
+.ppda-period-metric--lower {
+  background: linear-gradient(180deg, rgba(251,239,233,.48), rgba(255,255,255,0));
+}
+
+.ppda-pressure-key-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+}
+
+.ppda-pressure-key {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.34rem 0.58rem;
+  border-radius: 999px;
+  font-size: 0.61rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.ppda-pressure-key--higher {
+  color: #16765b;
+  background: #e7f5ef;
+  border: 1px solid #c2e6d8;
+}
+
+.ppda-pressure-key--lower {
+  color: #9a5c45;
+  background: #fbefe9;
+  border: 1px solid #edd1c5;
+}
+
+@media (max-width: 760px) {
+  .ppda-period-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
