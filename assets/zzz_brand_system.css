@@ -5765,3 +5765,287 @@ td.cell--selected {
         border-bottom: 1px solid #dce7ec;
     }
 }
+/* ==========================================================================
+   PLOT-13 — Restart analysis
+   ========================================================================== */
+
+.restart-analysis-body {
+  display: grid;
+  gap: 14px;
+}
+
+.restart-filter-panel,
+.restart-map-panel,
+.restart-selected-panel {
+  overflow: hidden;
+}
+
+.restart-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid #dce7ec;
+}
+
+.restart-filter-group {
+  min-width: 0;
+  padding: 12px;
+  border-right: 1px solid #dce7ec;
+}
+
+.restart-filter-group:last-child {
+  border-right: 0;
+}
+
+.restart-filter-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #567184;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .09em;
+}
+
+.restart-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.restart-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid #d3e1e7;
+  border-radius: 999px;
+  background: #fff;
+  color: #17354d;
+  font-size: 10px;
+  font-weight: 750;
+  box-shadow: none;
+}
+
+.restart-filter-chip:hover,
+.restart-filter-chip:focus {
+  border-color: #0794b5;
+  background: #f0f9fb;
+  color: #0b7088;
+}
+
+.restart-filter-chip--active {
+  border-color: #078ca8;
+  background: #078ca8;
+  color: #fff;
+}
+
+.restart-filter-chip-count {
+  min-width: 19px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(13, 48, 73, .08);
+  text-align: center;
+  font-size: 9px;
+}
+
+.restart-filter-chip--active .restart-filter-chip-count {
+  background: rgba(255,255,255,.2);
+}
+
+.restart-active-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px;
+  border-top: 1px solid #dce7ec;
+  background: #f7fbfc;
+}
+
+.restart-active-filter-title {
+  margin-right: 2px;
+  color: #647d8e;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.restart-active-filter-badge {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e9f6f9;
+  color: #087690;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.restart-map-count {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+
+.restart-map-count-value {
+  color: #082f4f;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.restart-map-count-label {
+  color: #718898;
+  font-size: 9px;
+}
+
+.restart-map-graph .js-plotly-plot,
+.restart-selected-graph .js-plotly-plot {
+  width: 100%;
+}
+
+.restart-selected-meta {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 60%;
+}
+
+.restart-selected-meta-chip {
+  padding: 5px 8px;
+  border: 1px solid #d9e5ea;
+  border-radius: 999px;
+  background: #f8fbfc;
+  color: #3d596d;
+  font-size: 9px;
+}
+
+@media (max-width: 1100px) {
+  .restart-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .restart-filter-group:nth-child(2n) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .restart-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .restart-filter-group {
+    border-right: 0;
+    border-bottom: 1px solid #dce7ec;
+  }
+
+  .restart-selected-meta {
+    justify-content: flex-start;
+    max-width: 100%;
+    margin-top: 8px;
+  }
+}
+/* PLOT-13B — Restart panel polish */
+
+.restart-filter-chip {
+  background: #ffffff !important;
+  color: #17354d !important;
+  border-color: #a9cbd8 !important;
+}
+
+.restart-filter-chip:hover,
+.restart-filter-chip:focus {
+  background: #edf8fb !important;
+  color: #087690 !important;
+  border-color: #0794b5 !important;
+}
+
+.restart-filter-chip--active,
+.restart-filter-chip--active:hover,
+.restart-filter-chip--active:focus {
+  background: #078ca8 !important;
+  color: #ffffff !important;
+  border-color: #078ca8 !important;
+}
+
+.restart-filter-chip-count {
+  background: #eaf2f5 !important;
+  color: #3f5b6d !important;
+}
+
+.restart-filter-chip--active .restart-filter-chip-count {
+  background: rgba(255,255,255,.22) !important;
+  color: #ffffff !important;
+}
+/* ==========================================================================
+   PLOT-14 — Player Pass Map
+   ========================================================================== */
+
+.player-pass-map-view {
+  overflow: hidden;
+  border: 1px solid #d9e5ea;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.player-pass-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: #f8fbfc;
+  border-bottom: 1px solid #dce7ec;
+}
+
+.player-pass-kpi {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid #dce7ec;
+}
+
+.player-pass-kpi:last-child {
+  border-right: 0;
+}
+
+.player-pass-kpi-label {
+  display: block;
+  color: #60798a;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: .08em;
+}
+
+.player-pass-kpi-value {
+  display: block;
+  margin-top: 2px;
+  color: #082f4f;
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+
+.player-pass-kpi-caption {
+  display: block;
+  margin-top: 3px;
+  color: #788d9c;
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+.player-pass-map-graph {
+  background: #27343e;
+}
+
+@media (max-width: 760px) {
+  .player-pass-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .player-pass-kpi:nth-child(2) {
+    border-right: 0;
+  }
+
+  .player-pass-kpi:nth-child(-n+2) {
+    border-bottom: 1px solid #dce7ec;
+  }
+}

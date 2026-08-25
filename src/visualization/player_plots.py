@@ -1342,128 +1342,244 @@ def plot_passer_stats_bar_plotly(
 
     return fig
 
-def plot_player_pass_map_plotly(df_player_passes, player_name, team_color, player_jersey='?', is_away_team=False):
+def plot_player_pass_map_plotly(
+    df_player_passes,
+    player_name,
+    team_color,
+    player_jersey="?",
+    is_away_team=False,
+):
     """
-    Crea una mappa interattiva dei passaggi di un giocatore usando Plotly.
+    Player pass map with exactly one visual category per event.
+
+    REL-03: processed coordinates are already team-relative. Home/away
+    changes UI context only and never mirrors geometry.
     """
-    fig = go.Figure()
-    add_attacking_direction(fig, dark=True)
-    
-    # Prepara lo sfondo del campo
-    pitch_shapes = pitch_plots.get_plotly_pitch_shapes("rgba(255,255,255,0.2)", "white")
-    
-    if df_player_passes.empty:
-        fig.update_layout(
-            title=f"No passes recorded for {player_name}",
-            plot_bgcolor='#2E3439', paper_bgcolor='#2E3439', font_color='white',
-            shapes=pitch_shapes,
-            xaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-        )
-        return fig
-        
-    # Away changes UI context only, never geometry.
+    from src.metrics import player_pass_map_metrics
+
     del is_away_team
-    df_player_passes = df_player_passes.copy()
 
-    # Colori e gerarchia
-    COLORS = {
-        'Assist': '#69f900', 'Key Pass': '#a369ff', 'Pass into Box': '#00a0de',
-        'Progressive Pass': '#ff4b44', 'Successful': 'rgba(128, 128, 128, 0.7)',
-        'Unsuccessful': 'rgba(220, 53, 69, 0.5)'
-    }
-    plot_order = ['Unsuccessful', 'Successful', 'Progressive Pass', 'Pass into Box', 'Key Pass', 'Assist']
-
-    def get_pass_category(p):
-        if p.get('is_assist', False): return 'Assist'
-        if p.get('is_key_pass', False): return 'Key Pass'
-        if p.get('is_into_box', False): return 'Pass into Box'
-        if p.get('is_progressive', False): return 'Progressive Pass'
-        return 'Successful' if p.get('outcome') == 'Successful' else 'Unsuccessful'
-
-    df_player_passes['category'] = df_player_passes.apply(get_pass_category, axis=1)
-
-    # --- NUOVA LOGICA: UNA TRACCIA PER CATEGORIA ---
-    
-    for category in plot_order:
-        category_passes = df_player_passes[df_player_passes['category'] == category]
-        if category_passes.empty:
-            continue
-            
-        is_fail = (category == 'Unsuccessful')
-        
-        # Prepara i dati per una singola traccia Scattergl (più performante per tante forme)
-        x_coords, y_coords = [], []
-        hover_texts = []
-        for _, p in category_passes.iterrows():
-            x_coords.extend([p['x'], p['end_x'], None]) # None per spezzare le linee
-            y_coords.extend([p['y'], p['end_y'], None])
-            # Duplichiamo l'hovertext per coprire entrambi i punti della linea
-            hover_text = f"<b>{category}</b><br>Min {p.get('timeMin', '?')}': {p['outcome']}"
-            hover_texts.extend([hover_text, hover_text, ''])
-
-        # Aggiungi una sola traccia per l'intera categoria
-        fig.add_trace(go.Scattergl(
-            x=x_coords,
-            y=y_coords,
-            mode='lines',
-            line=dict(
-                color=COLORS[category], 
-                width=2.5 if not is_fail else 1.5, 
-                dash='solid' if not is_fail else 'dot'
-            ),
-            name=category, # Questo nome apparirà nella legenda
-            hoverinfo='text',
-            hovertext=hover_texts
-        ))
-        
-        # Aggiungi i marker di fine passaggio separatamente per non interferire con le linee
-        fig.add_trace(go.Scattergl(
-            x=category_passes['end_x'],
-            y=category_passes['end_y'],
-            mode='markers',
-            marker=dict(size=6, color=COLORS[category]),
-            showlegend=False, # Non mostrare i marker nella legenda
-            hoverinfo='none'
-        ))
-
-    # Calcola la posizione media
-    avg_x, avg_y = df_player_passes['x'].mean(), df_player_passes['y'].mean()  
-
-    # --- Layout finale con l'asse secondario configurato ---
-    fig.update_layout(
-        title=f"Pass Map for {player_name}",
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, traceorder='reversed'),
-        shapes=pitch_shapes,
-        xaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(range=[-2, 102], showgrid=False, zeroline=False, showticklabels=False),
-        
-        # **MODIFICA CHIAVE: Configura l'asse Y secondario**
-        yaxis2=dict(
-            range=[-2, 102],
-            overlaying="y", # Sovrapponi all'asse y primario
-            showgrid=False,
-            zeroline=False,
-            showticklabels=False
-        ),
-        
-        plot_bgcolor='#2E3439', paper_bgcolor='#2E3439', font_color='white', height=800
+    passes = player_pass_map_metrics.classify_player_passes(
+        df_player_passes
     )
 
-    fig.add_trace(go.Scatter(
-        x=[avg_x], y=[avg_y],
-        mode='markers+text',
-        marker=dict(symbol='circle', size=40, color=team_color, line=dict(color='white', width=2)),
-        text=[f"<b>{player_jersey}</b>"],
-        textposition="middle center",
-        textfont=dict(color='white', size=14),
-        hoverinfo='text', hovertext="Avg. Position",
-        showlegend=False,
-        yaxis="y2" # <-- Assegna a y2
-    ))
+    fig = go.Figure()
+    add_attacking_direction(fig, dark=True)
+
+    pitch_shapes = pitch_plots.get_plotly_pitch_shapes(
+        "rgba(255,255,255,0.24)",
+        "white",
+    )
+    fig.update_layout(shapes=pitch_shapes)
+
+    if passes.empty:
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text=f"No passes recorded for {player_name}",
+            showarrow=False,
+            font=dict(color="#d9e6eb", size=14, family="Inter, Arial"),
+        )
+        fig.update_layout(
+            plot_bgcolor="#27343e",
+            paper_bgcolor="#27343e",
+            font=dict(color="white", family="Inter, Arial"),
+            margin=dict(l=12, r=12, t=62, b=12),
+            height=590,
+            showlegend=True,
+        )
+        fig.update_xaxes(range=[0, 100], visible=False, fixedrange=True)
+        fig.update_yaxes(
+            range=[0, 100],
+            visible=False,
+            fixedrange=True,
+            scaleanchor="x",
+            scaleratio=0.68,
+        )
+        return fig
+
+    category_style = {
+        "Incomplete": {
+            "color": "rgba(205,216,222,0.44)",
+            "width": 1.05,
+            "dash": "dot",
+            "marker": "x",
+            "opacity": 0.46,
+        },
+        "Completed": {
+            "color": team_color,
+            "width": 1.25,
+            "dash": "solid",
+            "marker": "circle",
+            "opacity": 0.56,
+        },
+        "Progressive": {
+            "color": "#f0b44c",
+            "width": 2.65,
+            "dash": "solid",
+            "marker": "circle",
+            "opacity": 0.96,
+        },
+        "Key Pass": {
+            "color": "#a369ff",
+            "width": 3.0,
+            "dash": "solid",
+            "marker": "diamond",
+            "opacity": 1.0,
+        },
+        "Assist": {
+            "color": "#69cf9a",
+            "width": 3.35,
+            "dash": "solid",
+            "marker": "star",
+            "opacity": 1.0,
+        },
+    }
+
+    def time_label(row):
+        minute = row.get("timeMin")
+        second = row.get("timeSec")
+        try:
+            minute = int(float(minute))
+        except (TypeError, ValueError):
+            return "—"
+        try:
+            second = int(float(second))
+        except (TypeError, ValueError):
+            second = 0
+        return f"{minute}'{second:02d}\""
+
+    def yes_no(value):
+        try:
+            if pd.isna(value):
+                return "No"
+        except (TypeError, ValueError):
+            pass
+        return "Yes" if bool(value) else "No"
+
+    def hover_text(row, category):
+        receiver = row.get("receiver")
+        if (
+            receiver is None
+            or (isinstance(receiver, float) and pd.isna(receiver))
+            or str(receiver).strip() in {"", "nan", "None"}
+        ):
+            receiver = "Unresolved"
+        return (
+            f"<b>{category}</b>"
+            f"<br>Match time: {time_label(row)}"
+            f"<br>Outcome: {row.get('outcome', 'Unknown')}"
+            f"<br>Receiver: {receiver}"
+            f"<br>Progressive: {yes_no(row.get('is_progressive', False))}"
+            f"<br>Key pass: {yes_no(row.get('is_key_pass', False))}"
+            f"<br>Assist: {yes_no(row.get('is_assist', False))}"
+            f"<br>Into box: {yes_no(row.get('is_into_box', False))}"
+        )
+
+    for category in player_pass_map_metrics.CATEGORY_ORDER:
+        category_passes = passes.loc[
+            passes["visual_category"] == category
+        ]
+        if category_passes.empty:
+            continue
+
+        style = category_style[category]
+        line_x, line_y, line_text = [], [], []
+        end_x, end_y, end_text = [], [], []
+
+        for _, row in category_passes.iterrows():
+            x0 = row.get("x")
+            y0 = row.get("y")
+            x1 = row.get("end_x")
+            y1 = row.get("end_y")
+            if any(pd.isna(value) for value in (x0, y0, x1, y1)):
+                continue
+
+            hover = hover_text(row, category)
+            line_x.extend([float(x0), float(x1), None])
+            line_y.extend([float(y0), float(y1), None])
+            line_text.extend([hover, hover, ""])
+            end_x.append(float(x1))
+            end_y.append(float(y1))
+            end_text.append(hover)
+
+        if not line_x:
+            continue
+
+        fig.add_trace(
+            go.Scattergl(
+                x=line_x,
+                y=line_y,
+                mode="lines",
+                line=dict(
+                    color=style["color"],
+                    width=style["width"],
+                    dash=style["dash"],
+                ),
+                text=line_text,
+                hoverinfo="text",
+                name=category,
+                legendgroup=category,
+                showlegend=True,
+                opacity=style["opacity"],
+            )
+        )
+
+        fig.add_trace(
+            go.Scattergl(
+                x=end_x,
+                y=end_y,
+                mode="markers",
+                marker=dict(
+                    size=8 if category in {"Key Pass", "Assist"} else 6,
+                    symbol=style["marker"],
+                    color=style["color"],
+                    line=dict(color="white", width=0.8),
+                ),
+                text=end_text,
+                hoverinfo="text",
+                name=f"{category} endpoint",
+                legendgroup=category,
+                showlegend=False,
+                opacity=style["opacity"],
+            )
+        )
+
+
+    fig.update_layout(
+        plot_bgcolor="#27343e",
+        paper_bgcolor="#27343e",
+        font=dict(color="white", family="Inter, Arial"),
+        margin=dict(l=12, r=12, t=58, b=12),
+        height=590,
+        hovermode="closest",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.015,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(39,52,62,0.76)",
+            font=dict(color="white", size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor="#11344c",
+            bordercolor="#4f7187",
+            font=dict(color="white", size=12, family="Inter, Arial"),
+        ),
+    )
+
+    fig.update_xaxes(range=[0, 100], visible=False, fixedrange=True)
+    fig.update_yaxes(
+        range=[0, 100],
+        visible=False,
+        fixedrange=True,
+        scaleanchor="x",
+        scaleratio=0.68,
+    )
 
     return fig
+
 
 ################################ SHOT MAPS ################################
 def plot_shot_sequence_bar_plotly(player_stats_df, df_processed, home_team_name, hcol='tomato', acol='skyblue', violet_col='#a369ff', num_players=10):

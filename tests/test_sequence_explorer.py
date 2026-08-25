@@ -403,7 +403,7 @@ class SequenceExplorerTests(
             "update_buildup_plot_and_indicator",
             "update_def_transition_plot",
             "update_off_transition_plot",
-            "update_set_piece_carousel_plot",
+            "select_restart_from_map",
         }
 
         found = {}

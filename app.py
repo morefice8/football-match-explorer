@@ -56,6 +56,11 @@ from src.components import pass_location_view
 from src.components import cross_flow_view
 from src.utils.sequence_normalization import normalize_sequence
 from src.visualization.sequence_explorer import plot_sequence_explorer
+from src.metrics import restart_panel_metrics
+from src.metrics import player_pass_map_metrics
+from src.components import player_pass_map_view
+from src.components import restart_view
+from src.visualization import restart_map
 from src.metrics import transition_heatmap_metrics
 from src.components import transition_heatmap_view
 from src.metrics import (
@@ -5906,66 +5911,101 @@ def render_passing_analysis_content(active_tab, player_stats_df_json, stored_mat
     # return dash_html.P(f"Content for {active_tab} not found.")
 
 @app.callback(
-    Output('player-pass-map-graph-container-home', 'children'),
-    Input('home-passer-dropdown', 'value'),
-    State('store-df-match', 'data')
+    Output("player-pass-map-graph-container-home", "children"),
+    Input("home-passer-dropdown", "value"),
+    State("store-df-match", "data"),
 )
 def update_home_passer_map(selected_player, stored_data_json):
     if not selected_player or not stored_data_json:
         return no_update
 
-    df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-    team_color = HCOL
+    df_processed = pd.read_json(
+        io.StringIO(stored_data_json["df"]),
+        orient="split",
+    )
+    all_passes = pass_processing.get_passes_df(
+        df_processed.copy()
+    )
+    player_passes = all_passes.loc[
+        all_passes["playerName"] == selected_player
+    ].copy()
 
-    all_passes = pass_processing.get_passes_df(df_processed.copy())
-    player_passes = all_passes[all_passes['playerName'] == selected_player]
-
-    # **Estrai il numero di maglia**
-    jersey_num = '?'
-    if not player_passes.empty:
-        # Assumendo che 'Mapped Jersey Number' sia una colonna nel df
-        jersey_num_raw = player_passes['Mapped Jersey Number'].iloc[0]
+    jersey_num = "?"
+    if (
+        not player_passes.empty
+        and "Mapped Jersey Number" in player_passes.columns
+    ):
+        jersey_raw = player_passes["Mapped Jersey Number"].iloc[0]
         try:
-            jersey_num = str(int(jersey_num_raw))
-        except (ValueError, TypeError):
-            pass # Lascia '?' se non è un numero
+            jersey_num = str(int(float(jersey_raw)))
+        except (TypeError, ValueError):
+            pass
 
-    fig = player_plots.plot_player_pass_map_plotly(
-        player_passes, selected_player, team_color, jersey_num, is_away_team=False
+    profile = player_pass_map_metrics.player_pass_profile(
+        player_passes
+    )
+    figure = player_plots.plot_player_pass_map_plotly(
+        player_passes,
+        selected_player,
+        HCOL,
+        jersey_num,
+        is_away_team=False,
     )
 
-    return dcc.Graph(figure=fig)
+    return player_pass_map_view.panel(
+        figure,
+        profile,
+    )
+
 
 
 @app.callback(
-    Output('player-pass-map-graph-container-away', 'children'),
-    Input('away-passer-dropdown', 'value'),
-    State('store-df-match', 'data')
+    Output("player-pass-map-graph-container-away", "children"),
+    Input("away-passer-dropdown", "value"),
+    State("store-df-match", "data"),
 )
 def update_away_passer_map(selected_player, stored_data_json):
     if not selected_player or not stored_data_json:
         return no_update
 
-    df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-    team_color = ACOL
+    df_processed = pd.read_json(
+        io.StringIO(stored_data_json["df"]),
+        orient="split",
+    )
+    all_passes = pass_processing.get_passes_df(
+        df_processed.copy()
+    )
+    player_passes = all_passes.loc[
+        all_passes["playerName"] == selected_player
+    ].copy()
 
-    all_passes = pass_processing.get_passes_df(df_processed.copy())
-    player_passes = all_passes[all_passes['playerName'] == selected_player]
-
-    # **Estrai il numero di maglia anche qui**
-    jersey_num = '?'
-    if not player_passes.empty:
-        jersey_num_raw = player_passes['Mapped Jersey Number'].iloc[0]
+    jersey_num = "?"
+    if (
+        not player_passes.empty
+        and "Mapped Jersey Number" in player_passes.columns
+    ):
+        jersey_raw = player_passes["Mapped Jersey Number"].iloc[0]
         try:
-            jersey_num = str(int(jersey_num_raw))
-        except (ValueError, TypeError):
+            jersey_num = str(int(float(jersey_raw)))
+        except (TypeError, ValueError):
             pass
 
-    fig = player_plots.plot_player_pass_map_plotly(
-        player_passes, selected_player, team_color, jersey_num, is_away_team=True
+    profile = player_pass_map_metrics.player_pass_profile(
+        player_passes
+    )
+    figure = player_plots.plot_player_pass_map_plotly(
+        player_passes,
+        selected_player,
+        ACOL,
+        jersey_num,
+        is_away_team=True,
     )
 
-    return dcc.Graph(figure=fig)
+    return player_pass_map_view.panel(
+        figure,
+        profile,
+    )
+
 
 
 # --- CALLBACK 2: For the SHOOTING secondary tabs ---
@@ -10264,179 +10304,397 @@ def toggle_off_transition_summary(n, is_open): return not is_open if n else is_o
     Input("store-set-piece-filter", "data"),
     State("store-df-match", "data")
 )
-def render_set_piece_interface(active_tab, active_filter, stored_data_json):
+def render_set_piece_interface(
+    active_tab,
+    active_filter,
+    stored_data_json,
+):
     if not stored_data_json:
-        return dbc.Alert("Match data is loading...", color="info")
+        return dbc.Alert(
+            "Match data is loading...",
+            color="info",
+        )
 
     try:
-        # --- 1. Caricamento e analisi iniziale dei dati (ogni volta che la tab cambia) ---
-        df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-        match_info = json.loads(stored_data_json['match_info'])
+        df_processed = pd.read_json(
+            io.StringIO(
+                stored_data_json[
+                    "df"
+                ]
+            ),
+            orient="split",
+        )
 
-        is_home = active_tab == 'set_piece_home'
-        team_name = match_info.get('hteamName') if is_home else match_info.get('ateamName')
-        defending_team = match_info.get('ateamName') if is_home else match_info.get('hteamName')
-        team_color = HCOL if is_home else ACOL
+        match_info = json.loads(
+            stored_data_json[
+                "match_info"
+            ]
+        )
 
-        # Penalty kicks are extracted directly from their shot event.
-        # The award and the kick can be separated by several minutes, so
-        # tracing from the foul is not a reliable way to model penalties.
+        is_home = (
+            active_tab
+            == "set_piece_home"
+        )
+
+        team_name = (
+            match_info.get(
+                "hteamName"
+            )
+            if is_home
+            else match_info.get(
+                "ateamName"
+            )
+        )
+
+        defending_team = (
+            match_info.get(
+                "ateamName"
+            )
+            if is_home
+            else match_info.get(
+                "hteamName"
+            )
+        )
+
+        team_color = (
+            HCOL
+            if is_home
+            else ACOL
+        )
+
         penalty_sequences = (
-            set_piece_metrics.extract_penalty_set_piece_sequences(
+            set_piece_metrics
+            .extract_penalty_set_piece_sequences(
                 df_processed,
                 team_name,
             )
         )
 
-        # Keep penalty-award fouls out of the regular free-kick pipeline;
-        # otherwise the same penalty can be counted once as a free kick and
-        # once again from the direct penalty-shot extraction above.
-        set_piece_source = df_processed
-        if 'Penalty' in df_processed.columns:
-            penalty_award_mask = (
-                (df_processed['type_name'] == 'Foul')
-                & df_processed['Penalty'].isin([1, '1', True])
-            )
-            set_piece_source = df_processed.loc[
-                ~penalty_award_mask
-            ].copy()
+        set_piece_source = (
+            df_processed
+        )
 
-        # REL-09: classify the actual restart delivery. Generic
-        # Out/Foul/Corner Awarded events are not the restart taxonomy.
+        if (
+            "Penalty"
+            in df_processed.columns
+        ):
+            penalty_award_mask = (
+                (
+                    df_processed[
+                        "type_name"
+                    ]
+                    == "Foul"
+                )
+                & df_processed[
+                    "Penalty"
+                ].isin(
+                    [
+                        1,
+                        "1",
+                        True,
+                    ]
+                )
+            )
+
+            set_piece_source = (
+                df_processed.loc[
+                    ~penalty_award_mask
+                ]
+                .copy()
+            )
+
         restart_sequences = (
-            restart_metrics.extract_restart_sequences(
+            restart_metrics
+            .extract_restart_sequences(
                 set_piece_source,
                 team_name,
             )
         )
 
-        all_sequences = list(restart_sequences)
-        all_sequences.extend(penalty_sequences)
+        all_sequences = list(
+            restart_sequences
+        )
+
+        all_sequences.extend(
+            penalty_sequences
+        )
 
         if not all_sequences:
             return dbc.Alert(
-                f"No offensive restarts found for {team_name}.",
+                (
+                    "No offensive restarts "
+                    f"found for {team_name}."
+                ),
                 color="warning",
                 className="mt-3",
             )
 
-        df_analyzed, full_stats = set_piece_metrics.analyze_and_summarize_set_pieces(all_sequences)
-        player_jersey_map = df_processed.drop_duplicates(subset=['playerName'])[['playerName', 'Mapped Jersey Number']].set_index('playerName').to_dict()['Mapped Jersey Number']
+        (
+            df_analyzed,
+            _,
+        ) = (
+            set_piece_metrics
+            .analyze_and_summarize_set_pieces(
+                all_sequences
+            )
+        )
 
-        # --- 2. Logica dei Filtri a Cascata ---
-        active_filter = active_filter or {}
-        df_filtered = df_analyzed.copy()
+        records = (
+            restart_panel_metrics
+            .build_restart_records(
+                df_analyzed,
+                all_sequences,
+            )
+        )
 
-        filter_map = {
-            'action': 'Action Type',
-            'side': 'Side',
-            'delivery': 'Delivery',
-            'swing': 'Swing',
-            'outcome': 'Outcome',
-            'foot': 'Foot',
-            'destination': 'Destination',
-            'taker': 'playerName'
+        active_filter = (
+            active_filter
+            or {}
+        )
+
+        filtered_records = (
+            restart_panel_metrics
+            .apply_restart_filters(
+                records,
+                active_filter,
+            )
+        )
+
+        sequence_lookup = (
+            restart_panel_metrics
+            .sequence_json_lookup(
+                all_sequences
+            )
+        )
+
+        filtered_ids = {
+            str(
+                record[
+                    "sequence_id"
+                ]
+            )
+            for record
+            in filtered_records
         }
-        for filter_key, filter_value in active_filter.items():
-            column_name = filter_map.get(filter_key)
-            if column_name and column_name in df_filtered.columns:
-                df_filtered = df_filtered[df_filtered[column_name] == filter_value]
 
-        # --- 3. Ricostruisci le statistiche per le card basandoti sui dati filtrati ---
-        filtered_stats = {
-            'total': len(df_filtered),
-            'action_types': df_filtered['Action Type'].value_counts().to_dict(),
-            'sides': df_filtered['Side'].value_counts().to_dict(),
-            'deliveries': df_filtered['Delivery'].value_counts().to_dict(),
-            'swings': df_filtered[df_filtered['Swing'] != 'N/A']['Swing'].value_counts().to_dict(),
-            'feet': df_filtered[df_filtered['Foot'] != 'Unknown']['Foot'].value_counts().to_dict(),
-            'destinations': df_filtered[df_filtered['Destination'] != 'N/A']['Destination'].value_counts().to_dict(),
-            'outcomes': df_filtered['Outcome'].value_counts().to_dict()
+        sequence_lookup = {
+            sequence_id:
+                sequence_json
+            for (
+                sequence_id,
+                sequence_json,
+            ) in sequence_lookup.items()
+            if sequence_id
+            in filtered_ids
         }
-        cards = set_piece_metrics.create_set_piece_summary_cards(filtered_stats, active_filter)
-        takers_card = set_piece_metrics.create_takers_card(df_filtered, player_jersey_map, active_filter)
-        if takers_card and isinstance(cards, dash_html.Div) and cards.children:
-            cards.children[0].children.append(takers_card)
 
-        # --- 4. Prepara il Carosello ---
-        filtered_seq_ids = df_filtered['sequence_id'].unique()
-        sequences_for_carousel = [s for s in all_sequences if not s.empty and s.iloc[0]['trigger_sequence_id'] in filtered_seq_ids]
+        map_figure = (
+            restart_map
+            .plot_restart_map(
+                filtered_records,
+                team_color=
+                    team_color,
+            )
+        )
 
-        # --- START: AGGIUNTA LOGICA DI ORDINAMENTO ---
-        def get_set_piece_quality_score(seq_df):
-            if seq_df.empty or 'sequence_outcome_type' not in seq_df.columns:
-                return 99 # Manda in fondo le sequenze vuote/errate
-            outcome = seq_df.iloc[-1]['sequence_outcome_type']
-            # Assegna un punteggio numerico (più basso è meglio)
-            if outcome == 'Penalty Goal': return 0
-            elif outcome == 'Goals': return 1
-            elif outcome in ('Penalty Saved', 'Penalty Missed'): return 2
-            elif outcome == 'Shots': return 3
-            elif outcome == 'Big Chances': return 4
-            elif outcome == 'Lost Possessions': return 5
-            else: return 6
+        return dash_html.Div(
+            [
+                dcc.Store(
+                    id=
+                        "restart-panel-store",
+                    data={
+                        "records":
+                            filtered_records,
+                        "sequences":
+                            sequence_lookup,
+                        "team_color":
+                            team_color,
+                        "team_name":
+                            team_name,
+                        "opponent_name":
+                            defending_team,
+                    },
+                ),
 
-        sorted_sequences_for_carousel = sorted(sequences_for_carousel, key=get_set_piece_quality_score)
-        num_items = len(sorted_sequences_for_carousel)
+                dcc.Store(
+                    id=
+                        "restart-selected-id",
+                    data=None,
+                ),
 
-        carousel_section = dbc.Alert("No sequences match the current filter.", color="warning", className="mt-4")
-        if num_items > 0:
-            carousel_section = dash_html.Div([
-                dcc.Store(id='set-piece-sequence-store', data={'sequences': [s.to_json(orient='split') for s in sorted_sequences_for_carousel], 'team_color': team_color, 'is_away': not is_home}),
-                dcc.Store(id='set-piece-carousel-controller', data={'active_index': 0, 'total_items': num_items}),
-                dash_html.H5("Restart Explorer", className="text-white mt-4"),
-                dcc.Loading(type="circle", children=dash_html.Div(id='set-piece-carousel-content')),
-                dbc.Row([
-                    dbc.Col(dbc.Button("‹ Prev", id="set-piece-prev-button", color="secondary"), width="auto"),
-                    dbc.Col(dash_html.Div(id="set-piece-indicator-text", className="text-center text-muted align-self-center"), width=True),
-                    dbc.Col(dbc.Button("Next ›", id="set-piece-next-button", color="secondary"), width="auto"),
-                ], justify="between", align="center", className="mt-2"),
-            ])
+                dash_html.Section(
+                    [
+                        dash_html.Div(
+                            [
+                                dash_html.Div(
+                                    [
+                                        dash_html.Span(
+                                            "RESTART PROFILE",
+                                            className=
+                                                "match-panel-eyebrow",
+                                        ),
+                                        dash_html.H3(
+                                            (
+                                                f"{team_name} "
+                                                "restart filters"
+                                            ),
+                                            className=
+                                                "match-panel-title",
+                                        ),
+                                        dash_html.P(
+                                            (
+                                                "Filter the canonical restart "
+                                                "deliveries by type, side, "
+                                                "delivery, destination and "
+                                                "execution outcome."
+                                            ),
+                                            className=
+                                                "match-panel-description",
+                                        ),
+                                    ]
+                                ),
+                                dbc.Button(
+                                    [
+                                        dash_html.I(
+                                            className=(
+                                                "fa-solid "
+                                                "fa-filter-circle-xmark "
+                                                "me-2"
+                                            )
+                                        ),
+                                        "Reset filters",
+                                    ],
+                                    id={
+                                        "type":
+                                            "reset-btn",
+                                        "section":
+                                            "set-piece",
+                                    },
+                                    className=
+                                        "match-secondary-button",
+                                    size="sm",
+                                ),
+                            ],
+                            className=
+                                "match-panel-header",
+                        ),
 
-        # --- 5. Layout Finale (con indentazione corretta) ---
-        return dash_html.Div([
-            dash_html.H4(f"Analysis for {team_name}", className="text-white mt-4"),
-            dbc.Button(
-                [dash_html.I(className="fas fa-chart-bar me-2"), "Toggle Restart Summary"],
-                id="set-piece-toggle-button", # L'ID che il callback si aspetta
-                className="mb-3 w-100",
-                color="info",
-                outline=True
+                        restart_view
+                        .active_filter_badges(
+                            active_filter
+                        ),
+
+                        restart_view
+                        .filter_panel(
+                            records,
+                            active_filter,
+                        ),
+                    ],
+                    className=(
+                        "match-panel "
+                        "restart-filter-panel"
+                    ),
+                ),
+
+                dash_html.Section(
+                    [
+                        dash_html.Div(
+                            [
+                                dash_html.Div(
+                                    [
+                                        dash_html.Span(
+                                            "AGGREGATED MAP",
+                                            className=
+                                                "match-panel-eyebrow",
+                                        ),
+                                        dash_html.H3(
+                                            (
+                                                "Restart deliveries"
+                                            ),
+                                            className=
+                                                "match-panel-title",
+                                        ),
+                                        dash_html.P(
+                                            (
+                                                f"{len(filtered_records)} "
+                                                "restarts match the current "
+                                                "filters. Click any delivery "
+                                                "to inspect that restart."
+                                            ),
+                                            className=
+                                                "match-panel-description",
+                                        ),
+                                    ]
+                                ),
+                                dash_html.Div(
+                                    [
+                                        dash_html.Span(
+                                            str(
+                                                len(
+                                                    filtered_records
+                                                )
+                                            ),
+                                            className=
+                                                "restart-map-count-value",
+                                        ),
+                                        dash_html.Span(
+                                            "selected sample",
+                                            className=
+                                                "restart-map-count-label",
+                                        ),
+                                    ],
+                                    className=
+                                        "restart-map-count",
+                                ),
+                            ],
+                            className=
+                                "match-panel-header",
+                        ),
+
+                        dcc.Graph(
+                            id=
+                                "restart-map-graph",
+                            figure=
+                                map_figure,
+                            config={
+                                "displayModeBar":
+                                    False,
+                            },
+                            className=
+                                "restart-map-graph",
+                        ),
+                    ],
+                    className=(
+                        "match-panel "
+                        "restart-map-panel"
+                    ),
+                ),
+
+                dash_html.Div(
+                    id=
+                        "restart-selected-sequence"
+                ),
+            ],
+            className=(
+                "match-tab-body "
+                "restart-analysis-body"
             ),
+        )
 
-            dbc.Collapse(
-                dash_html.Div([
-                    dbc.Row([
-                        dbc.Col(dash_html.Div(), width='auto'), # Placeholder per allineare a destra
-                        dbc.Col(dbc.Button("❌ Reset Filters", id={'type': 'reset-btn', 'section': 'set-piece'}, color="danger", size="sm"), width='auto')
-                    ], justify="end", className="mb-3"),
-                    cards,
-                ]),
-                id="set-piece-collapse", # ID del Collapse
-                is_open=True,
+    except Exception:
+        return dbc.Alert(
+            (
+                "Error in Restart tab: "
+                f"{traceback.format_exc()}"
             ),
+            color="danger",
+            style={
+                "whiteSpace":
+                    "pre-wrap",
+            },
+        )
 
-            # dbc.Row([
-            #     dbc.Col(dbc.Button("❌ Reset Filters", id={'type': 'reset-btn', 'section': 'set-piece'}, color="danger", size="sm"), width='auto')
-            # ], justify="between", align="center", className="mb-3"),
-            # cards,
-            dash_html.Hr(),
-            carousel_section
-        ])
 
-    except Exception as e:
-        return dbc.Alert(f"Error in Restart tab: {traceback.format_exc()}", color="danger", style={"whiteSpace": "pre-wrap"})
-
-@app.callback(
-    Output("set-piece-collapse", "is_open"),
-    Input("set-piece-toggle-button", "n_clicks"),
-    State("set-piece-collapse", "is_open"),
-    prevent_initial_call=True,
-)
-def toggle_set_piece(n, is_open):
-    if n:
-        return not is_open
-    return is_open
 
 
 # # Callback 3: Gestisce i click sui filtri (rimane invariato)
@@ -10474,6 +10732,215 @@ def toggle_set_piece(n, is_open):
 #         current_filter[filter_type] = value
 
 #     return current_filter if current_filter else None
+
+
+@app.callback(
+    Output(
+        "restart-selected-sequence",
+        "children",
+    ),
+    Output(
+        "restart-map-graph",
+        "figure",
+    ),
+    Output(
+        "restart-selected-id",
+        "data",
+    ),
+    Input(
+        "restart-map-graph",
+        "clickData",
+    ),
+    State(
+        "restart-panel-store",
+        "data",
+    ),
+    prevent_initial_call=True,
+)
+def select_restart_from_map(
+    click_data,
+    panel_data,
+):
+    if (
+        not click_data
+        or not panel_data
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    points = (
+        click_data.get(
+            "points"
+        )
+        or []
+    )
+
+    if not points:
+        raise dash.exceptions.PreventUpdate
+
+    customdata = points[
+        0
+    ].get(
+        "customdata"
+    )
+
+    if (
+        not isinstance(
+            customdata,
+            (list, tuple),
+        )
+        or not customdata
+    ):
+        raise dash.exceptions.PreventUpdate
+
+    sequence_id = str(
+        customdata[0]
+    )
+
+    sequences = (
+        panel_data.get(
+            "sequences"
+        )
+        or {}
+    )
+
+    sequence_json = sequences.get(
+        sequence_id
+    )
+
+    if not sequence_json:
+        raise dash.exceptions.PreventUpdate
+
+    seq_df = pd.read_json(
+        io.StringIO(
+            sequence_json
+        ),
+        orient="split",
+    )
+
+    normalized_sequence = (
+        normalize_sequence(
+            seq_df,
+            sequence_type=
+                "set_piece",
+            team_name=
+                panel_data.get(
+                    "team_name"
+                ),
+            opponent_name=
+                panel_data.get(
+                    "opponent_name"
+                ),
+        )
+    )
+
+    figure = (
+        plot_sequence_explorer(
+            normalized_sequence,
+            team_color=
+                panel_data.get(
+                    "team_color",
+                    HCOL,
+                ),
+        )
+    )
+
+    records = (
+        panel_data.get(
+            "records"
+        )
+        or []
+    )
+
+    record = next(
+        (
+            item
+            for item
+            in records
+            if str(
+                item.get(
+                    "sequence_id"
+                )
+            )
+            == sequence_id
+        ),
+        None,
+    )
+
+    selected_panel = (
+        dash_html.Section(
+            [
+                dash_html.Div(
+                    [
+                        dash_html.Div(
+                            [
+                                dash_html.Span(
+                                    "SEQUENCE EXPLORER",
+                                    className=
+                                        "match-panel-eyebrow",
+                                ),
+                                dash_html.H3(
+                                    "Selected restart",
+                                    className=
+                                        "match-panel-title",
+                                ),
+                                dash_html.P(
+                                    (
+                                        "Only the restart selected "
+                                        "on the aggregated map is "
+                                        "shown here."
+                                    ),
+                                    className=
+                                        "match-panel-description",
+                                ),
+                            ]
+                        ),
+                        restart_view
+                        .selected_restart_meta(
+                            record
+                        ),
+                    ],
+                    className=
+                        "match-panel-header",
+                ),
+
+                dcc.Graph(
+                    figure=
+                        figure,
+                    config={
+                        "displayModeBar":
+                            False,
+                    },
+                    className=
+                        "restart-selected-graph",
+                ),
+            ],
+            className=(
+                "match-panel "
+                "match-sequence-panel "
+                "restart-selected-panel"
+            ),
+        )
+    )
+
+    updated_map = (
+        restart_map
+        .plot_restart_map(
+            records,
+            team_color=
+                panel_data.get(
+                    "team_color",
+                    HCOL,
+                ),
+            selected_sequence_id=
+                sequence_id,
+        )
+    )
+
+    return (
+        selected_panel,
+        updated_map,
+        sequence_id,
+    )
 
 @app.callback(
     Output("store-set-piece-filter", "data"),
@@ -10534,68 +11001,8 @@ def update_specific_filters(sp_clicks, cross_clicks, reset_clicks, sp_filter, cr
     return no_update, no_update, no_update
 
 
-@app.callback(
-    Output('set-piece-carousel-controller', 'data'),
-    Input('set-piece-prev-button', 'n_clicks'),
-    Input('set-piece-next-button', 'n_clicks'),
-    State('set-piece-carousel-controller', 'data'),
-    prevent_initial_call=True
-)
-def update_set_piece_carousel_controller(prev_clicks, next_clicks, controller_data):
-    ctx = dash.callback_context
-    if not ctx.triggered or not controller_data:
-        return no_update
-
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    active_index = controller_data['active_index']
-    total_items = controller_data['total_items']
-
-    if button_id == 'set-piece-next-button':
-        new_index = (active_index + 1) % total_items
-    elif button_id == 'set-piece-prev-button':
-        new_index = (active_index - 1 + total_items) % total_items
-    else:
-        new_index = active_index
-
-    controller_data['active_index'] = new_index
-    return controller_data
 
 
-@app.callback(
-    Output('set-piece-carousel-content', 'children'),
-    Output('set-piece-indicator-text', 'children'),
-    Input('set-piece-carousel-controller', 'data'),
-    State('set-piece-sequence-store', 'data'),
-    State('store-df-match', 'data')
-)
-def update_set_piece_carousel_plot(controller_data, sequence_data, match_data):
-    if not controller_data or not sequence_data or not match_data:
-        return "Loading...", "..."
-
-    active_index = controller_data['active_index']
-    total_items = controller_data['total_items']
-
-    seq_df = pd.read_json(io.StringIO(sequence_data['sequences'][active_index]), orient='split')
-    team_color = sequence_data['team_color']
-    is_away = sequence_data['is_away']
-
-    match_info = json.loads(match_data['match_info'])
-    attacking_team = match_info.get('hteamName') if not is_away else match_info.get('ateamName')
-    defending_team = match_info.get('ateamName') if not is_away else match_info.get('hteamName')
-
-    normalized_sequence = normalize_sequence(
-        seq_df,
-        sequence_type="set_piece",
-        team_name=attacking_team,
-        opponent_name=defending_team,
-    )
-    fig = plot_sequence_explorer(
-        normalized_sequence,
-        team_color=team_color,
-    )
-
-    indicator = f"Sequence {active_index + 1} of {total_items}"
-    return dcc.Graph(figure=fig), indicator
 
 
 # ---------------------------------------

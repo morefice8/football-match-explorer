@@ -207,7 +207,7 @@ class CoordinateContractTests(unittest.TestCase):
             is_away_team=True,
         )
 
-        pass_trace = next(trace for trace in fig.data if trace.name == 'Successful')
+        pass_trace = next(trace for trace in fig.data if trace.name == 'Completed')
         self.assertEqual(list(pass_trace.x[:2]), [20.0, 70.0])
         self.assertEqual(list(pass_trace.y[:2]), [30.0, 60.0])
         self.assert_attacking_direction(fig)
