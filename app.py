@@ -61,6 +61,9 @@ from src.metrics import player_pass_map_metrics
 from src.metrics import shot_sequence_metrics
 from src.metrics import shot_sequence_involvement_metrics
 from src.components import shot_sequence_involvement_view
+from src.metrics import threat_reception_metrics
+from src.components import threat_reception_view
+from src.visualization import threat_reception_map
 from src.components import player_pass_map_view
 from src.components import restart_view
 from src.visualization import restart_map
@@ -5610,8 +5613,8 @@ def render_player_analysis_secondary_layout(active_primary_tab):
                 active_tab="pa_shot_sequence_stats",
                 children=[
                     dbc.Tab(label="Shot Sequence Stats", tab_id="pa_shot_sequence_stats"),
-                    dbc.Tab(label="Home Contributor Map", tab_id="pa_home_shot_contributor_map"),
-                    dbc.Tab(label="Away Contributor Map", tab_id="pa_away_shot_contributor_map"),
+                    dbc.Tab(label="Home Reception Profile", tab_id="pa_home_shot_contributor_map"),
+                    dbc.Tab(label="Away Reception Profile", tab_id="pa_away_shot_contributor_map"),
                 ], className="mt-2"
             ),
             dcc.Loading(type="circle", children=dash_html.Div(id="shooting-secondary-tab-content"))
@@ -6135,61 +6138,58 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
 
 # --- 3. Aggiungi i NUOVI callback di aggiornamento ---
 @app.callback(
-    Output('shot-contributor-map-container-home', 'children'),
-    Input('home-shot-contributor-dropdown', 'value'),
-    State('store-df-match', 'data')
+    Output(
+        "shot-contributor-map-container-home",
+        "children",
+    ),
+    Input(
+        "home-shot-contributor-dropdown",
+        "value",
+    ),
+    State(
+        "store-df-match",
+        "data",
+    ),
 )
-def update_home_shot_contributor_map(selected_player, stored_data_json):
-    if not selected_player or not stored_data_json:
-        return no_update
-
-    df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-    all_passes = pass_processing.get_passes_df(df_processed.copy())
-
-    # Filtra i passaggi ricevuti dal giocatore selezionato
-    player_team_name = df_processed[df_processed['playerName'] == selected_player]['team_name'].iloc[0]
-    received_passes = all_passes[
-        (all_passes['receiver'] == selected_player) &
-        (all_passes['team_name'] == player_team_name)
-    ].copy()
-
-    jersey_num = '?'
-    player_info = df_processed[df_processed['playerName'] == selected_player].iloc[0]
-    if pd.notna(player_info['Mapped Jersey Number']):
-        jersey_num = str(int(player_info['Mapped Jersey Number']))
-
-    fig = player_plots.plot_player_received_passes_plotly(
-        received_passes, selected_player, HCOL, jersey_num, is_away_team=False
+def update_home_shot_contributor_map(
+    selected_player,
+    stored_data_json,
+):
+    return _build_threat_reception_panel(
+        selected_player,
+        "home",
+        stored_data_json,
     )
-    return dcc.Graph(figure=fig)
+
+
+
 
 @app.callback(
-    Output('shot-contributor-map-container-away', 'children'),
-    Input('away-shot-contributor-dropdown', 'value'),
-    State('store-df-match', 'data')
+    Output(
+        "shot-contributor-map-container-away",
+        "children",
+    ),
+    Input(
+        "away-shot-contributor-dropdown",
+        "value",
+    ),
+    State(
+        "store-df-match",
+        "data",
+    ),
 )
-def update_away_shot_contributor_map(selected_player, stored_data_json):
-    if not selected_player or not stored_data_json:
-        return no_update
-
-    df_processed = pd.read_json(io.StringIO(stored_data_json['df']), orient='split')
-    all_passes = pass_processing.get_passes_df(df_processed.copy())
-
-    player_team_name = df_processed[df_processed['playerName'] == selected_player]['team_name'].iloc[0]
-    received_passes = all_passes[
-        (all_passes['receiver'] == selected_player) &
-        (all_passes['team_name'] == player_team_name)
-    ].copy()
-
-    jersey_num = '?'
-    player_info = df_processed[df_processed['playerName'] == selected_player].iloc[0]
-    if pd.notna(player_info['Mapped Jersey Number']):
-        jersey_num = str(int(player_info['Mapped Jersey Number']))
-
-    fig = player_plots.plot_player_received_passes_plotly(
-        received_passes, selected_player, ACOL, jersey_num, is_away_team=True
+def update_away_shot_contributor_map(
+    selected_player,
+    stored_data_json,
+):
+    return _build_threat_reception_panel(
+        selected_player,
+        "away",
+        stored_data_json,
     )
-    return dcc.Graph(figure=fig)
+
+
+
 
     # elif active_tab == "pa_home_shot_contributor_map":
     #     print("  Rendering content for 'pa_home_shot_contributor_map'")
@@ -6675,96 +6675,236 @@ def generate_team_top_shot_contributor_map_plot(stored_data_json, player_stats_d
         tb_str = traceback.format_exc()
         return dash_html.P(f"❌ Error generating {team_type} Top Contributor Map: {e}\n{tb_str}", style={"color": "red", "whiteSpace": "pre-wrap"})
 
-def create_shot_contributor_layout(team_type, stored_match_data_json, player_stats_df_json):
-    """
-    Crea il layout (Dropdown + Grafico) per la mappa dei passaggi ricevuti
-    dai giocatori di una squadra.
-    """
-    try:
-        match_info = json.loads(stored_match_data_json['match_info'])
-        df_processed = pd.read_json(io.StringIO(stored_match_data_json['df']), orient='split')
-        player_stats_df = pd.read_json(io.StringIO(player_stats_df_json), orient='split')
+def _shot_contributor_team_meta(
+    team_type,
+    stored_match_data_json,
+):
+    df_processed = pd.read_json(
+        io.StringIO(
+            stored_match_data_json[
+                "df"
+            ]
+        ),
+        orient="split",
+    )
 
-        is_away = (team_type == 'away')
-        team_name = match_info.get('ateamName') if is_away else match_info.get('hteamName')
-        team_color = ACOL if is_away else HCOL
+    match_info = json.loads(
+        stored_match_data_json.get(
+            "match_info",
+            "{}",
+        )
+    )
 
-        team_players = df_processed[df_processed['team_name'] == team_name].dropna(subset=['playerName']).drop_duplicates('playerName')
-        if team_players.empty:
-            return dbc.Alert(f"No players found for {team_name}", color="warning")
+    is_away = (
+        team_type
+        == "away"
+    )
 
-        # player_jersey_map = team_players.set_index('playerName')['Mapped Jersey Number']
-        # sorted_player_names = sorted(player_jersey_map.index.tolist())
+    team_name = (
+        match_info.get(
+            "ateamName"
+        )
+        if is_away
+        else match_info.get(
+            "hteamName"
+        )
+    )
 
-        # dropdown_options = [{'label': f"#{int(player_jersey_map.get(name, '?')) if str(player_jersey_map.get(name, '?')).isdigit() else '?'} - {name}", 'value': name} for name in sorted_player_names]
+    if not team_name:
+        team_name = (
+            "Away"
+            if is_away
+            else "Home"
+        )
 
-        player_jersey_map = team_players.drop_duplicates('playerName').set_index('playerName')['Mapped Jersey Number']
+    team_color = (
+        ACOL
+        if is_away
+        else HCOL
+    )
 
-        sorted_player_names = sorted(player_jersey_map.index.tolist())
+    return (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    )
 
-        dropdown_options = []
-        for name in sorted_player_names:
-            jersey_raw = player_jersey_map.get(name)
-            try:
-                jersey = str(int(jersey_raw))
-            except (ValueError, TypeError):
-                jersey = '?'
-            dropdown_options.append({'label': f"#{jersey} - {name}", 'value': name})
 
-        # Filtra le statistiche solo per i giocatori di questa squadra
-        team_player_stats = player_stats_df[player_stats_df.index.isin(player_jersey_map.index)].copy()
+def _build_threat_reception_panel(
+    selected_player,
+    team_type,
+    stored_match_data_json,
+):
+    if (
+        not selected_player
+        or not stored_match_data_json
+    ):
+        return dbc.Alert(
+            "Select a player to view their reception profile.",
+            color="secondary",
+        )
 
-        top_contributor_name = None
-        if not team_player_stats.empty:
-            # **NUOVA LOGICA: CALCOLO DEL PUNTEGGIO PONDERATO**
-            weights = {'Shots': 3, 'Shot Assists': 2, 'Buildup to Shot': 1}
+    (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    ) = (
+        _shot_contributor_team_meta(
+            team_type,
+            stored_match_data_json,
+        )
+    )
 
-            # Assicurati che le colonne esistano prima di calcolare
-            for col in weights.keys():
-                if col not in team_player_stats.columns:
-                    team_player_stats[col] = 0 # Aggiungi la colonna con zeri se manca
+    receptions = (
+        threat_reception_metrics
+        .received_passes_for_player(
+            df_processed,
+            selected_player,
+            team_name,
+        )
+    )
 
-            team_player_stats['Weighted Score'] = (
-                team_player_stats['Shots'] * weights['Shots'] +
-                team_player_stats['Shot Assists'] * weights['Shot Assists'] +
-                team_player_stats['Buildup to Shot'] * weights['Buildup to Shot']
-            )
+    summary = (
+        threat_reception_metrics
+        .reception_summary(
+            receptions
+        )
+    )
 
-            # Trova il giocatore con il punteggio ponderato più alto
-            top_contributor_name = team_player_stats['Weighted Score'].idxmax()
+    (
+        player_team,
+        jersey,
+    ) = (
+        threat_reception_metrics
+        .player_team_and_jersey(
+            df_processed,
+            selected_player,
+        )
+    )
 
-        # --- LOGICA PER GENERARE IL GRAFICO INIZIALE (invariata) ---
-        initial_graph = dash_html.Div(f"Select a player to see their received passes map. Top contributor is {top_contributor_name or 'N/A'}.")
-        if top_contributor_name:
-            all_passes = pass_processing.get_passes_df(df_processed.copy())
-            received_passes = all_passes[(all_passes['receiver'] == top_contributor_name) & (all_passes['team_name'] == team_name)].copy()
+    figure = (
+        threat_reception_map
+        .plot_reception_profile(
+            receptions,
+            selected_player=
+                selected_player,
+            jersey=
+                jersey,
+            team_color=
+                team_color,
+            summary=
+                summary,
+            is_away=
+                is_away,
+        )
+    )
 
-            jersey_num_raw = player_jersey_map.get(top_contributor_name)
-            try: jersey_num = str(int(jersey_num_raw))
-            except (ValueError, TypeError): jersey_num = '?'
-
-            fig = player_plots.plot_player_received_passes_plotly(received_passes, top_contributor_name, team_color, jersey_num, is_away)
-            initial_graph = dcc.Graph(figure=fig)
-
-        return dash_html.Div([
-            dbc.Row(
-                dbc.Col(dcc.Dropdown(
-                    id=f'{team_type}-shot-contributor-dropdown',
-                    options=dropdown_options,
-                    value=top_contributor_name,
-                    placeholder="Select a player...",
-                    style={'color': 'black'}
-                ), md=6),
-                justify="center", className="my-3"
+    return (
+        threat_reception_view
+        .player_panel(
+            selected_player=
+                selected_player,
+            jersey=
+                jersey,
+            team_name=(
+                player_team
+                or team_name
             ),
-            dcc.Loading(
-                dash_html.Div(id=f'shot-contributor-map-container-{team_type}', children=initial_graph)
-            )
-        ])
+            team_color=
+                team_color,
+            summary=
+                summary,
+            figure=
+                figure,
+        )
+    )
 
-    except Exception as e:
-        tb_str = traceback.format_exc()
-        return dbc.Alert(f"Error creating layout for {team_type} shot contributor map: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+
+def create_shot_contributor_layout(
+    team_type,
+    stored_match_data_json,
+    player_stats_df_json,
+):
+    del player_stats_df_json
+
+    if not stored_match_data_json:
+        return dbc.Alert(
+            "Match data is not available.",
+            color="warning",
+        )
+
+    try:
+        (
+            df_processed,
+            team_name,
+            _team_color,
+            _is_away,
+        ) = _shot_contributor_team_meta(
+            team_type,
+            stored_match_data_json,
+        )
+
+        player_options = (
+            threat_reception_metrics
+            .team_player_options(
+                df_processed,
+                team_name,
+            )
+        )
+
+        if not player_options:
+            return dbc.Alert(
+                f"No shooting contributors found for {team_name}.",
+                color="secondary",
+            )
+
+        dropdown_options = [
+            {
+                "label": (
+                    f"#{item['jersey']} · "
+                    f"{item['player_name']}"
+                ),
+                "value": item["player_name"],
+            }
+            for item in player_options
+        ]
+
+        selected_player = player_options[0]["player_name"]
+
+        initial_panel = _build_threat_reception_panel(
+            selected_player,
+            team_type,
+            stored_match_data_json,
+        )
+
+        return threat_reception_view.selector_layout(
+            team_type=team_type,
+            team_name=team_name,
+            dropdown_options=dropdown_options,
+            selected_player=selected_player,
+            initial_panel=initial_panel,
+        )
+
+    except Exception:
+        logger.warning(
+            "Could not build attacking reception profile.",
+            exc_info=True,
+        )
+
+        return dbc.Alert(
+            "Unable to build the reception profile.",
+            color="danger",
+        )
+
+
+
+
+
+
+
+
 
 # --- COMMENT CALLBACKS FOR SHOT SEQUENCE BAR CHART ---
 @app.callback(Output("store-comment-shot-sequence-bar", "data"), Output("save-status-shot-sequence-bar", "children"),

@@ -6081,3 +6081,132 @@ td.cell--selected {
     white-space: normal;
   }
 }
+
+/* ==========================================================================
+   Shot Sequence Contributor Map
+   ========================================================================== */
+
+.shot-contributor-layout {
+    display: grid;
+    gap: 14px;
+}
+
+.shot-contributor-selector-header {
+    align-items: center;
+    margin-bottom: 0;
+}
+
+.shot-contributor-selector {
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid #dbe7ed;
+    border-radius: 12px;
+    background: #f8fbfc;
+}
+
+.shot-contributor-select-label {
+    color: #5d7688;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.shot-contributor-team-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 5px 10px;
+    border: 1px solid #d2e0e7;
+    border-radius: 999px;
+    background: #f5fafc;
+    color: #557184;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.shot-contributor-panel {
+    overflow: hidden;
+}
+
+.shot-contributor-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-top: 1px solid #dce7ec;
+    border-bottom: 1px solid #dce7ec;
+    background: #f8fbfc;
+}
+
+.shot-contributor-kpi {
+    min-width: 0;
+    padding: 11px 12px;
+    border-right: 1px solid #dce7ec;
+}
+
+.shot-contributor-kpi:last-child {
+    border-right: 0;
+}
+
+.shot-contributor-kpi-label {
+    display: block;
+    color: #5d7688;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+
+.shot-contributor-kpi-value {
+    display: block;
+    margin-top: 2px;
+    color: #082f4f;
+    font-size: 20px;
+    line-height: 1.05;
+    font-weight: 800;
+}
+
+.shot-contributor-kpi-caption {
+    display: block;
+    margin-top: 4px;
+    color: #7a8e9d;
+    font-size: 9px;
+    line-height: 1.25;
+}
+
+.shot-contributor-panel .match-analysis-note {
+    margin: 12px 14px 0;
+}
+
+.shot-contributor-graph {
+    width: 100%;
+}
+
+@media (max-width: 760px) {
+    .shot-contributor-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .shot-contributor-kpi:nth-child(2) {
+        border-right: 0;
+    }
+
+    .shot-contributor-kpi:nth-child(-n+2) {
+        border-bottom: 1px solid #dce7ec;
+    }
+}
+
+@media (max-width: 520px) {
+    .shot-contributor-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .shot-contributor-kpi {
+        border-right: 0;
+        border-bottom: 1px solid #dce7ec;
+    }
+
+    .shot-contributor-kpi:last-child {
+        border-bottom: 0;
+    }
+}
