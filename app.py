@@ -58,6 +58,9 @@ from src.utils.sequence_normalization import normalize_sequence
 from src.visualization.sequence_explorer import plot_sequence_explorer
 from src.metrics import restart_panel_metrics
 from src.metrics import player_pass_map_metrics
+from src.metrics import shot_sequence_metrics
+from src.metrics import shot_sequence_involvement_metrics
+from src.components import shot_sequence_involvement_view
 from src.components import player_pass_map_view
 from src.components import restart_view
 from src.visualization import restart_map
@@ -6071,22 +6074,36 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
 
 
 
-            # **CHIAMATA ALLA NUOVA FUNZIONE PLOTLY**
-            fig = player_plots.plot_shot_sequence_bar_plotly(
-                player_stats_df,
-                df_processed,
-                home_team_name,
-                hcol=HCOL,
-                acol=ACOL,
-                violet_col=VIOLET
+            shot_sequence_stats = (
+                shot_sequence_metrics
+                .calculate_shot_sequence_player_stats(
+                    df_processed
+                )
+            )
+
+            shot_sequence_ranking = (
+                shot_sequence_involvement_metrics
+                .prepare_shot_sequence_ranking(
+                    shot_sequence_stats,
+                    num_players=10,
+                )
+            )
+
+            shot_sequence_ranking_panel = (
+                shot_sequence_involvement_view
+                .table(
+                    shot_sequence_ranking,
+                    df_processed,
+                    home_team_name,
+                    hcol=HCOL,
+                    acol=ACOL,
+                )
             )
 
             # Layout con il grafico interattivo e la sezione commenti
             return dash_html.Div([
                 shot_sequence_coverage_panel,
-                dbc.Row(
-                    dbc.Col(dcc.Graph(figure=fig), width=12)
-                ),
+                shot_sequence_ranking_panel,
                 dbc.Row(
                     dbc.Col([
                         dash_html.Hr(),
@@ -6114,6 +6131,7 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
         return create_shot_contributor_layout('away', stored_match_data_json, player_stats_df_json)
 
     return dash_html.P(f"Content for {active_tab} not found.")
+
 
 # --- 3. Aggiungi i NUOVI callback di aggiornamento ---
 @app.callback(

@@ -6049,3 +6049,35 @@ td.cell--selected {
     border-bottom: 1px solid #dce7ec;
   }
 }
+/* ==========================================================================
+   PLOT-15 — Shot Sequence Involvement
+   ========================================================================== */
+
+.shot-sequence-ranking-panel {
+  overflow: hidden;
+}
+
+.shot-sequence-ranking-badge {
+  padding: 7px 11px;
+  border: 1px solid #cfe1e8;
+  border-radius: 999px;
+  background: #f1f8fa;
+  color: #557184;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.shot-sequence-ranking-panel .match-analysis-note {
+  margin: 10px 12px;
+}
+
+.shot-sequence-player-ranking {
+  margin: 0 12px 12px;
+}
+
+@media (max-width: 900px) {
+  .shot-sequence-ranking-badge {
+    margin-top: 8px;
+    white-space: normal;
+  }
+}
