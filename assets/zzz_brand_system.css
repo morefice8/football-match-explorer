@@ -5709,3 +5709,59 @@ td.cell--selected {
     flex-direction: column;
   }
 }
+
+/* ==========================================================================
+   PLOT-12 — Transition Heatmaps
+   ========================================================================== */
+.transition-heatmap-kpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-bottom: 1px solid #dce7ec;
+    background: #f8fbfc;
+}
+
+.transition-heatmap-kpi {
+    min-width: 0;
+    padding: 10px 12px;
+    border-right: 1px solid #dce7ec;
+}
+
+.transition-heatmap-kpi:last-child {
+    border-right: 0;
+}
+
+.transition-heatmap-kpi-label {
+    display: block;
+    color: #5d7688;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+
+.transition-heatmap-kpi-value {
+    display: block;
+    margin-top: 2px;
+    color: #082f4f;
+    font-size: 18px;
+    line-height: 1.05;
+    font-weight: 800;
+}
+
+.transition-heatmap-kpi-caption {
+    display: block;
+    margin-top: 3px;
+    color: #7a8e9d;
+    font-size: 9px;
+    line-height: 1.25;
+}
+
+@media (max-width: 680px) {
+    .transition-heatmap-kpis {
+        grid-template-columns: 1fr;
+    }
+
+    .transition-heatmap-kpi {
+        border-right: 0;
+        border-bottom: 1px solid #dce7ec;
+    }
+}

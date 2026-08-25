@@ -434,28 +434,61 @@ def _transition_trigger_event(
     }:
         return None
 
-    x = _number(
+    # Defensive-transition sequence rows are stored in the
+    # attacking team's coordinate frame, while loss_x/loss_y
+    # are copied from the team that lost possession.
+    loss_x = _number(
         _first_value(
             first_row,
             "loss_x",
             "x_at_loss",
             "x_of_loss",
             "turnover_x",
-            "x",
             default=None,
         )
     )
-    y = _number(
+    loss_y = _number(
         _first_value(
             first_row,
             "loss_y",
             "y_at_loss",
             "y_of_loss",
             "turnover_y",
-            "y",
             default=None,
         )
     )
+
+    if (
+        sequence_type
+        == "defensive_transition"
+        and loss_x is not None
+        and loss_y is not None
+    ):
+        x = 100.0 - loss_x
+        y = 100.0 - loss_y
+
+    elif (
+        loss_x is not None
+        and loss_y is not None
+    ):
+        x = loss_x
+        y = loss_y
+
+    else:
+        x = _number(
+            _first_value(
+                first_row,
+                "x",
+                default=None,
+            )
+        )
+        y = _number(
+            _first_value(
+                first_row,
+                "y",
+                default=None,
+            )
+        )
 
     trigger = _trigger_label(
         first_row,

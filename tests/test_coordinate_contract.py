@@ -131,25 +131,57 @@ class CoordinateContractTests(unittest.TestCase):
         self.assertEqual(list(recovery_trace.y), [30.0])
         self.assert_attacking_direction(fig)
 
-    def test_defensive_loss_heatmap_keeps_away_loss_location(self):
-        sequence = pd.DataFrame([
-            {
-                'loss_x': 18.0,
-                'loss_y': 42.0,
-                'type_of_initial_loss': 'Bad touch',
-                'loss_zone': 'Defensive third',
-                'sequence_outcome_type': 'Shot conceded',
-            }
-        ])
-        fig = defensive_transitions_plotly.plot_loss_heatmap_on_pitch(
-            [sequence],
-            losing_team_is_away=True,
-        )
+    def test_defensive_loss_heatmap_maps_loss_into_transition_team_frame(self):
+            import pandas as pd
 
-        loss_trace = next(trace for trace in fig.data if trace.name == 'Possession loss')
-        self.assertEqual(list(loss_trace.x), [18.0])
-        self.assertEqual(list(loss_trace.y), [42.0])
-        self.assert_attacking_direction(fig)
+            from src.visualization import (
+                defensive_transitions_plotly,
+            )
+
+            sequence = pd.DataFrame(
+                [
+                    {
+                        "loss_x": 18.0,
+                        "loss_y": 74.0,
+                        "x": 82.0,
+                        "y": 26.0,
+                        "type_of_initial_loss":
+                            "Unsuccessful Pass",
+                        "loss_zone":
+                            "Middle third",
+                        "sequence_outcome_type":
+                            "Retained",
+                    }
+                ]
+            )
+
+            fig = (
+                defensive_transitions_plotly
+                .plot_loss_heatmap_on_pitch(
+                    [sequence],
+                    losing_team_is_away=True,
+                )
+            )
+
+            loss_trace = next(
+                trace
+                for trace in fig.data
+                if trace.name
+                == "Possession loss"
+            )
+
+            # loss_x/loss_y belong to the team that lost possession.
+            # Defensive-transition analysis is displayed in the opponent /
+            # transition-team frame, so the loss point is rotated once:
+            # (18, 74) -> (82, 26).
+            self.assertEqual(
+                list(loss_trace.x),
+                [82.0],
+            )
+            self.assertEqual(
+                list(loss_trace.y),
+                [26.0],
+            )
 
     def test_player_pass_map_does_not_mirror_away_segment(self):
         passes = pd.DataFrame([

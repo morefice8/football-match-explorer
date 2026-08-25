@@ -815,5 +815,152 @@ class SequenceExplorerTests(
             str(marker.text[0]),
         )
 
+    def test_defensive_transition_turnover_rotates_loss_into_transition_frame(self):
+        rows = [
+            _event(
+                1,
+                event_type="Pass",
+                x=80,
+                y=70,
+                end_x=88,
+                end_y=72,
+                second=2,
+            ),
+            _event(
+                2,
+                event_type="Pass",
+                x=88,
+                y=72,
+                end_x=92,
+                end_y=70,
+                second=5,
+            ),
+        ]
+
+        df = pd.DataFrame(rows)
+        df["loss_sequence_id"] = 77
+        df["type_of_initial_loss"] = "Unsuccessful Pass"
+        df["loss_x"] = 20.0
+        df["loss_y"] = 30.0
+        df["timeMin_at_loss"] = 0
+        df["timeSec_at_loss"] = 0
+
+        sequence = normalize_sequence(
+            df,
+            sequence_type="defensive_transition",
+        )
+
+        turnover = next(
+            event
+            for event in sequence["events"]
+            if event["event_type"] == "turnover"
+        )
+
+        self.assertAlmostEqual(turnover["x"], 80.0)
+        self.assertAlmostEqual(turnover["y"], 70.0)
+
+        first_action = next(
+            event
+            for event in sequence["events"]
+            if event["event_type"] == "pass"
+        )
+
+        self.assertAlmostEqual(
+            turnover["x"],
+            first_action["x"],
+        )
+        self.assertAlmostEqual(
+            turnover["y"],
+            first_action["y"],
+        )
+
+    def test_offensive_transition_trigger_is_not_double_rotated(self):
+        rows = [
+            _event(
+                1,
+                event_type="Pass",
+                x=80,
+                y=70,
+                end_x=88,
+                end_y=72,
+                second=2,
+            ),
+        ]
+
+        df = pd.DataFrame(rows)
+        df["loss_sequence_id"] = 78
+        df["type_of_initial_loss"] = "Pass Interception"
+        df["loss_x"] = 80.0
+        df["loss_y"] = 70.0
+        df["timeMin_at_loss"] = 0
+        df["timeSec_at_loss"] = 0
+
+        sequence = normalize_sequence(
+            df,
+            sequence_type="offensive_transition",
+        )
+
+        turnover = next(
+            event
+            for event in sequence["events"]
+            if event["event_type"] == "turnover"
+        )
+
+        self.assertAlmostEqual(turnover["x"], 80.0)
+        self.assertAlmostEqual(turnover["y"], 70.0)
+
+    def test_sequence_summary_exposes_match_time_for_video_review(self):
+        row = _event(
+            1,
+            event_type="Pass",
+            x=40,
+            y=50,
+            end_x=55,
+            end_y=50,
+            second=2707,
+        )
+
+        df = pd.DataFrame(
+            [row]
+        )
+        df[
+            "loss_sequence_id"
+        ] = 99
+        df[
+            "type_of_initial_loss"
+        ] = "Unsuccessful Pass"
+        df[
+            "timeMin_at_loss"
+        ] = 45
+        df[
+            "timeSec_at_loss"
+        ] = 7
+
+        sequence = normalize_sequence(
+            df,
+            sequence_type=
+                "defensive_transition",
+        )
+
+        fig = plot_sequence_explorer(
+            sequence,
+            team_color="#e96a4a",
+        )
+
+        summary = str(
+            fig.layout.annotations[
+                0
+            ].text
+        )
+
+        self.assertIn(
+            "Match time",
+            summary,
+        )
+        self.assertIn(
+            "45'07",
+            summary,
+        )
+
 if __name__ == "__main__":
     unittest.main()

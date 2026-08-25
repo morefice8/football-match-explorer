@@ -56,6 +56,8 @@ from src.components import pass_location_view
 from src.components import cross_flow_view
 from src.utils.sequence_normalization import normalize_sequence
 from src.visualization.sequence_explorer import plot_sequence_explorer
+from src.metrics import transition_heatmap_metrics
+from src.components import transition_heatmap_view
 from src.metrics import (
     pass_metrics,
     player_metrics,
@@ -8596,6 +8598,10 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
                         dash_html.Div([
 
+                            dcc.Store(id="def-transition-heatmap-cell", data=None),
+                            dash_html.Div(id="loss-heatmap-kpis"),
+
+
                             dcc.Loading(
                                 type="circle",
                                 children=dcc.Graph(
@@ -8962,9 +8968,10 @@ def render_defensive_shape_content(
     Output("def-transition-indicator-text", "children"),
     Input("def-transition-carousel-controller", "data"),
     Input("store-def-transition-filter", "data"),
+    Input("def-transition-heatmap-cell", "data"),
     State("def-transition-sequence-store", "data")
 )
-def update_def_transition_plot(controller_data, active_filter, stored_data):
+def update_def_transition_plot(controller_data, active_filter, heatmap_cell, stored_data):
     if not controller_data or not stored_data:
         return no_update, no_update
 
@@ -9006,6 +9013,17 @@ def update_def_transition_plot(controller_data, active_filter, stored_data):
                         )
                     ),
                 },
+            )
+        )
+
+        filtered_sequences = (
+            transition_heatmap_metrics
+            .filter_sequences_by_cell(
+                filtered_sequences,
+                heatmap_cell,
+                location_kind="loss",
+                is_away=is_away,
+                loss_to_transition_frame=True,
             )
         )
 
@@ -9053,6 +9071,7 @@ def update_def_transition_plot(controller_data, active_filter, stored_data):
         tb = traceback.format_exc()
         alert = dbc.Alert(f"Error rendering defensive transition plot: {e}\n{tb}", color="danger", style={"whiteSpace": "pre-wrap"})
         return alert, no_update
+
 
 @app.callback(
     Output("store-def-transition-filter", "data"),
@@ -9712,6 +9731,10 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
                     ], className="match-panel-header"),
 
                     dash_html.Div([
+
+                            dcc.Store(id="off-transition-heatmap-cell", data=None),
+                            dash_html.Div(id="recovery-heatmap-kpis"),
+
                         dcc.Loading(
                             type="circle",
                             children=dcc.Graph(
@@ -9822,10 +9845,11 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
     Output('off-transition-carousel-content', 'children'),
     Output('off-transition-indicator-text', 'children'),
     Input('off-transition-carousel-controller', 'data'),
+    Input("off-transition-heatmap-cell", "data"),
     State('off-transition-sequence-store', 'data'),
     State("store-df-match", "data") # Aggiungiamo lo store dei dati della partita
 )
-def update_off_transition_plot(controller_data, stored_data, stored_match_data): # Aggiunto stored_match_data
+def update_off_transition_plot(controller_data, heatmap_cell, stored_data, stored_match_data): # Aggiunto stored_match_data
     if not controller_data or not stored_data or not stored_match_data:
         return no_update, no_update
 
@@ -9837,6 +9861,28 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
             )
         )
 
+        if heatmap_cell:
+            selected_frames = [
+                pd.read_json(
+                    io.StringIO(sequence_json),
+                    orient="split",
+                )
+                for sequence_json in sequences_json
+            ]
+            selected_frames = (
+                transition_heatmap_metrics
+                .filter_sequences_by_cell(
+                    selected_frames,
+                    heatmap_cell,
+                    location_kind="recovery",
+                    is_away=stored_data.get("is_away", False),
+                )
+            )
+            sequences_json = [
+                sequence.to_json(orient="split")
+                for sequence in selected_frames
+            ]
+
         total_items = int(
             controller_data.get(
                 "total_items",
@@ -9844,6 +9890,9 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
             )
             or 0
         )
+
+        if heatmap_cell:
+            total_items = len(sequences_json)
 
         if (
             total_items <= 0
@@ -9927,6 +9976,7 @@ def update_off_transition_plot(controller_data, stored_data, stored_match_data):
         tb_str = traceback.format_exc()
         logger.warning(f"{error_message}\n{tb_str}")
         return dbc.Alert(error_message, color="danger"), "Error"
+
 
 # Callback per i pulsanti del carosello
 @app.callback(Output('off-transition-carousel-controller', 'data', allow_duplicate=True), Input('off-transition-next-button', 'n_clicks'), State('off-transition-carousel-controller', 'data'), prevent_initial_call=True)
@@ -11917,5 +11967,212 @@ def download_csv(n_clicks, stored_data_json):
 # -----------------------------------------------------------------------------
 # Esecuzione dell'App
 # -----------------------------------------------------------------------------
+# ==========================================================================
+# PLOT-12 — Transition heatmap KPIs and cell-driven Sequence Explorer
+# ==========================================================================
+
+@app.callback(
+    Output("loss-heatmap-kpis", "children"),
+    Input("store-def-transition-filter", "data"),
+    State("def-transition-sequence-store", "data"),
+)
+def update_loss_heatmap_kpis(active_filter, stored_data):
+    if not stored_data:
+        return transition_heatmap_view.kpi_strip({})
+
+    all_sequences = [
+        pd.read_json(io.StringIO(sequence_json), orient="split")
+        for sequence_json in stored_data.get("sequences", [])
+    ]
+
+    filtered_sequences = filter_sequences_exact(
+        all_sequences,
+        active_filter,
+        {
+            "outcomes": (
+                lambda sequence:
+                sequence.iloc[-1].get("sequence_outcome_type")
+            ),
+            "flanks": (
+                lambda sequence:
+                transition_metrics.calculate_flank(sequence["y"])
+            ),
+            "types": (
+                lambda sequence:
+                sequence.iloc[0].get("type_of_initial_loss")
+            ),
+        },
+    )
+
+    metrics = transition_heatmap_metrics.transition_kpis(
+        filtered_sequences,
+        transition_team_is_away=stored_data.get("is_away", False),
+    )
+    return transition_heatmap_view.kpi_strip(metrics)
+
+
+@app.callback(
+    Output("recovery-heatmap-kpis", "children"),
+    Input("store-off-transition-filter", "data"),
+    State("off-transition-sequence-store", "data"),
+)
+def update_recovery_heatmap_kpis(active_filter, stored_data):
+    if not stored_data:
+        return transition_heatmap_view.kpi_strip({})
+
+    all_sequences = [
+        pd.read_json(io.StringIO(sequence_json), orient="split")
+        for sequence_json in stored_data.get("sequences", [])
+    ]
+
+    filtered_sequences = filter_sequences_exact(
+        all_sequences,
+        active_filter,
+        {
+            "outcomes": (
+                lambda sequence:
+                sequence.iloc[-1].get("sequence_outcome_type")
+            ),
+            "flanks": (
+                lambda sequence:
+                transition_metrics.calculate_flank(sequence["y"])
+            ),
+            "types": (
+                lambda sequence:
+                sequence.iloc[0].get("type_of_initial_loss")
+            ),
+        },
+    )
+
+    metrics = transition_heatmap_metrics.transition_kpis(
+        filtered_sequences,
+        transition_team_is_away=stored_data.get("is_away", False),
+    )
+    return transition_heatmap_view.kpi_strip(metrics)
+
+
+@app.callback(
+    Output("def-transition-heatmap-cell", "data"),
+    Output(
+        "def-transition-carousel-controller",
+        "data",
+        allow_duplicate=True,
+    ),
+    Input("loss-heatmap-graph", "clickData"),
+    Input("store-def-transition-filter", "data"),
+    State("def-transition-sequence-store", "data"),
+    prevent_initial_call=True,
+)
+def select_def_transition_heatmap_cell(
+    click_data,
+    active_filter,
+    stored_data,
+):
+    if not stored_data:
+        return None, no_update
+
+    all_sequences = [
+        pd.read_json(io.StringIO(sequence_json), orient="split")
+        for sequence_json in stored_data.get("sequences", [])
+    ]
+
+    filtered_sequences = filter_sequences_exact(
+        all_sequences,
+        active_filter,
+        {
+            "outcomes": (
+                lambda sequence:
+                sequence.iloc[-1].get("sequence_outcome_type")
+            ),
+            "flanks": (
+                lambda sequence:
+                transition_metrics.calculate_flank(sequence["y"])
+            ),
+            "types": (
+                lambda sequence:
+                sequence.iloc[0].get("type_of_initial_loss")
+            ),
+        },
+    )
+
+    if ctx.triggered_id == "store-def-transition-filter":
+        return None, make_carousel_controller(len(filtered_sequences))
+
+    cell = transition_heatmap_metrics.cell_from_click(click_data)
+    if not cell:
+        return None, make_carousel_controller(len(filtered_sequences))
+
+    selected = transition_heatmap_metrics.filter_sequences_by_cell(
+        filtered_sequences,
+        cell,
+        location_kind="loss",
+        is_away=stored_data.get("is_away", False),
+        loss_to_transition_frame=True,
+    )
+
+    return cell, make_carousel_controller(len(selected))
+
+
+@app.callback(
+    Output("off-transition-heatmap-cell", "data"),
+    Output(
+        "off-transition-carousel-controller",
+        "data",
+        allow_duplicate=True,
+    ),
+    Input("recovery-heatmap-graph", "clickData"),
+    Input("store-off-transition-filter", "data"),
+    State("off-transition-sequence-store", "data"),
+    prevent_initial_call=True,
+)
+def select_off_transition_heatmap_cell(
+    click_data,
+    active_filter,
+    stored_data,
+):
+    if not stored_data:
+        return None, no_update
+
+    all_sequences = [
+        pd.read_json(io.StringIO(sequence_json), orient="split")
+        for sequence_json in stored_data.get("sequences", [])
+    ]
+
+    filtered_sequences = filter_sequences_exact(
+        all_sequences,
+        active_filter,
+        {
+            "outcomes": (
+                lambda sequence:
+                sequence.iloc[-1].get("sequence_outcome_type")
+            ),
+            "flanks": (
+                lambda sequence:
+                transition_metrics.calculate_flank(sequence["y"])
+            ),
+            "types": (
+                lambda sequence:
+                sequence.iloc[0].get("type_of_initial_loss")
+            ),
+        },
+    )
+
+    if ctx.triggered_id == "store-off-transition-filter":
+        return None, make_carousel_controller(len(filtered_sequences))
+
+    cell = transition_heatmap_metrics.cell_from_click(click_data)
+    if not cell:
+        return None, make_carousel_controller(len(filtered_sequences))
+
+    selected = transition_heatmap_metrics.filter_sequences_by_cell(
+        filtered_sequences,
+        cell,
+        location_kind="recovery",
+        is_away=stored_data.get("is_away", False),
+    )
+
+    return cell, make_carousel_controller(len(selected))
+
+
 if __name__ == "__main__":
     app.run(debug=True)
