@@ -1247,6 +1247,7 @@ def get_mean_positions_profile(
         "touches": 0,
         "team_length_m": None,
         "team_width_m": None,
+        "team_compactness_m": None,
         "centroid_x": None,
         "centroid_y": None,
         "average_height_m": None,
@@ -1576,6 +1577,22 @@ def get_mean_positions_profile(
         structural["median_y"].mean()
     )
 
+    # Typical outfield distance from the team centre. Convert Opta's
+    # 0-100 coordinate axes to metres before calculating Euclidean
+    # distance so length and width are represented on the same scale.
+    dx_from_centroid_m = (
+        structural["median_x"] - centroid_x
+    ) * 1.05
+    dy_from_centroid_m = (
+        structural["median_y"] - centroid_y
+    ) * 0.68
+    team_compactness_m = float(
+        np.sqrt(
+            dx_from_centroid_m.pow(2)
+            + dy_from_centroid_m.pow(2)
+        ).median()
+    )
+
     summary = {
         "period": selected_period,
         "min_minutes": float(
@@ -1602,6 +1619,7 @@ def get_mean_positions_profile(
             )
             * 0.68
         ),
+        "team_compactness_m": team_compactness_m,
         "centroid_x": centroid_x,
         "centroid_y": centroid_y,
         "average_height_m": float(

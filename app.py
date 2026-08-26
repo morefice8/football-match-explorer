@@ -4054,25 +4054,6 @@ def mean_positions_team_panel(
             f"{suffix}"
         )
 
-    centroid_x = summary.get(
-        "centroid_x"
-    )
-    centroid_y = summary.get(
-        "centroid_y"
-    )
-
-    centroid_label = (
-        (
-            f"{float(centroid_x):.1f}, "
-            f"{float(centroid_y):.1f}"
-        )
-        if (
-            centroid_x is not None
-            and centroid_y is not None
-        )
-        else "—"
-    )
-
     return dash_html.Section([
         dash_html.Div([
             dash_html.Div([
@@ -4134,9 +4115,12 @@ def mean_positions_team_panel(
                 detail="Outfield median span",
             ),
             mean_positions_metric(
-                "Centroid",
-                centroid_label,
-                detail="Opta x, y",
+                "Team compactness",
+                metric_value(
+                    "team_compactness_m",
+                    " m",
+                ),
+                detail="Typical distance from team centre",
             ),
             mean_positions_metric(
                 "Average height",

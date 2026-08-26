@@ -2330,9 +2330,9 @@ def plot_mean_positions_profile_plotly(
                     ),
                 ),
                 hovertemplate=(
-                    "<b>Outfield centroid</b>"
-                    f"<br>x: {float(centroid_x):.1f}"
-                    f"<br>y: {float(centroid_y):.1f}"
+                    "<b>Team centre</b>"
+                    "<br>Reference point for the outfield "
+                    "territorial profile"
                     "<extra></extra>"
                 ),
                 showlegend=False,

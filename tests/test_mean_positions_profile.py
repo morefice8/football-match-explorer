@@ -249,6 +249,10 @@ class MeanPositionsProfileTests(unittest.TestCase):
             summary["team_width_m"],
             0,
         )
+        self.assertGreater(
+            summary["team_compactness_m"],
+            0,
+        )
 
     def test_minimum_minutes_and_slot_representative_exclude_late_substitute(self):
         profile, _ = (
@@ -347,6 +351,69 @@ class MeanPositionsProfileTests(unittest.TestCase):
         self.assertAlmostEqual(
             summary["centroid_x"],
             outfield["median_x"].mean(),
+        )
+
+    def test_team_compactness_is_median_outfield_distance_from_team_centre(self):
+        profile, summary = (
+            player_metrics.get_mean_positions_profile(
+                self.sample_df(),
+                "Home",
+                period="full",
+                min_minutes=15,
+            )
+        )
+
+        outfield = profile[
+            ~profile["positional_role"].eq(
+                "GK"
+            )
+        ]
+
+        distances_m = []
+        for _, row in outfield.iterrows():
+            dx_m = (
+                float(row["median_x"])
+                - summary["centroid_x"]
+            ) * 1.05
+            dy_m = (
+                float(row["median_y"])
+                - summary["centroid_y"]
+            ) * 0.68
+            distances_m.append(
+                (dx_m ** 2 + dy_m ** 2) ** 0.5
+            )
+
+        expected = float(
+            pd.Series(distances_m).median()
+        )
+
+        self.assertAlmostEqual(
+            summary["team_compactness_m"],
+            expected,
+        )
+
+    def test_mean_positions_ui_uses_reader_friendly_compactness_kpi(self):
+        source = Path(
+            "app.py"
+        ).read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            '"Team compactness"',
+            source,
+        )
+        self.assertIn(
+            '"team_compactness_m"',
+            source,
+        )
+        self.assertIn(
+            'detail="Typical distance from team centre"',
+            source,
+        )
+        self.assertNotIn(
+            '"Centroid",\n                centroid_label',
+            source,
         )
 
     def test_plot_encodes_dispersion_and_touch_share(self):
