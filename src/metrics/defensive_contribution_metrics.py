@@ -168,41 +168,19 @@ def _event_type_id_series(frame):
     )
 
 
-def player_defensive_profile(
-    player_events,
-):
-    if (
-        player_events is None
-        or player_events.empty
-        or "type_name"
-        not in player_events.columns
-    ):
-        return {
-            "unique": 0,
-            "tackles_won": 0,
-            "tackles_attempted": 0,
-            "interceptions": 0,
-            "recoveries": 0,
-            "clearances": 0,
-            "blocks": 0,
-            "fouls": 0,
-        }
+def _defensive_masks(frame):
+    """Return the canonical PLOT-17 defensive event masks.
 
-    frame = player_events.copy()
-
+    This is deliberately shared by the ranking and the player map so both
+    views count exactly the same Opta events.
+    """
     event_type = _event_type_series(
         frame
     )
-
     type_id = _event_type_id_series(
         frame
     )
-
     success = _successful_mask(
-        frame
-    )
-
-    event_key = _event_key_series(
         frame
     )
 
@@ -211,11 +189,6 @@ def player_defensive_profile(
             TACKLE_TYPES
         )
         | type_id.eq(7)
-    )
-
-    successful_tackle_mask = (
-        tackle_mask
-        & success
     )
 
     interception_mask = (
@@ -242,7 +215,6 @@ def player_defensive_profile(
     # Opta block semantics:
     # - event 74 = blocked pass
     # - event 10 + qualifier 94 ("Def block") = defender blocks a shot
-    # The qualifier is flattened by preprocess into a "Def block" flag.
     block_mask = (
         event_type.isin(
             BLOCK_TYPES
@@ -266,10 +238,14 @@ def player_defensive_profile(
         )
         | type_id.eq(4)
     )
-
     foul_mask = (
         foul_event_mask
         & ~success
+    )
+
+    successful_tackle_mask = (
+        tackle_mask
+        & success
     )
 
     unique_mask = (
@@ -281,33 +257,306 @@ def player_defensive_profile(
     )
 
     return {
+        "success": success,
+        "tackle": tackle_mask,
+        "successful_tackle": successful_tackle_mask,
+        "interception": interception_mask,
+        "recovery": recovery_mask,
+        "clearance": clearance_mask,
+        "block": block_mask,
+        "foul": foul_mask,
+        "unique": unique_mask,
+    }
+
+
+def classify_defensive_events(
+    player_events,
+):
+    """Classify each relevant event into one non-overlapping map category."""
+    if (
+        player_events is None
+        or player_events.empty
+        or "type_name"
+        not in player_events.columns
+    ):
+        return pd.DataFrame()
+
+    frame = player_events.copy()
+    masks = _defensive_masks(
+        frame
+    )
+
+    frame["defensive_category"] = pd.NA
+    frame["defensive_detail"] = pd.NA
+    frame["defensive_positive"] = False
+    frame["tackle_won"] = False
+
+    assignments = (
+        (
+            "Tackle",
+            masks["tackle"],
+        ),
+        (
+            "Interception",
+            masks["interception"],
+        ),
+        (
+            "Recovery",
+            masks["recovery"],
+        ),
+        (
+            "Clearance",
+            masks["clearance"],
+        ),
+        (
+            "Block",
+            masks["block"],
+        ),
+        (
+            "Foul",
+            masks["foul"],
+        ),
+    )
+
+    # The masks are semantically disjoint for Opta data. The ``isna`` guard
+    # also guarantees exactly one visual category if a malformed row happens
+    # to satisfy more than one fallback rule.
+    for category, mask in assignments:
+        available = (
+            mask
+            & frame["defensive_category"].isna()
+        )
+        frame.loc[
+            available,
+            "defensive_category",
+        ] = category
+
+    frame.loc[
+        masks["unique"],
+        "defensive_positive",
+    ] = True
+    frame.loc[
+        masks["successful_tackle"],
+        "tackle_won",
+    ] = True
+
+    type_id = _event_type_id_series(
+        frame
+    )
+    event_type = _event_type_series(
+        frame
+    )
+
+    blocked_pass = (
+        type_id.eq(74)
+        | event_type.eq("blocked pass")
+    )
+    shot_block = (
+        type_id.eq(10)
+        & _truthy_series(
+            frame,
+            "Def block",
+        )
+    )
+
+    frame.loc[
+        frame["defensive_category"].eq("Tackle")
+        & frame["tackle_won"],
+        "defensive_detail",
+    ] = "Tackle won"
+    frame.loc[
+        frame["defensive_category"].eq("Tackle")
+        & ~frame["tackle_won"],
+        "defensive_detail",
+    ] = "Tackle unsuccessful"
+    frame.loc[
+        frame["defensive_category"].eq("Interception"),
+        "defensive_detail",
+    ] = "Interception"
+    frame.loc[
+        frame["defensive_category"].eq("Recovery"),
+        "defensive_detail",
+    ] = "Ball recovery"
+    frame.loc[
+        frame["defensive_category"].eq("Clearance"),
+        "defensive_detail",
+    ] = "Clearance"
+    frame.loc[
+        frame["defensive_category"].eq("Block"),
+        "defensive_detail",
+    ] = "Block"
+    frame.loc[
+        blocked_pass
+        & frame["defensive_category"].eq("Block"),
+        "defensive_detail",
+    ] = "Blocked pass"
+    frame.loc[
+        shot_block
+        & frame["defensive_category"].eq("Block"),
+        "defensive_detail",
+    ] = "Shot block"
+    frame.loc[
+        frame["defensive_category"].eq("Foul"),
+        "defensive_detail",
+    ] = "Foul committed"
+
+    return (
+        frame[
+            frame["defensive_category"]
+            .notna()
+        ]
+        .copy()
+    )
+
+
+def player_defensive_profile(
+    player_events,
+):
+    if (
+        player_events is None
+        or player_events.empty
+        or "type_name"
+        not in player_events.columns
+    ):
+        return {
+            "unique": 0,
+            "tackles_won": 0,
+            "tackles_attempted": 0,
+            "interceptions": 0,
+            "recoveries": 0,
+            "clearances": 0,
+            "blocks": 0,
+            "fouls": 0,
+        }
+
+    frame = player_events.copy()
+
+    event_key = _event_key_series(
+        frame
+    )
+    masks = _defensive_masks(
+        frame
+    )
+
+    return {
         "unique": int(
             event_key.loc[
-                unique_mask
+                masks["unique"]
             ].nunique()
         ),
         "tackles_won": int(
-            successful_tackle_mask.sum()
+            masks["successful_tackle"].sum()
         ),
         "tackles_attempted": int(
-            tackle_mask.sum()
+            masks["tackle"].sum()
         ),
         "interceptions": int(
-            interception_mask.sum()
+            masks["interception"].sum()
         ),
         "recoveries": int(
-            recovery_mask.sum()
+            masks["recovery"].sum()
         ),
         "clearances": int(
-            clearance_mask.sum()
+            masks["clearance"].sum()
         ),
         "blocks": int(
-            block_mask.sum()
+            masks["block"].sum()
         ),
         "fouls": int(
-            foul_mask.sum()
+            masks["foul"].sum()
         ),
     }
+
+
+def team_defensive_player_options(
+    df_processed,
+    team_name,
+):
+    """Return map selector options ranked by the canonical defensive profile."""
+    if (
+        df_processed is None
+        or df_processed.empty
+        or "team_name"
+        not in df_processed.columns
+        or "playerName"
+        not in df_processed.columns
+    ):
+        return []
+
+    team_events = df_processed.loc[
+        df_processed["team_name"].eq(
+            team_name
+        )
+    ].copy()
+
+    if team_events.empty:
+        return []
+
+    ranking = build_defensive_ranking(
+        team_events,
+        num_players=max(
+            int(
+                team_events[
+                    "playerName"
+                ]
+                .nunique(
+                    dropna=True
+                )
+            ),
+            1,
+        ),
+    )
+
+    if ranking.empty:
+        return []
+
+    return [
+        {
+            "player_name": row["playerName"],
+            "jersey": row["jersey"],
+            "unique": int(row["unique"]),
+            "fouls": int(row["fouls"]),
+        }
+        for row in ranking.to_dict(
+            orient="records"
+        )
+    ]
+
+
+def player_team_and_jersey(
+    df_processed,
+    player_name,
+):
+    if (
+        df_processed is None
+        or df_processed.empty
+        or "playerName"
+        not in df_processed.columns
+    ):
+        return "", "?"
+
+    rows = df_processed.loc[
+        df_processed["playerName"].eq(
+            player_name
+        )
+    ]
+
+    if rows.empty:
+        return "", "?"
+
+    row = rows.iloc[-1]
+    return (
+        _clean_text(
+            row.get(
+                "team_name"
+            )
+        ),
+        _jersey_label(
+            row.get(
+                "Mapped Jersey Number"
+            )
+        ),
+    )
 
 
 def build_defensive_ranking(

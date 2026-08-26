@@ -64,8 +64,10 @@ from src.components import shot_sequence_involvement_view
 from src.metrics import threat_reception_metrics
 from src.metrics import defensive_contribution_metrics
 from src.components import defensive_contribution_view
+from src.components import defender_action_map_view
 from src.components import threat_reception_view
 from src.visualization import threat_reception_map
+from src.visualization import defender_action_map
 from src.components import player_pass_map_view
 from src.components import restart_view
 from src.visualization import restart_map
@@ -6239,14 +6241,13 @@ def update_away_shot_contributor_map(
     State("store-df-match", "data"),
 )
 def render_defending_analysis_content(active_tab, player_stats_df_json, stored_match_data_json):
-    if not player_stats_df_json:
-        return dash_html.P("Player stats are loading...")
+    del player_stats_df_json
 
-    # Reuse common styles and logic
-    common_textarea_style = {'width': '100%', 'height': 100, 'backgroundColor': '#495057', 'color': 'white', 'borderColor': '#6c757d'}
-    common_flex_column_style = {"display": "flex", "flexDirection": "column", "height": "calc(100vh - 280px)"}
-    common_plot_area_style = {"flex": "1 1 75%", "minHeight": "350px", "overflow": "hidden"}
-    common_comment_area_style = {"flex": "0 0 20%", "paddingTop": "15px", "overflowY": "auto"}
+    if not stored_match_data_json:
+        return dbc.Alert(
+            "Match data is not available.",
+            color="warning",
+        )
 
     if active_tab == "pa_defender_stats":
         if not stored_match_data_json:
@@ -6291,40 +6292,228 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
             )
 
     elif active_tab == "pa_home_defender_map":
-        # Genera il layout iniziale con il dropdown
-        layout_content, dropdown_options, top_defender = player_plots.generate_defender_layout_and_data(
-            stored_match_data_json, player_stats_df_json, is_for_home_team=True
+        return create_defender_action_layout(
+            "home",
+            stored_match_data_json,
         )
-        if not dropdown_options: return layout_content # Mostra solo il messaggio di errore
-
-        return dash_html.Div([
-            dbc.Row(dbc.Col(dcc.Dropdown(
-                id='home-defender-dropdown',
-                options=dropdown_options,
-                value=top_defender,
-                style={'color': 'black'}
-            ), md=6), justify="center", className="mb-3"),
-            dash_html.Div(id='home-defender-output', children=layout_content)
-        ])
 
     elif active_tab == "pa_away_defender_map":
-        # Genera il layout iniziale per il team away
-        layout_content, dropdown_options, top_defender = player_plots.generate_defender_layout_and_data(
-            stored_match_data_json, player_stats_df_json, is_for_home_team=False
+        return create_defender_action_layout(
+            "away",
+            stored_match_data_json,
         )
-        if not dropdown_options: return layout_content
-
-        return dash_html.Div([
-            dbc.Row(dbc.Col(dcc.Dropdown(
-                id='away-defender-dropdown',
-                options=dropdown_options,
-                value=top_defender,
-                style={'color': 'black'}
-            ), md=6), justify="center", className="mb-3"),
-            dash_html.Div(id='away-defender-output', children=layout_content)
-        ])
 
     return dash_html.P(f"Content for {active_tab} not found.")
+
+
+def _defender_team_meta(
+    team_type,
+    stored_match_data_json,
+):
+    df_processed = pd.read_json(
+        io.StringIO(
+            stored_match_data_json[
+                "df"
+            ]
+        ),
+        orient="split",
+    )
+
+    match_info = json.loads(
+        stored_match_data_json.get(
+            "match_info",
+            "{}",
+        )
+    )
+
+    is_away = team_type == "away"
+    team_name = (
+        match_info.get("ateamName")
+        if is_away
+        else match_info.get("hteamName")
+    )
+
+    if not team_name:
+        team_name = (
+            "Away"
+            if is_away
+            else "Home"
+        )
+
+    team_color = (
+        ACOL
+        if is_away
+        else HCOL
+    )
+
+    return (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    )
+
+
+def _build_defender_action_panel(
+    selected_player,
+    team_type,
+    stored_match_data_json,
+):
+    if (
+        not selected_player
+        or not stored_match_data_json
+    ):
+        return dbc.Alert(
+            "Select a player to view their defensive action map.",
+            color="secondary",
+        )
+
+    (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    ) = _defender_team_meta(
+        team_type,
+        stored_match_data_json,
+    )
+
+    player_events = df_processed.loc[
+        df_processed["playerName"].eq(
+            selected_player
+        )
+    ].copy()
+
+    defensive_events = (
+        defensive_contribution_metrics
+        .classify_defensive_events(
+            player_events
+        )
+    )
+    profile = (
+        defensive_contribution_metrics
+        .player_defensive_profile(
+            player_events
+        )
+    )
+    (
+        player_team,
+        jersey,
+    ) = (
+        defensive_contribution_metrics
+        .player_team_and_jersey(
+            df_processed,
+            selected_player,
+        )
+    )
+
+    figure = (
+        defender_action_map
+        .plot_defensive_action_profile(
+            defensive_events,
+            selected_player=selected_player,
+            jersey=jersey,
+            team_color=team_color,
+            is_away=is_away,
+        )
+    )
+
+    return (
+        defender_action_map_view
+        .player_panel(
+            selected_player=selected_player,
+            jersey=jersey,
+            team_name=(
+                player_team
+                or team_name
+            ),
+            team_color=team_color,
+            profile=profile,
+            figure=figure,
+        )
+    )
+
+
+def create_defender_action_layout(
+    team_type,
+    stored_match_data_json,
+):
+    if not stored_match_data_json:
+        return dbc.Alert(
+            "Match data is not available.",
+            color="warning",
+        )
+
+    try:
+        (
+            df_processed,
+            team_name,
+            _team_color,
+            _is_away,
+        ) = _defender_team_meta(
+            team_type,
+            stored_match_data_json,
+        )
+
+        player_options = (
+            defensive_contribution_metrics
+            .team_defensive_player_options(
+                df_processed,
+                team_name,
+            )
+        )
+
+        if not player_options:
+            return dbc.Alert(
+                f"No defensive actions found for {team_name}.",
+                color="secondary",
+            )
+
+        dropdown_options = [
+            {
+                "label": (
+                    f"#{item['jersey']} · "
+                    f"{item['player_name']}"
+                ),
+                "value": item["player_name"],
+            }
+            for item in player_options
+        ]
+
+        selected_player = (
+            player_options[0][
+                "player_name"
+            ]
+        )
+
+        initial_panel = (
+            _build_defender_action_panel(
+                selected_player,
+                team_type,
+                stored_match_data_json,
+            )
+        )
+
+        return (
+            defender_action_map_view
+            .selector_layout(
+                team_type=team_type,
+                team_name=team_name,
+                dropdown_options=dropdown_options,
+                selected_player=selected_player,
+                initial_panel=initial_panel,
+            )
+        )
+
+    except Exception:
+        logger.warning(
+            "Could not build defensive action map.",
+            exc_info=True,
+        )
+        return dbc.Alert(
+            "Unable to build the defensive action map.",
+            color="danger",
+        )
 
 
 
@@ -7195,37 +7384,40 @@ def load_comment_defender_stats_bar(data, pn):
     return data.get(key, "")
 
 @app.callback(
-    Output('home-defender-output', 'children'),
+    Output('defender-map-container-home', 'children'),
     Input('home-defender-dropdown', 'value'),
     State('store-df-match', 'data'),
-    State('store-player-stats-df', 'data'),
-    prevent_initial_call=True
 )
-def update_home_defender_view(selected_player, stored_match_data_json, player_stats_df_json):
+def update_home_defender_view(selected_player, stored_match_data_json):
     if not selected_player:
-        return dash_html.P("Select a player from the dropdown to view their map.")
+        return dbc.Alert(
+            "Select a player to view their defensive action map.",
+            color="secondary",
+        )
 
-    # Chiama la stessa funzione helper, ma passando il giocatore selezionato
-    layout_content, _, _ = player_plots.generate_defender_layout_and_data(
-        stored_match_data_json, player_stats_df_json, is_for_home_team=True, selected_player=selected_player
+    return _build_defender_action_panel(
+        selected_player,
+        "home",
+        stored_match_data_json,
     )
-    return layout_content
 
 @app.callback(
-    Output('away-defender-output', 'children'),
+    Output('defender-map-container-away', 'children'),
     Input('away-defender-dropdown', 'value'),
     State('store-df-match', 'data'),
-    State('store-player-stats-df', 'data'),
-    prevent_initial_call=True
 )
-def update_away_defender_view(selected_player, stored_match_data_json, player_stats_df_json):
+def update_away_defender_view(selected_player, stored_match_data_json):
     if not selected_player:
-        return dash_html.P("Select a player from the dropdown to view their map.")
+        return dbc.Alert(
+            "Select a player to view their defensive action map.",
+            color="secondary",
+        )
 
-    layout_content, _, _ = player_plots.generate_defender_layout_and_data(
-        stored_match_data_json, player_stats_df_json, is_for_home_team=False, selected_player=selected_player
+    return _build_defender_action_panel(
+        selected_player,
+        "away",
+        stored_match_data_json,
     )
-    return layout_content
 
 # --- COMMENT CALLBACKS FOR HOME TOP DEFENDER MAP ---
 @app.callback(Output("store-comment-home-top-defender-map", "data"), Output("save-status-home-top-defender-map", "children"),
