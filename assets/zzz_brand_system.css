@@ -6210,3 +6210,152 @@ td.cell--selected {
         border-bottom: 0;
     }
 }
+
+/* ==========================================================================
+   PLOT-17 — Defensive Contributions
+   ========================================================================== */
+
+.defensive-ranking-panel {
+  overflow: hidden;
+}
+
+.defensive-ranking-badge {
+  padding: 7px 11px;
+  border: 1px solid #cfe1e8;
+  border-radius: 999px;
+  background: #f1f8fa;
+  color: #557184;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.defensive-ranking-panel .match-analysis-note {
+  margin: 10px 12px;
+}
+
+.defensive-player-ranking {
+  margin: 0 12px 12px;
+  overflow-x: auto;
+  border: 1px solid #d9e6ec;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.defensive-player-header,
+.defensive-player-row {
+  display: grid;
+  grid-template-columns: 42px minmax(190px, 220px) minmax(260px, 1fr) 68px 84px 58px 58px 58px 64px 58px;
+  align-items: center;
+  min-width: 1080px;
+  column-gap: 10px;
+}
+
+.defensive-player-header {
+  min-height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid #d9e6ec;
+  background: #f5f9fb;
+  color: #557184;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.defensive-player-row {
+  min-height: 58px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e4edf1;
+}
+
+.defensive-player-row:last-child {
+  border-bottom: 0;
+}
+
+.defensive-rank {
+  color: #92a5b2;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.defensive-player {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.defensive-player strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.defensive-player-team {
+  color: #8a9ca9;
+  font-size: 9px;
+}
+
+.defensive-contribution-track {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2edf1;
+}
+
+.defensive-contribution-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #118ca6 0%, #4fc3d7 100%);
+}
+
+.defensive-total-value,
+.defensive-metric-value {
+  color: #082f4f;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.defensive-foul-value {
+  color: #7e8890;
+}
+
+@media (max-width: 900px) {
+  .defensive-ranking-badge {
+    margin-top: 8px;
+    white-space: normal;
+  }
+}
+
+
+/* ==========================================================================
+   PLOT-17A — Defensive polish
+   ========================================================================== */
+
+.defensive-player-header,
+.defensive-player-row {
+  grid-template-columns:
+    42px
+    minmax(190px, 210px)
+    minmax(230px, 1fr)
+    68px
+    84px
+    88px
+    82px
+    82px
+    68px
+    58px;
+  min-width: 1160px;
+}
+
+.defensive-player-header {
+  font-size: 8.5px;
+}
+
+.defensive-player-header > div:nth-child(n+4) {
+  text-align: center;
+}

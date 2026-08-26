@@ -62,6 +62,8 @@ from src.metrics import shot_sequence_metrics
 from src.metrics import shot_sequence_involvement_metrics
 from src.components import shot_sequence_involvement_view
 from src.metrics import threat_reception_metrics
+from src.metrics import defensive_contribution_metrics
+from src.components import defensive_contribution_view
 from src.components import threat_reception_view
 from src.visualization import threat_reception_map
 from src.components import player_pass_map_view
@@ -5625,7 +5627,7 @@ def render_player_analysis_secondary_layout(active_primary_tab):
                 id="defending-secondary-tabs",
                 active_tab="pa_defender_stats",
                 children=[
-                    dbc.Tab(label="Defender Stats", tab_id="pa_defender_stats"),
+                    dbc.Tab(label="Defensive Contributions", tab_id="pa_defender_stats"),
                     dbc.Tab(label="Home Defender Map", tab_id="pa_home_defender_map"),
                     dbc.Tab(label="Away Defender Map", tab_id="pa_away_defender_map"),
                 ], className="mt-2"
@@ -6247,50 +6249,46 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
     common_comment_area_style = {"flex": "0 0 20%", "paddingTop": "15px", "overflowY": "auto"}
 
     if active_tab == "pa_defender_stats":
-        logger.debug("  Rendering content for 'pa_defender_stats' (Simple Static Plot)")
-        if not player_stats_df_json:
-            return dash_html.P("Player stats data not available.", style={"color": "orange"})
-
-        try:
-            player_stats_df = pd.read_json(player_stats_df_json, orient='split')
-            df_processed = pd.read_json(stored_match_data_json['df'], orient='split')
-            match_info = json.loads(stored_match_data_json['match_info'])
-            home_team_name = match_info.get('hteamName', '')
-
-            fig = plot_defender_stats_bar_plotly(
-                player_stats_df,
-                df_processed,
-                home_team_name,
-                hcol=HCOL,
-                acol=ACOL,
-                violet_col=VIOLET,
-                green_col=GREEN # Passa il nuovo colore per gli aerials
+        if not stored_match_data_json:
+            return dbc.Alert(
+                "Match data is not available.",
+                color="warning",
             )
 
-            return dash_html.Div([
-                dbc.Row(
-                    dbc.Col(dcc.Graph(figure=fig), width=12)
-                ),
-                dbc.Row(
-                    dbc.Col([
-                        dash_html.Hr(),
-                        dash_html.H5("Analyst Comments", className="mt-3"),
-                        dcc.Textarea(
-                            id="comment-defender-stats-bar",
-                            placeholder="Enter your analysis on top defenders...",
-                            style=common_textarea_style,
-                            className="mb-2"
-                        ),
-                        dbc.Button("Save Comment", id="save-comment-defender-stats-bar", color="info", size="sm"),
-                        dash_html.Div(id="save-status-defender-stats-bar", className="small d-inline-block ms-2 mt-2")
-                    ], width=12),
-                    className="mt-4"
-                )
-            ])
+        try:
+            df_processed = pd.read_json(
+                io.StringIO(stored_match_data_json["df"]),
+                orient="split",
+            )
+            match_info = json.loads(
+                stored_match_data_json.get("match_info", "{}")
+            )
+            home_team_name = match_info.get("hteamName", "Home")
 
-        except Exception as e:
-            tb_str = traceback.format_exc()
-            return dbc.Alert(f"Error generating defender stats plot: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+            ranking = (
+                defensive_contribution_metrics
+                .build_defensive_ranking(
+                    df_processed,
+                    num_players=10,
+                )
+            )
+
+            return defensive_contribution_view.panel(
+                ranking,
+                home_team_name=home_team_name,
+                hcol=HCOL,
+                acol=ACOL,
+            )
+
+        except Exception:
+            logger.warning(
+                "Could not build defensive contributions panel.",
+                exc_info=True,
+            )
+            return dbc.Alert(
+                "Unable to build defensive contributions.",
+                color="danger",
+            )
 
     elif active_tab == "pa_home_defender_map":
         # Genera il layout iniziale con il dropdown
@@ -6327,6 +6325,7 @@ def render_defending_analysis_content(active_tab, player_stats_df_json, stored_m
         ])
 
     return dash_html.P(f"Content for {active_tab} not found.")
+
 
 
 
