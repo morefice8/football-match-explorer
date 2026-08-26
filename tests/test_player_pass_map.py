@@ -108,6 +108,94 @@ class PlayerPassMapTests(unittest.TestCase):
         )
         self.assertEqual(segment_count, 5)
 
+    def test_pass_map_adds_typical_passing_zone_and_jersey_marker(self):
+        passes = pd.DataFrame(
+            [
+                pass_event(1, x=18.0, y=28.0),
+                pass_event(2, x=22.0, y=32.0),
+                pass_event(3, x=26.0, y=36.0),
+                pass_event(4, x=30.0, y=40.0),
+                pass_event(5, x=92.0, y=88.0),
+            ]
+        )
+
+        fig = player_plots.plot_player_pass_map_plotly(
+            passes,
+            "Player",
+            "#1597c2",
+            player_jersey="27",
+        )
+
+        zone = next(
+            trace for trace in fig.data
+            if trace.name == "Typical passing zone"
+        )
+        median = next(
+            trace for trace in fig.data
+            if trace.name == "Median passing position"
+        )
+
+        self.assertEqual(fig.data[0].name, "Typical passing zone")
+        self.assertEqual(zone.fill, "toself")
+        self.assertFalse(zone.showlegend)
+        self.assertLessEqual(max(zone.x) - min(zone.x), 28.01)
+        self.assertLessEqual(max(zone.y) - min(zone.y), 28.01)
+        self.assertEqual(list(median.x), [26.0])
+        self.assertEqual(list(median.y), [36.0])
+        self.assertEqual(list(median.text), ["27"])
+        self.assertFalse(median.showlegend)
+
+    def test_passing_zone_uses_origins_not_pass_endpoints(self):
+        passes = pd.DataFrame(
+            [
+                pass_event(1, x=20.0, y=30.0, end_x=90.0, end_y=85.0),
+                pass_event(2, x=22.0, y=32.0, end_x=88.0, end_y=82.0),
+                pass_event(3, x=24.0, y=34.0, end_x=86.0, end_y=80.0),
+                pass_event(4, x=26.0, y=36.0, end_x=84.0, end_y=78.0),
+            ]
+        )
+
+        fig = player_plots.plot_player_pass_map_plotly(
+            passes,
+            "Player",
+            "#1597c2",
+            player_jersey="8",
+        )
+
+        median = next(
+            trace for trace in fig.data
+            if trace.name == "Median passing position"
+        )
+        zone = next(
+            trace for trace in fig.data
+            if trace.name == "Typical passing zone"
+        )
+
+        self.assertEqual(list(median.x), [23.0])
+        self.assertEqual(list(median.y), [33.0])
+        self.assertLess(sum(zone.x) / len(zone.x), 30.0)
+        self.assertLess(sum(zone.y) / len(zone.y), 40.0)
+
+    def test_passing_zone_requires_minimum_sample_but_marker_does_not(self):
+        passes = pd.DataFrame(
+            [
+                pass_event(1, x=20.0, y=30.0),
+                pass_event(2, x=30.0, y=40.0),
+                pass_event(3, x=40.0, y=50.0),
+            ]
+        )
+
+        fig = player_plots.plot_player_pass_map_plotly(
+            passes,
+            "Player",
+            "#1597c2",
+            player_jersey="8",
+        )
+
+        names = [trace.name for trace in fig.data]
+        self.assertNotIn("Typical passing zone", names)
+        self.assertIn("Median passing position", names)
+
     def test_away_player_pass_map_keeps_rel03_coordinates(self):
         passes = pd.DataFrame(
             [

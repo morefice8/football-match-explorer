@@ -1342,6 +1342,164 @@ def plot_passer_stats_bar_plotly(
 
     return fig
 
+def _pass_map_hex_to_rgba(
+    color,
+    alpha,
+):
+    text = (
+        str(
+            color
+            or ""
+        )
+        .strip()
+        .lstrip("#")
+    )
+
+    if len(text) != 6:
+        return (
+            f"rgba(255,255,255,{alpha})"
+        )
+
+    try:
+        red = int(
+            text[0:2],
+            16,
+        )
+        green = int(
+            text[2:4],
+            16,
+        )
+        blue = int(
+            text[4:6],
+            16,
+        )
+    except ValueError:
+        return (
+            f"rgba(255,255,255,{alpha})"
+        )
+
+    return (
+        f"rgba({red},{green},{blue},{alpha})"
+    )
+
+
+def _typical_passing_zone(
+    frame,
+    team_color,
+):
+    """
+    Robust ellipse for the player's typical passing territory.
+
+    The footprint is based exclusively on pass start locations. It is centred
+    on the median origin and sized from the IQR, matching the spatial grammar
+    already used by Shooting Analysis and the Defender Map without allowing
+    isolated pass origins to stretch the zone across the whole pitch.
+    """
+    if (
+        frame is None
+        or frame.empty
+        or len(frame) < 4
+        or "x" not in frame.columns
+        or "y" not in frame.columns
+    ):
+        return None
+
+    origins = frame[[
+        "x",
+        "y",
+    ]].copy()
+
+    for column in (
+        "x",
+        "y",
+    ):
+        origins[column] = pd.to_numeric(
+            origins[column],
+            errors="coerce",
+        )
+
+    origins = origins.dropna(
+        subset=[
+            "x",
+            "y",
+        ]
+    )
+
+    if len(origins) < 4:
+        return None
+
+    center_x = float(
+        origins["x"].median()
+    )
+    center_y = float(
+        origins["y"].median()
+    )
+
+    q25_x = float(
+        origins["x"].quantile(0.25)
+    )
+    q75_x = float(
+        origins["x"].quantile(0.75)
+    )
+    q25_y = float(
+        origins["y"].quantile(0.25)
+    )
+    q75_y = float(
+        origins["y"].quantile(0.75)
+    )
+
+    radius_x = max(
+        4.5,
+        min(
+            14.0,
+            (q75_x - q25_x) * 0.95,
+        ),
+    )
+    radius_y = max(
+        4.5,
+        min(
+            14.0,
+            (q75_y - q25_y) * 0.95,
+        ),
+    )
+
+    theta = np.linspace(
+        0.0,
+        2.0 * np.pi,
+        49,
+    )
+
+    x_coords = (
+        center_x
+        + radius_x * np.cos(theta)
+    )
+    y_coords = (
+        center_y
+        + radius_y * np.sin(theta)
+    )
+
+    return go.Scatter(
+        x=x_coords,
+        y=y_coords,
+        mode="lines",
+        name="Typical passing zone",
+        showlegend=False,
+        fill="toself",
+        line=dict(
+            color=_pass_map_hex_to_rgba(
+                team_color,
+                0.42,
+            ),
+            width=1.0,
+        ),
+        fillcolor=_pass_map_hex_to_rgba(
+            team_color,
+            0.11,
+        ),
+        hoverinfo="skip",
+    )
+
+
 def plot_player_pass_map_plotly(
     df_player_passes,
     player_name,
@@ -1397,6 +1555,15 @@ def plot_player_pass_map_plotly(
             scaleratio=0.68,
         )
         return fig
+
+    zone_trace = _typical_passing_zone(
+        passes,
+        team_color,
+    )
+    if zone_trace is not None:
+        fig.add_trace(
+            zone_trace
+        )
 
     category_style = {
         "Incomplete": {
@@ -1545,6 +1712,74 @@ def plot_player_pass_map_plotly(
             )
         )
 
+
+    valid_origins = passes[[
+        "x",
+        "y",
+    ]].copy()
+
+    for column in (
+        "x",
+        "y",
+    ):
+        valid_origins[column] = pd.to_numeric(
+            valid_origins[column],
+            errors="coerce",
+        )
+
+    valid_origins = valid_origins.dropna(
+        subset=[
+            "x",
+            "y",
+        ]
+    )
+
+    if not valid_origins.empty:
+        median_x = float(
+            valid_origins["x"].median()
+        )
+        median_y = float(
+            valid_origins["y"].median()
+        )
+
+        if (
+            np.isfinite(median_x)
+            and np.isfinite(median_y)
+        ):
+            fig.add_trace(
+                go.Scatter(
+                    x=[median_x],
+                    y=[median_y],
+                    mode="markers+text",
+                    name="Median passing position",
+                    showlegend=False,
+                    marker=dict(
+                        symbol="circle",
+                        size=31,
+                        color=team_color,
+                        line=dict(
+                            color="#ffffff",
+                            width=2.2,
+                        ),
+                    ),
+                    text=[
+                        str(player_jersey)
+                    ],
+                    textposition="middle center",
+                    textfont=dict(
+                        color="#ffffff",
+                        size=12,
+                        family="Inter, Arial",
+                    ),
+                    hovertemplate=(
+                        "<b>Median passing position</b>"
+                        f"<br>{player_name}"
+                        f"<br>Location: "
+                        f"({median_x:.1f}, {median_y:.1f})"
+                        "<extra></extra>"
+                    ),
+                )
+            )
 
     fig.update_layout(
         plot_bgcolor="#27343e",
