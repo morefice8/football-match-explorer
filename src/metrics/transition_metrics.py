@@ -437,6 +437,29 @@ def find_buildup_after_possession_loss(df_processed,
     if 'Challenge' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Challenge') & (df['outcome'] == 'Unsuccessful'))
     if 'Save' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_gained_possession) & (df['type_name'] == 'Save') & (df['outcome'] == 'Successful'))
 
+    # Offensive transitions can start from an explicit Opta possession-gain
+    # marker even when the opponent's preceding loss is ambiguous or is not
+    # represented by one of the legacy loss-event types above.
+    #
+    # This is intentionally a fallback candidate source. If the same recovery
+    # marker is already observed inside a transition opened by an opponent
+    # loss, ``processed_loss_event_ids`` suppresses the duplicate candidate
+    # later in the loop.
+    if metric_to_analyze == 'offensive_transitions':
+        direct_gain_filter = (
+            (df['team_name'] == team_that_gained_possession)
+            & (df['type_name'].isin(TRANSITION_RECOVERY_EVENT_TYPES))
+            & (df['outcome'] == 'Successful')
+        )
+
+        if 'Out of play' in df.columns:
+            direct_gain_filter &= ~(
+                (df['type_name'] == 'Tackle')
+                & (df['Out of play'].isin([1, '1', True]))
+            )
+
+        loss_filter |= direct_gain_filter
+
     df_losses_raw = df[loss_filter].copy()
     if df_losses_raw.empty: return pd.DataFrame()
 
@@ -801,7 +824,33 @@ def find_buildup_after_possession_loss(df_processed,
             #    that gains possession.
             # -----------------------------------------------------
 
-            if event_type == 'Save':
+            is_direct_recovery_trigger = (
+                loss_event.get('team_name')
+                == team_building_up
+                and event_type
+                in TRANSITION_RECOVERY_EVENT_TYPES
+                and loss_event.get('outcome')
+                == 'Successful'
+                and not (
+                    event_type == 'Tackle'
+                    and loss_event.get('Out of play')
+                    in [1, '1', True]
+                )
+            )
+
+            if is_direct_recovery_trigger:
+
+                loss_x = pd.to_numeric(
+                    loss_event.get('x'),
+                    errors='coerce',
+                )
+                loss_y = pd.to_numeric(
+                    loss_event.get('y'),
+                    errors='coerce',
+                )
+                recovery_coord = loss_x
+
+            elif event_type == 'Save':
 
                 recovery_coord = loss_event.get(
                     'x',
@@ -883,7 +932,30 @@ def find_buildup_after_possession_loss(df_processed,
         sequence_outcome_type = 'Unknown' # Default value
         termination_reason_override = None
         reached_final_third_in_base_window = False
-        current_event_original_df_idx = loss_original_df_idx # Start from the loss event index
+        is_direct_recovery_trigger = (
+            metric_to_analyze == 'offensive_transitions'
+            and loss_event.get('team_name')
+                == team_building_up
+            and loss_event.get('type_name')
+                in TRANSITION_RECOVERY_EVENT_TYPES
+            and loss_event.get('outcome')
+                == 'Successful'
+            and not (
+                loss_event.get('type_name') == 'Tackle'
+                and loss_event.get('Out of play')
+                    in [1, '1', True]
+            )
+        )
+
+        # Loss-triggered sequences begin with the event after the loss.
+        # Explicit recovery-triggered sequences begin with the recovery marker
+        # itself so the transition clock, recovery zone and first plotted action
+        # all share the same canonical start.
+        current_event_original_df_idx = (
+            loss_original_df_idx - 1
+            if is_direct_recovery_trigger
+            else loss_original_df_idx
+        )
 
         # Trace forward to find the opponent's sequence
         if loss_event['id'] in processed_loss_event_ids:

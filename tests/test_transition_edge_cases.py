@@ -1113,5 +1113,227 @@ class TransitionEdgeCaseTests(unittest.TestCase):
 
 
 
+    def test_explicit_ball_recovery_can_restart_offensive_transition_after_ambiguous_duel(self):
+        # Juventus–Como 60:00–60:14 pattern:
+        # an early inferred loss sequence dies on a failed Como take-on, but
+        # Opta then records an explicit Como Ball recovery at 60:06. That
+        # recovery must be allowed to open a fresh transition which reaches
+        # the Caqueret goal eight seconds later.
+        result = find_transition([
+            make_event(
+                526,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                minute=59,
+                second=57.0,
+                x=99.5,
+                y=0.5,
+                end_x=91.9,
+                end_y=52.3,
+            ),
+            make_event(
+                573,
+                'Away',
+                'Aerial',
+                'Successful',
+                minute=60,
+                second=0.0,
+                x=8.1,
+                y=47.7,
+            ),
+            make_event(
+                527,
+                'Home',
+                'Aerial',
+                'Unsuccessful',
+                minute=60,
+                second=0.0,
+                x=91.9,
+                y=52.3,
+            ),
+            make_event(
+                574,
+                'Away',
+                'Clearance',
+                'Successful',
+                minute=60,
+                second=1.0,
+                x=8.1,
+                y=47.7,
+                end_x=27.0,
+                end_y=71.3,
+            ),
+            make_event(
+                575,
+                'Away',
+                'Take On',
+                'Unsuccessful',
+                minute=60,
+                second=4.0,
+                x=27.2,
+                y=73.0,
+            ),
+            make_event(
+                528,
+                'Home',
+                'Tackle',
+                'Unsuccessful',
+                minute=60,
+                second=4.0,
+                x=72.8,
+                y=27.0,
+            ),
+            make_event(
+                576,
+                'Away',
+                'Ball recovery',
+                'Successful',
+                minute=60,
+                second=6.0,
+                x=27.7,
+                y=70.1,
+            ),
+            make_event(
+                577,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=60,
+                second=6.0,
+                x=29.7,
+                y=68.2,
+                end_x=47.9,
+                end_y=32.6,
+            ),
+            make_event(
+                578,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=60,
+                second=9.0,
+                x=57.7,
+                y=32.1,
+                end_x=84.4,
+                end_y=32.9,
+            ),
+            make_event(
+                579,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=60,
+                second=12.0,
+                x=84.7,
+                y=32.9,
+                end_x=91.2,
+                end_y=56.5,
+            ),
+            make_event(
+                580,
+                'Away',
+                'Goal',
+                'Successful',
+                minute=60,
+                second=14.0,
+                x=91.2,
+                y=56.5,
+                end_x=100.0,
+                end_y=50.0,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+
+        goal_rows = result[
+            result['terminal_outcome'].eq('goal')
+        ]
+        self.assertFalse(goal_rows.empty)
+
+        goal_sequence_id = goal_rows[
+            'loss_sequence_id'
+        ].iloc[0]
+
+        goal_sequence = result[
+            result['loss_sequence_id'].eq(
+                goal_sequence_id
+            )
+        ]
+
+        self.assertEqual(
+            goal_sequence.iloc[0]['eventId'],
+            576,
+        )
+        self.assertEqual(
+            goal_sequence.iloc[0]['type_name'],
+            'Ball recovery',
+        )
+        self.assertEqual(
+            goal_sequence.iloc[0][
+                'type_of_initial_loss'
+            ],
+            'Ball recovery',
+        )
+        self.assertEqual(
+            goal_sequence[
+                'sequence_outcome_type'
+            ].iloc[-1],
+            'Goals',
+        )
+        self.assertIn(
+            580,
+            goal_sequence['eventId'].tolist(),
+        )
+
+    def test_explicit_recovery_fallback_does_not_duplicate_existing_transition(self):
+        # When the opponent loss already opens a valid transition and the
+        # Ball recovery marker is observed inside it, the fallback recovery
+        # candidate must be suppressed by processed_loss_event_ids.
+        result = find_transition([
+            make_event(
+                1,
+                'Home',
+                'Pass',
+                'Unsuccessful',
+                second=0.0,
+            ),
+            make_event(
+                2,
+                'Away',
+                'Ball recovery',
+                'Successful',
+                second=1.0,
+                x=30.0,
+                y=50.0,
+            ),
+            make_event(
+                3,
+                'Away',
+                'Goal',
+                'Successful',
+                second=5.0,
+                x=85.0,
+                y=50.0,
+                end_x=100.0,
+                end_y=50.0,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+        self.assertEqual(
+            result['loss_sequence_id'].nunique(),
+            1,
+        )
+        self.assertEqual(
+            result['terminal_outcome'].iloc[-1],
+            'goal',
+        )
+        self.assertEqual(
+            result['eventId'].tolist(),
+            [2, 3],
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
