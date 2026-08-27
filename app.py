@@ -60,7 +60,9 @@ from src.metrics import restart_panel_metrics
 from src.metrics import player_pass_map_metrics
 from src.metrics import shot_sequence_metrics
 from src.metrics import shot_sequence_involvement_metrics
+from src.metrics import goal_origin_metrics
 from src.components import shot_sequence_involvement_view
+from src.components import goal_origin_view
 from src.metrics import threat_reception_metrics
 from src.metrics import defensive_contribution_metrics
 from src.components import defensive_contribution_view
@@ -2269,6 +2271,24 @@ def render_match_tab_content(search_query, stored_data_json):
                 ) == 'away'
             ]
 
+            goal_origin_records = (
+                goal_origin_metrics
+                .classify_goal_origins(
+                    df,
+                    home_team=home_team,
+                    away_team=away_team,
+                )
+            )
+
+            goal_origin_panel = (
+                goal_origin_view.panel(
+                    goal_origin_records,
+                    home_team=home_team,
+                    hcol=HCOL,
+                    acol=ACOL,
+                )
+            )
+
             def scorer_list(
                 goals,
                 is_away=False,
@@ -2984,6 +3004,8 @@ def render_match_tab_content(search_query, stored_data_json):
                     "match-panel "
                     "overview-score-panel"
                 )),
+
+                goal_origin_panel,
 
                 # =============================================
                 # QUICK KPIs

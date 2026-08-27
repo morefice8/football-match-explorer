@@ -6456,3 +6456,209 @@ td.cell--selected {
     border-bottom: 1px solid #dce7ec;
   }
 }
+
+/* =========================================================
+   MATCH OVERVIEW — GOAL ORIGINS
+   ========================================================= */
+
+.goal-origin-panel {
+  overflow: hidden;
+}
+
+.goal-origin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 0 1rem 1rem;
+}
+
+.goal-origin-card {
+  min-width: 0;
+  padding: 0.95rem;
+  background: #ffffff;
+  border: 1px solid var(--match-border);
+  border-top: 3px solid #178da8;
+  border-radius: 0.85rem;
+  box-shadow: 0 9px 24px rgba(24, 54, 76, 0.045);
+}
+
+.goal-origin-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.goal-origin-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.goal-origin-minute {
+  display: inline-grid;
+  min-width: 2.65rem;
+  height: 2.25rem;
+  place-items: center;
+  padding: 0 0.5rem;
+  color: #17364e;
+  background: #eef5f7;
+  border-radius: 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.goal-origin-scorer,
+.goal-origin-team {
+  display: block;
+}
+
+.goal-origin-scorer {
+  overflow: hidden;
+  color: var(--match-ink);
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-origin-team {
+  margin-top: 0.08rem;
+  color: var(--match-muted);
+  font-size: 0.61rem;
+  font-weight: 700;
+}
+
+.goal-origin-badge {
+  flex: 0 0 auto;
+  padding: 0.34rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.53rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+}
+
+.goal-origin-badge--transition {
+  color: #9f3e2d;
+  background: #ffebe6;
+}
+
+.goal-origin-badge--set-piece {
+  color: #986200;
+  background: #fff2d6;
+}
+
+.goal-origin-badge--positional {
+  color: #087f9f;
+  background: #e1f4f8;
+}
+
+.goal-origin-details {
+  display: grid;
+  gap: 0.34rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--match-border);
+}
+
+.goal-origin-detail-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.28rem;
+  font-size: 0.66rem;
+}
+
+.goal-origin-detail-label {
+  min-width: 6.9rem;
+  color: var(--match-muted);
+  font-size: 0.56rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.goal-origin-detail-value {
+  color: var(--match-ink);
+  font-weight: 850;
+}
+
+.goal-origin-detail-extra {
+  color: var(--match-muted);
+  font-weight: 650;
+}
+
+.goal-origin-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.goal-origin-stat {
+  display: grid;
+  gap: 0.08rem;
+  padding: 0.5rem 0.6rem;
+  background: #f7fafb;
+  border: 1px solid #e6eef1;
+  border-radius: 0.65rem;
+}
+
+.goal-origin-stat strong {
+  color: var(--match-ink);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.goal-origin-stat span {
+  color: var(--match-muted);
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.goal-origin-link,
+.goal-origin-route-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  font-size: 0.63rem;
+  font-weight: 850;
+}
+
+.goal-origin-link {
+  color: #087f9f;
+  text-decoration: none;
+}
+
+.goal-origin-link:hover {
+  color: #05677f;
+  text-decoration: none;
+}
+
+.goal-origin-route-note {
+  color: var(--match-muted);
+}
+
+.goal-origin-route-note strong {
+  color: var(--match-ink);
+}
+
+@media (max-width: 991.98px) {
+  .goal-origin-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .goal-origin-card-header {
+    flex-direction: column;
+  }
+
+  .goal-origin-detail-label {
+    min-width: 100%;
+  }
+}

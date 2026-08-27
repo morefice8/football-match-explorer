@@ -19,6 +19,8 @@ def _restart_sequence():
                     "Direct Cross",
                 "restart_execution_outcome":
                     "Successful Delivery",
+                "restart_development_outcome":
+                    "Goal",
                 "x": 100.0,
                 "y": 2.0,
                 "end_x": 91.0,
@@ -103,6 +105,12 @@ class RestartPanelTests(
         )
         self.assertEqual(
             records[0][
+                "development_outcome"
+            ],
+            "Goal",
+        )
+        self.assertEqual(
+            records[0][
                 "side"
             ],
             "Right",
@@ -129,6 +137,8 @@ class RestartPanelTests(
                     "Penalty Area",
                 "outcome":
                     "Successful Delivery",
+                "development_outcome":
+                    "Goal",
             },
             {
                 "sequence_id":
@@ -143,6 +153,8 @@ class RestartPanelTests(
                     "Final Third",
                 "outcome":
                     "Unsuccessful Delivery",
+                "development_outcome":
+                    "Possession Lost",
             },
         ]
 
@@ -155,6 +167,8 @@ class RestartPanelTests(
                         "Corner",
                     "delivery":
                         "Direct Cross",
+                    "development":
+                        "Goal",
                 },
             )
         )

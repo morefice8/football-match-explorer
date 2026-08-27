@@ -85,7 +85,8 @@ def _hover(
         f" · {record.get('side', 'Unknown')}"
         f"<br>Delivery: {record.get('delivery', 'Unknown')}"
         f"<br>Destination: {record.get('destination', 'N/A')}"
-        f"<br>Outcome: {record.get('outcome', 'Unknown')}"
+        f"<br>Execution: {record.get('outcome', 'Unknown')}"
+        f"<br>Development: {record.get('development_outcome', 'Unknown')}"
         f"<br>Match time: {_time_label(record.get('match_second'))}"
         "<br><i>Click to inspect this restart</i>"
     )

@@ -204,9 +204,15 @@ def selected_restart_meta(
             ),
         ),
         (
-            "Outcome",
+            "Execution",
             record.get(
                 "outcome"
+            ),
+        ),
+        (
+            "Development",
+            record.get(
+                "development_outcome"
             ),
         ),
     )

@@ -488,7 +488,17 @@ def analyze_and_summarize_set_pieces(sequence_list):
             'Outcome': trigger_event.get(
                 'restart_execution_outcome',
                 seq.iloc[-1].get('sequence_outcome_type', 'Unknown'),
-            )
+            ),
+            'Development Outcome': trigger_event.get(
+                'restart_development_outcome',
+                trigger_event.get(
+                    'restart_execution_outcome',
+                    seq.iloc[-1].get(
+                        'sequence_outcome_type',
+                        'Unknown',
+                    ),
+                ),
+            ),
         })
         
     if not detailed_data:
@@ -506,6 +516,11 @@ def analyze_and_summarize_set_pieces(sequence_list):
         'feet': df[df['Foot'] != 'Unknown']['Foot'].value_counts().to_dict(),
         'destinations': df[df['Destination'] != 'N/A']['Destination'].value_counts().to_dict(),
         'outcomes': df['Outcome'].value_counts().to_dict(),
+        'development_outcomes': (
+            df['Development Outcome'].value_counts().to_dict()
+            if 'Development Outcome' in df.columns
+            else {}
+        ),
         'terminal_outcomes': df['terminal_outcome'].value_counts().to_dict(),
     }
     

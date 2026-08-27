@@ -236,6 +236,76 @@ class RestartTaxonomyTests(unittest.TestCase):
             ['Throw-in', 'Free Kick'],
         )
 
+    def test_corner_saved_shot_rebound_goal_is_goal_development(self):
+        df = pd.DataFrame([
+            event(
+                566,
+                team='Home',
+                event_type='Pass',
+                outcome='Successful',
+                second=8.0,
+                x=99.5,
+                y=0.5,
+                end_x=90.6,
+                end_y=50.9,
+                corner=1,
+                cross=1,
+            ),
+            event(
+                567,
+                team='Home',
+                event_type='Attempt Saved',
+                outcome='Successful',
+                second=9.0,
+                x=90.6,
+                y=50.9,
+                end_x=98.4,
+                end_y=49.6,
+            ),
+            event(
+                491,
+                team='Away',
+                event_type='Save',
+                outcome='Successful',
+                second=9.0,
+                x=1.1,
+                y=51.0,
+                end_x=1.1,
+                end_y=51.0,
+            ),
+            event(
+                568,
+                team='Home',
+                event_type='Goal',
+                outcome='Successful',
+                second=10.0,
+                x=96.8,
+                y=47.2,
+                end_x=100.0,
+                end_y=50.0,
+            ),
+        ])
+
+        sequence = extract_restart_sequences(df, 'Home')[0]
+        analyzed, stats = analyze_and_summarize_set_pieces([sequence])
+
+        self.assertEqual(sequence['eventId'].tolist(), [566])
+        self.assertEqual(
+            sequence.iloc[0]['restart_execution_outcome'],
+            'Successful Delivery',
+        )
+        self.assertEqual(
+            sequence.iloc[0]['restart_development_outcome'],
+            'Goal',
+        )
+        self.assertEqual(
+            sequence.iloc[0]['restart_development_event_id'],
+            568,
+        )
+        self.assertEqual(analyzed.iloc[0]['Development Outcome'], 'Goal')
+        self.assertEqual(stats['development_outcomes'], {'Goal': 1})
+
+
 
 if __name__ == '__main__':
     unittest.main()

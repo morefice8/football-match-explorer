@@ -1030,6 +1030,88 @@ class TransitionEdgeCaseTests(unittest.TestCase):
         )
         self.assertIn(8, result['eventId'].tolist())
 
+    def test_unsuccessful_ball_touch_can_trigger_goal_transition(self):
+        result = find_transition([
+            make_event(
+                2958077549,
+                'Home',
+                'Ball touch',
+                'Unsuccessful',
+                minute=27,
+                second=54.0,
+                x=52.9,
+                y=54.4,
+            ),
+            make_event(
+                2958077575,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=27,
+                second=55.0,
+                x=36.3,
+                y=34.9,
+                end_x=55.3,
+                end_y=43.3,
+            ),
+            make_event(
+                2958077589,
+                'Away',
+                'Ball recovery',
+                'Successful',
+                minute=27,
+                second=56.0,
+                x=55.3,
+                y=43.5,
+            ),
+            make_event(
+                2958077623,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=27,
+                second=57.0,
+                x=55.3,
+                y=43.5,
+                end_x=58.1,
+                end_y=64.8,
+            ),
+            make_event(
+                2958077665,
+                'Away',
+                'Pass',
+                'Successful',
+                minute=27,
+                second=58.0,
+                x=58.1,
+                y=64.8,
+                end_x=73.5,
+                end_y=62.4,
+            ),
+            make_event(
+                2958077669,
+                'Away',
+                'Goal',
+                'Successful',
+                minute=28,
+                second=2.0,
+                x=86.1,
+                y=61.1,
+                end_x=100.0,
+                end_y=50.0,
+            ),
+        ])
+
+        self.assertFalse(result.empty)
+        self.assertEqual(result['sequence_outcome_type'].iloc[-1], 'Goals')
+        self.assertEqual(result['terminal_outcome'].iloc[-1], 'goal')
+        self.assertIn(2958077669, result['eventId'].tolist())
+        self.assertEqual(
+            result.iloc[0]['type_of_initial_loss'],
+            'Ball touch',
+        )
+
+
 
 if __name__ == '__main__':
     unittest.main()

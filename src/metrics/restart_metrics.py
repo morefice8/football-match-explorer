@@ -1,11 +1,13 @@
 """Canonical restart execution semantics for REL-09B.
 
-Restart Analysis answers one narrow question:
+Restart Analysis keeps one canonical question at sequence level:
     How was play restarted?
 
-It therefore stops at the restart delivery itself. It does not trace the whole
-subsequent possession. Longer possession development belongs to Buildup and,
-later, goal-origin classification.
+Each restart sequence therefore still stops at the delivery itself. A separate
+short development annotation records whether that delivery immediately produced
+a shot/goal or lost possession, without appending later events to the canonical
+restart sequence. Longer possession development still belongs to Buildup / goal
+origin analysis.
 """
 
 from __future__ import annotations
@@ -49,6 +51,37 @@ SHOT_TYPES = frozenset({
     "Miss",
     "Attempt Saved",
     "Post",
+})
+
+# Restart Analysis remains execution-first: every canonical restart sequence
+# still contains only the delivery event. This short secondary window annotates
+# what the attack produced immediately afterwards, so a corner -> saved shot ->
+# rebound goal can be recognised without turning the restart sequence itself
+# into a full possession chain.
+RESTART_DEVELOPMENT_WINDOW_SECONDS = 12.0
+
+CONTROL_GAIN_TYPES = frozenset({
+    "Pass",
+    "Ball recovery",
+    "Interception",
+    "Tackle",
+    "Keeper pick-up",
+    "Claim",
+})
+
+POSSESSION_LOSS_TYPES = frozenset({
+    "Pass",
+    "Take On",
+    "Dispossessed",
+    "Offside Pass",
+    "Out",
+})
+
+DEVELOPMENT_STOP_TYPES = frozenset({
+    "Foul",
+    "Offside Pass",
+    "Out",
+    "Corner Awarded",
 })
 
 
@@ -198,16 +231,185 @@ def _legacy_sequence_outcome(row):
     return "Unknown"
 
 
+def _event_match_second(row):
+    minute = pd.to_numeric(
+        pd.Series([row.get("timeMin")]),
+        errors="coerce",
+    ).iloc[0]
+    second = pd.to_numeric(
+        pd.Series([row.get("timeSec")]),
+        errors="coerce",
+    ).iloc[0]
+
+    if pd.isna(minute):
+        return None
+
+    return float(minute) * 60.0 + (
+        0.0 if pd.isna(second) else float(second)
+    )
+
+
+def _development_goal_for_team(row, team_name):
+    if str(row.get("type_name", "") or "") != "Goal":
+        return False
+
+    event_team = row.get("team_name")
+    own_goal = _flag_is_true(row.get("Own goal"))
+
+    if own_goal:
+        return event_team != team_name
+
+    return event_team == team_name
+
+
+def classify_restart_development(
+    df,
+    restart_index,
+    team_name,
+    *,
+    max_seconds=RESTART_DEVELOPMENT_WINDOW_SECONDS,
+):
+    """Classify the immediate attacking development after a restart.
+
+    The canonical restart sequence remains delivery-only. This helper scans a
+    short, same-period window solely to annotate whether that restart quickly
+    produced a shot/goal or whether possession was lost. A goalkeeper Save is
+    deliberately not treated as controlled possession because rebounds remain
+    live; Keeper pick-up / Claim and successful controlled opponent actions do
+    end the development.
+    """
+    restart = df.iloc[restart_index]
+    execution = _execution_outcome(restart)
+
+    if execution == "Goal":
+        return {
+            "outcome": "Goal",
+            "event_id": restart.get("eventId", restart.get("id")),
+            "elapsed_seconds": 0.0,
+        }
+
+    if execution == "Shot":
+        return {
+            "outcome": "Shot",
+            "event_id": restart.get("eventId", restart.get("id")),
+            "elapsed_seconds": 0.0,
+        }
+
+    if execution == "Unsuccessful Delivery":
+        return {
+            "outcome": "Possession Lost",
+            "event_id": restart.get("eventId", restart.get("id")),
+            "elapsed_seconds": 0.0,
+        }
+
+    start_second = _event_match_second(restart)
+    start_period = restart.get("periodId")
+
+    best_outcome = "Possession Retained"
+    best_event_id = None
+    best_elapsed = None
+
+    for future_index in range(restart_index + 1, len(df)):
+        event = df.iloc[future_index]
+
+        event_period = event.get("periodId")
+        if (
+            pd.notna(start_period)
+            and pd.notna(event_period)
+            and event_period != start_period
+        ):
+            break
+
+        event_second = _event_match_second(event)
+        elapsed = None
+
+        if start_second is not None and event_second is not None:
+            elapsed = event_second - start_second
+            if elapsed < 0:
+                continue
+            if elapsed > max_seconds:
+                break
+
+        event_type = str(event.get("type_name", "") or "")
+        event_team = event.get("team_name")
+        successful = str(event.get("outcome", "")).lower() == "successful"
+
+        if classify_restart_event(event) is not None:
+            break
+
+        if _development_goal_for_team(event, team_name):
+            return {
+                "outcome": "Goal",
+                "event_id": event.get("eventId", event.get("id")),
+                "elapsed_seconds": elapsed,
+            }
+
+        if event_team == team_name and event_type in SHOT_TYPES:
+            best_outcome = "Shot"
+            best_event_id = event.get("eventId", event.get("id"))
+            best_elapsed = elapsed
+            continue
+
+        # Save does not necessarily establish control; keep rebounds alive.
+        if event_type == "Save":
+            continue
+
+        if (
+            event_team != team_name
+            and successful
+            and event_type in CONTROL_GAIN_TYPES
+        ):
+            return {
+                "outcome": (
+                    "Shot" if best_outcome == "Shot" else "Possession Lost"
+                ),
+                "event_id": (
+                    best_event_id
+                    or event.get("eventId", event.get("id"))
+                ),
+                "elapsed_seconds": (
+                    best_elapsed if best_outcome == "Shot" else elapsed
+                ),
+            }
+
+        if (
+            event_team == team_name
+            and not successful
+            and event_type in POSSESSION_LOSS_TYPES
+        ):
+            return {
+                "outcome": (
+                    "Shot" if best_outcome == "Shot" else "Possession Lost"
+                ),
+                "event_id": (
+                    best_event_id
+                    or event.get("eventId", event.get("id"))
+                ),
+                "elapsed_seconds": (
+                    best_elapsed if best_outcome == "Shot" else elapsed
+                ),
+            }
+
+        if event_type in DEVELOPMENT_STOP_TYPES:
+            break
+
+    return {
+        "outcome": best_outcome,
+        "event_id": best_event_id,
+        "elapsed_seconds": best_elapsed,
+    }
+
+
 @cache_derived_result("restart_sequences")
 def extract_restart_sequences(df_processed, team_name):
     """Return one immediate-execution sequence per actual restart delivery.
 
     Important REL-09B contract:
     - the restart delivery event is the whole Restart Analysis sequence;
-    - later passes/shots/goals are NOT appended here;
+    - later passes/shots/goals are NOT appended to that sequence;
+    - immediate development is stored only as restart_development_* metadata;
     - a successful throw-in followed by a goal 31 seconds later is therefore
-      a Successful Delivery in Restart Analysis, while its first phase belongs
-      to Buildup and its full origin belongs to GOAL-01.
+      still a Successful Delivery with no Goal development attribution.
     """
     if df_processed is None or df_processed.empty:
         return []
@@ -228,7 +430,7 @@ def extract_restart_sequences(df_processed, team_name):
     sequences = []
     sequence_number = 0
 
-    for _, event in df.iterrows():
+    for event_index, event in df.iterrows():
         if event.get("team_name") != team_name:
             continue
 
@@ -246,6 +448,11 @@ def extract_restart_sequences(df_processed, team_name):
         execution_outcome = _execution_outcome(event)
         sequence_outcome = _legacy_sequence_outcome(event)
         length_m = _event_length_m(event)
+        development = classify_restart_development(
+            df,
+            event_index,
+            team_name,
+        )
 
         if execution_outcome == "Successful Delivery":
             termination_reason = "restart_delivery_completed"
@@ -264,6 +471,11 @@ def extract_restart_sequences(df_processed, team_name):
             "restart_type": restart_type,
             "restart_delivery_type": delivery_type,
             "restart_execution_outcome": execution_outcome,
+            "restart_development_outcome": development["outcome"],
+            "restart_development_event_id": development["event_id"],
+            "restart_development_elapsed_seconds": development[
+                "elapsed_seconds"
+            ],
             "restart_length_m": length_m,
             "buildup_pass_count": (
                 1

@@ -11,7 +11,8 @@ FILTER_SPECS = (
     ("side", "Side", "side"),
     ("delivery", "Delivery", "delivery"),
     ("destination", "Destination", "destination"),
-    ("outcome", "Outcome", "outcome"),
+    ("outcome", "Execution", "outcome"),
+    ("development", "Development", "development_outcome"),
 )
 
 
@@ -188,6 +189,13 @@ def build_restart_records(
             ),
         )
 
+        development_outcome = _clean(
+            first.get(
+                "restart_development_outcome"
+            ),
+            fallback=outcome,
+        )
+
         start_x = _number(
             row.get(
                 "x_start",
@@ -286,6 +294,8 @@ def build_restart_records(
                     destination,
                 "outcome":
                     outcome,
+                "development_outcome":
+                    development_outcome,
                 "player_name":
                     _clean(
                         row.get(

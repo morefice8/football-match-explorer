@@ -332,7 +332,7 @@ def find_recovery_to_first_pass(df_processed,
 @cache_derived_result("transition_sequences")
 def find_buildup_after_possession_loss(df_processed,
                                        team_that_lost_possession, # Team that lost possession
-                                       possession_loss_types=['Pass', 'Take On', 'Error', 'Dispossessed', 'Aerial', 'Challenge', 'Clearance', 'Save'], # Types of loss
+                                       possession_loss_types=['Pass', 'Take On', 'Error', 'Dispossessed', 'Ball touch', 'Aerial', 'Challenge', 'Clearance', 'Save'], # Types of loss
                                        max_passes_in_buildup_sequence=35,
                                        shot_types=['Goal', 'Miss', 'Attempt Saved', 'Post'],
                                        metric_to_analyze='defensive_transitions',
@@ -425,6 +425,12 @@ def find_buildup_after_possession_loss(df_processed,
 
         loss_filter |= confirmed_error_losses
     if 'Dispossessed' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Dispossessed'))
+    if 'Ball touch' in possession_loss_types:
+        loss_filter |= (
+            (df['team_name'] == team_that_lost_possession)
+            & (df['type_name'] == 'Ball touch')
+            & (df['outcome'] == 'Unsuccessful')
+        )
     #if 'Clearance' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Clearance') & (df['outcome'] == 'Unsuccessful'))
     if 'Clearance' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Clearance'))
     if 'Aerial' in possession_loss_types: loss_filter |= ((df['team_name'] == team_that_lost_possession) & (df['type_name'] == 'Aerial') & (df['outcome'] == 'Unsuccessful'))
