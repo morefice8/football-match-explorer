@@ -218,9 +218,16 @@ def statistic_column(type_id: Any, type_name: Any = None) -> str:
 
 
 def season_name_matches(value: Any, start_year: int, end_year: int) -> bool:
-    normalised = re.sub(r"[^0-9]+", " ", str(value or "")).strip()
-    return normalised in {
-        f"{start_year} {end_year}",
-        f"{start_year} {str(end_year)[-2:]}",
-        str(start_year),
-    }
+    # Match separator variants and league-prefixed Sportmonks season labels.
+    # Keep the legacy single-year behaviour unchanged.
+    year_tokens = re.findall(r"\d+", str(value or ""))
+    start = str(start_year)
+    end = str(end_year)
+    short_end = end[-2:]
+
+    pairs = set(zip(year_tokens, year_tokens[1:]))
+    return (
+        (start, end) in pairs
+        or (start, short_end) in pairs
+        or year_tokens == [start]
+    )

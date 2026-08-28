@@ -150,7 +150,57 @@ class SportmonksImporter:
             ends = str(season.get("ending_at", ""))
             if starts.startswith(str(self.start_year)) and ends.startswith(str(self.end_year)):
                 return season
-        raise RuntimeError(f"Season {self.season} not found for {league.name}")
+        # SPORTMONKS-HISTORICAL-SEASON-RESOLUTION
+        # The league relation is intentionally still the primary lookup above.
+        # Older subscription-visible seasons are not always returned by that relation,
+        # so only after the primary lookup misses do we query the dedicated,
+        # league-filtered seasons index. _paginated() keeps using the existing client
+        # and JsonCache and stores these pages under <league>/season_index/.
+        season_index, _ = self._paginated(
+            league,
+            "season_index",
+            "seasons",
+            filters=f"seasonLeagues:{league.league_id}",
+        )
+
+        for season in season_index:
+            if not isinstance(season, dict):
+                continue
+
+            if season_name_matches(
+                season.get("name"),
+                self.start_year,
+                self.end_year,
+            ):
+                return season
+
+            starts = str(season.get("starting_at", ""))
+            ends = str(season.get("ending_at", ""))
+            if (
+                starts.startswith(str(self.start_year))
+                and ends.startswith(str(self.end_year))
+            ):
+                return season
+
+        available_names = sorted(
+            {
+                str(season.get("name")).strip()
+                for season in season_index
+                if isinstance(season, dict)
+                and str(season.get("name") or "").strip()
+            }
+        )
+        available_text = (
+            ", ".join(available_names)
+            if available_names
+            else "<none returned by GET seasons>"
+        )
+
+        raise RuntimeError(
+            f"Season {self.season} is not included in the Sportmonks "
+            f"subscription for {league.name}. "
+            f"Available seasons: {available_text}"
+        )
 
     def _paginated(
         self,
