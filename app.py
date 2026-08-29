@@ -99,6 +99,7 @@ LINE_COLOR = getattr(config, 'LINE_COLOR', 'black')
 
 # App configuration
 from src.components import defensive_shape_view
+from src.components import buildup_summary_view
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.SLATE, dbc.icons.FONT_AWESOME],
@@ -7834,7 +7835,7 @@ def render_buildup_content(active_buildup_tab, active_filter, stored_data_json):
                 )
             )
             summary_content = (
-                buildup_metrics.create_buildup_summary_cards(
+                buildup_summary_view.create_buildup_summary_cards(
                     buildup_stats,
                     active_filter,
                 )
