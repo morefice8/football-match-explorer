@@ -54,6 +54,7 @@ from src.components import progressive_pass_view
 from src.components import final_third_view
 from src.components import pass_location_view
 from src.components import cross_flow_view
+from src.components import cross_summary_view
 from src.utils.sequence_normalization import normalize_sequence
 from src.visualization.sequence_explorer import plot_sequence_explorer
 from src.metrics import restart_panel_metrics
@@ -11407,7 +11408,7 @@ def render_crosses_team_content(active_team_tab, active_filter, stored_data_json
             if col and col in crosses_filtered.columns:
                 crosses_filtered = crosses_filtered[crosses_filtered[col] == value]
 
-        cards = cross_metrics.create_cross_summary_cards(crosses_filtered, active_filter)
+        cards = cross_summary_view.create_cross_summary_cards(crosses_filtered, active_filter)
 
         flow_summary, flow_routes = (
             cross_metrics.build_cross_flow_profile(
