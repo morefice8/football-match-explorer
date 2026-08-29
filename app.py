@@ -100,6 +100,7 @@ LINE_COLOR = getattr(config, 'LINE_COLOR', 'black')
 # App configuration
 from src.components import defensive_shape_view
 from src.components import buildup_summary_view
+from src.components import transition_summary_view
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.SLATE, dbc.icons.FONT_AWESOME],
@@ -9559,7 +9560,7 @@ def update_def_transition_summary_cards(active_filter, stored_data):
     # transition_profile_table.sort_values(by="Num_Sequences", ascending=False, inplace=True)
 
     # if not transition_profile_table.empty:
-    #     transition_profile_component = transition_metrics.generate_transition_profile_table(transition_profile_table)
+    #     transition_profile_component = transition_summary_view.generate_transition_profile_table(transition_profile_table)
     # else:
     #     transition_profile_component = dbc.Alert("No transition profile data available.", color="secondary")
 
@@ -9594,7 +9595,7 @@ def update_def_transition_summary_cards(active_filter, stored_data):
     return dash_html.Div([
         active_filters_badge,
 
-        transition_metrics.create_def_transition_summary_cards(
+        transition_summary_view.create_def_transition_summary_cards(
             stats,
             active_filter,
         ),
@@ -10464,7 +10465,7 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
         )
 
     stats = transition_metrics.calculate_off_transition_stats(filtered_sequences)
-    cards = transition_metrics.create_off_transition_summary_cards(stats, active_filter)
+    cards = transition_summary_view.create_off_transition_summary_cards(stats, active_filter)
     heatmap_fig = offensive_transitions_plotly.plot_recovery_heatmap_on_pitch(filtered_sequences, is_away=is_away)
     heatmap_fig.update_layout(
         title=None,
@@ -10494,7 +10495,6 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
 
 
     if not profile_df.empty:
-
         profile_df = profile_df.sort_values(
             by="Num_Sequences",
             ascending=False,
@@ -10540,33 +10540,11 @@ def update_off_transition_summary_and_heatmap(active_filter, stored_data):
             ]
         ]
 
-
-        profile_table_component = (
-            dbc.Table.from_dataframe(
-                profile_df,
-                striped=False,
-                bordered=False,
-                hover=True,
-                responsive=True,
-                index=False,
-                className=(
-                    "off-transition-pattern-table "
-                    "mb-0"
-                ),
-            )
+    profile_table_component = (
+        transition_summary_view.render_off_transition_profile_table(
+            profile_df,
         )
-
-    else:
-
-        profile_table_component = (
-            dbc.Alert(
-                (
-                    "No transition pattern "
-                    "data available."
-                ),
-                color="secondary",
-            )
-        )
+    )
 
 
     # ---------------------------------------------------------
