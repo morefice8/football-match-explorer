@@ -18,6 +18,12 @@ from .models import (
 )
 
 __all__ = [
+    "normalize_for_json",
+    "build_match_report_data_bundle",
+    "ReportSectionStatus",
+    "ReportSectionBundle",
+    "MatchReportDataBundle",
+    "MatchReportBundleConfig",
     "ExportOrientation",
     "MissingDataBehavior",
     "REPORT_MANIFEST",
@@ -31,3 +37,12 @@ __all__ = [
     "ReportSelectionSpec",
     "ReportTableSpec",
 ]
+
+from .bundle import (
+    MatchReportBundleConfig,
+    MatchReportDataBundle,
+    ReportSectionBundle,
+    ReportSectionStatus,
+    build_match_report_data_bundle,
+    normalize_for_json,
+)
