@@ -48,6 +48,10 @@ from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
 from src.components.match_graph_shell import match_graph_panel, match_graph_shell
 from src import config
+from src.reporting.download_service import (
+    MatchAnalysisDownloadError,
+    build_match_analysis_download,
+)
 from src.metrics import pass_network_metrics
 from src.components import pass_network_view
 from src.components import progressive_pass_view
@@ -152,7 +156,11 @@ app.layout = dash_html.Div([
     dcc.Store(id="cross-filter-store", data=None),
     dcc.Store(id="cross-selection-store", data=None),
     dcc.Store(id="cross-flow-selection-store", data=None),
-    dcc.Store(id="report-html-content-store"),
+    dcc.Download(id="match-analysis-pack-download"),
+    dash_html.Div(
+        id="report-generation-status",
+        className="px-3",
+    ),
 
     # Contenitore dove verranno caricate le pagine
     dash_html.Div(id='page-content')
@@ -1762,6 +1770,89 @@ def populate_main_store(pathname, uploaded_data):
                         return None, None
     logger.warning(f"  Match ID {match_id} not found in DB. Clearing stores.")
     return None, None
+
+# REPORT-07 — Match Analysis Pack download
+@app.callback(
+    Output("match-analysis-pack-download", "data"),
+    Output("report-generation-status", "children"),
+    Input("generate-report-button", "n_clicks"),
+    State("store-df-match", "data"),
+    prevent_initial_call=True,
+    running=[
+        (
+            Output("generate-report-button", "disabled"),
+            True,
+            False,
+        ),
+        (
+            Output("generate-report-button", "children"),
+            "Generating…",
+            "Generate Report",
+        ),
+    ],
+)
+def generate_match_analysis_pack_download(
+    n_clicks,
+    stored_match_data,
+):
+    """Generate one canonical Full Match pack entirely in memory."""
+
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    if not stored_match_data:
+        return (
+            no_update,
+            dbc.Alert(
+                (
+                    "Match data is not available. "
+                    "Load a match before generating the report."
+                ),
+                color="danger",
+                dismissable=True,
+                className="mb-2",
+            ),
+        )
+
+    try:
+        download = build_match_analysis_download(
+            stored_match_data
+        )
+    except MatchAnalysisDownloadError as exc:
+        return (
+            no_update,
+            dbc.Alert(
+                str(exc),
+                color="danger",
+                dismissable=True,
+                className="mb-2",
+            ),
+        )
+    except Exception as exc:
+        logger.exception(
+            "Unexpected error generating Match Analysis Pack."
+        )
+        return (
+            no_update,
+            dbc.Alert(
+                (
+                    "Could not generate the Match Analysis Pack: "
+                    f"{exc}"
+                ),
+                color="danger",
+                dismissable=True,
+                className="mb-2",
+            ),
+        )
+
+    return (
+        dcc.send_bytes(
+            download.payload,
+            download.filename,
+        ),
+        None,
+    )
+
 
 # -----------------------------------------------------------------------------
 # CALLBACKS PER LA PAGINA DEL DATABASE
@@ -12263,147 +12354,6 @@ def update_cross_plots_on_selection(
 #     if triggered_id_str == "cross-reset-filter-btn":
 #         return None # Resetta il filtro
 
-
-
-# ----------------------------------------
-
-# --- CALLBACK TO GENERATE REPORT HTML ---
-# @app.callback(
-#     Output("report-html-content-store", "data"),
-#     Output("clientside-report-trigger-div", "children"), # Output simple trigger
-#     Input("generate-report-button", "n_clicks"),
-#     State("store-df-match", "data"),
-#     State("url", "pathname"),
-#     State("store-comment-formation", "data"),         # State 1
-#     State("store-comment-pass-network", "data"),      # State 2
-#     State("store-comment-progressive-passes", "data"),# State 3 - THIS IS THE ONE
-#     # ... other comment stores ...
-#     prevent_initial_call=True
-# )
-# def prepare_report_and_trigger_clientside(
-#     n_clicks, stored_match_data, pathname,
-#     formation_comments_data,
-#     pass_network_comments_data,
-#     progressive_passes_comments_data
-# ):
-#     if n_clicks is None or not stored_match_data:
-#         return no_update, no_update # No update for both outputs
-
-#     print(f"--- prepare_report_and_trigger_clientside TRIGGERED (n_clicks: {n_clicks}) ---")
-
-#     report_html_elements = []
-#     match_info_dict = {}
-#     if stored_match_data.get('match_info'):
-#         match_info_dict = json.loads(stored_match_data['match_info'])
-#         # ... (extracting hteam, ateam, etc.) ...
-#         hteam = match_info_dict.get('hteamDisplayName', 'Home')
-#         ateam = match_info_dict.get('ateamDisplayName', 'Away')
-#         comp = match_info_dict.get('competitionName', '')
-#         round_n = match_info_dict.get('roundNameFromFilename', '')
-#         date_val = match_info_dict.get('date_formatted', '')
-#         hs = match_info_dict.get('home_score', '')
-#         aws = match_info_dict.get('away_score', '')
-#         score = f"{hs} - {aws}" if hs is not None and aws is not None else "vs"
-
-#         report_html_elements.append(f"<h1>Match Report: {hteam} {score} {ateam}</h1>")
-#         report_html_elements.append(f"<p>{comp} - {round_n} | {date_val}</p><hr>")
-
-
-#     # # --- Section for Formation ---
-#     # report_html_elements.append("<h2>Formation Analysis</h2>")
-#     # formation_img_component = show_match_formation(stored_match_data)
-#     # if isinstance(formation_img_component, dash_html.Img): # Use aliased dash_html
-#     #     report_html_elements.append(f"<img src='{formation_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
-#     # elif isinstance(formation_img_component, dash_html.P):
-#     #     report_html_elements.append(f"<p><em>Error generating formation plot: {str(formation_img_component.children)}</em></p>")
-#     # else:
-#     #     report_html_elements.append("<p>Formation plot could not be generated.</p>")
-
-#     # form_comment_key = get_comment_key(pathname, "formation")
-#     # if formation_comments_data and form_comment_key and formation_comments_data.get(form_comment_key):
-#     #     report_html_elements.append("<h4>Comments:</h4>")
-#     #     comment_text = dash_html.escape(formation_comments_data.get(form_comment_key)) # <<<--- CORRECTED
-#     #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
-#     # report_html_elements.append("<hr>")
-
-
-#     # # --- Section for Pass Network ---
-#     # report_html_elements.append("<h2>Pass Network Analysis</h2>")
-#     # pass_network_img_component = show_pass_network_graph(stored_match_data)
-#     # if isinstance(pass_network_img_component, dash_html.Img): # Use aliased dash_html
-#     #     report_html_elements.append(f"<img src='{pass_network_img_component.src}' style='width:90%; max-width:800px; display:block; margin:auto;'/>")
-#     # elif isinstance(pass_network_img_component, dash_html.P):
-#     #     report_html_elements.append(f"<p><em>Error generating pass network plot: {str(pass_network_img_component.children)}</em></p>")
-#     # else:
-#     #     report_html_elements.append("<p>Pass Network plot could not be generated.</p>")
-
-#     # pn_comment_key = get_comment_key(pathname, "pass_network")
-#     # if pass_network_comments_data and pn_comment_key and pass_network_comments_data.get(pn_comment_key):
-#     #     report_html_elements.append("<h4>Comments:</h4>")
-#     #     comment_text = dash_html.escape(pass_network_comments_data.get(pn_comment_key))
-#     #     report_html_elements.append(f"<pre style='white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc;'>{comment_text}</pre>")
-#     # report_html_elements.append("<hr>")
-
-#     # # ... (rest of the function, including final_html_string) ...
-#     # final_html_string = f"""
-#     # <html>
-#     #     <head>
-#     #         <title>Match Report</title>
-#     #         <style>
-#     #             body {{ font-family: sans-serif; margin: 20px; }}
-#     #             h1, h2, h3, h4 {{ color: #333; }}
-#     #             hr {{ margin-top: 20px; margin-bottom: 20px; border: 0; border-top: 1px solid #eee; }}
-#     #             img {{ border: 1px solid #ddd; margin-bottom: 10px; padding: 5px; background-color: white; }}
-#     #             pre {{ white-space: pre-wrap; word-wrap: break-word; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; }}
-#     #         </style>
-#     #     </head>
-#     #     <body>
-#     #         {''.join(report_html_elements)}
-#     #     </body>
-#     # </html>
-#     # """
-#     # print(f"prepare_report_html: Generated HTML (first 200 chars): {final_html_string[:200]}")
-#     # print(f"prepare_report_html: Generated HTML (last 200 chars): {final_html_string[-200:]}")
-#     # print(f"prepare_report_html: Total length of HTML string: {len(final_html_string)}")
-#     # # ... (your logic to build final_html_string) ...
-#     # Example:
-#     report_html_elements = ["<h1>Test Report Version 2</h1>"]
-#     # ... (add plots and comments as before) ...
-#     final_html_string = f"<html><body>{''.join(report_html_elements)}</body></html>"
-#     # ...
-
-#     print(f"prepare_report_and_trigger_clientside: HTML length: {len(final_html_string)}")
-
-#     # Return HTML to its store, and a simple trigger (timestamp) to the dummy div
-#     trigger_value = datetime.now().timestamp()
-#     print(f"prepare_report_and_trigger_clientside: Setting trigger value: {trigger_value}")
-#     return final_html_string, trigger_value
-
-# # def relay_trigger_for_report_window(report_html):
-# #     if report_html:
-# #         return datetime.now().timestamp() # Or just a counter, anything to trigger the change
-# #     return no_update
-
-# # # --- NEW PYTHON CALLBACK TO TRIGGER CLIENTSIDE ACTION & CLEAR HTML STORE ---
-# # @app.callback(
-# #     Output("clientside-report-trigger-div", "children"), # Output to dummy div (acts as trigger)
-# #     Output("report-html-content-store", "data", allow_duplicate=True), # Output to clear the store
-# #     Input("report-html-content-store", "data"), # Input: when HTML is ready
-# #     prevent_initial_call=True
-# # )
-# # def trigger_clientside_and_clear_store(report_html_content):
-# #     if report_html_content:
-# #         print("trigger_clientside_and_clear_store: HTML ready, triggering clientside and clearing store.")
-# #         # The value passed to the dummy div's children can be anything that changes.
-# #         # The clientside callback will use the HTML from the store via State.
-# #         # We pass the HTML itself as the trigger data, so the clientside callback gets it directly.
-# #         return report_html_content, None # Trigger with HTML, then clear the store
-# #     print("trigger_clientside_and_clear_store: No HTML, no action.")
-# #     return no_update, no_update
-
-# # Callback 3: Clientside callback to open window
-
-##################################################################
 def create_graph_card(graph_id, title, height='550px'):
     return dbc.Card([
         dbc.CardHeader(title),
