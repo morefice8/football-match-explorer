@@ -10,6 +10,7 @@ numpy==2.1.1
 pandas==2.2.3
 pillow==11.2.1
 plotly==6.1.2
+reportlab==4.4.9
 pyarrow>=19
 pycountry>=24.6.1
 python-dotenv>=1.0,<2
