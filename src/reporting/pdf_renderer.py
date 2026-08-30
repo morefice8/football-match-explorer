@@ -833,6 +833,44 @@ def _trim_columns(frame: pd.DataFrame, limit: int) -> pd.DataFrame:
     return frame[selected]
 
 
+_MAX_TABLE_CELL_CHARS = 420
+
+
+def _format_table_cell(value: Any) -> str:
+    """Return a bounded, human-readable representation for a PDF table cell."""
+
+    if isinstance(value, pd.DataFrame):
+        return (
+            f"[table: {len(value):,} rows x "
+            f"{len(value.columns):,} columns]"
+        )
+
+    if isinstance(value, pd.Series):
+        if len(value) > 12:
+            return f"[series: {len(value):,} values]"
+        value = value.to_dict()
+
+    if isinstance(value, Mapping):
+        text = _json_text(value)
+    elif isinstance(value, (list, tuple, set)):
+        if len(value) > 12:
+            return f"[collection: {len(value):,} items]"
+        text = _json_text(value)
+    elif (
+        not isinstance(value, (str, bytes, bytearray))
+        and getattr(value, "shape", None) not in (None, ())
+    ):
+        shape = getattr(value, "shape", None)
+        return f"[array shape={shape}]"
+    else:
+        text = _format_scalar(value)
+
+    text = " ".join(str(text).split())
+    if len(text) > _MAX_TABLE_CELL_CHARS:
+        text = text[: _MAX_TABLE_CELL_CHARS - 3].rstrip() + "..."
+    return text
+
+
 def _long_table(
     frame: pd.DataFrame,
     styles,
@@ -853,7 +891,7 @@ def _long_table(
         data.append(
             [
                 Paragraph(
-                    escape(_format_scalar(row[column])),
+                    escape(_format_table_cell(row[column])),
                     styles["table"],
                 )
                 for column in frame.columns
@@ -861,18 +899,14 @@ def _long_table(
         )
 
     count = len(headers)
-    if count <= 2:
-        widths = [available_width / count] * count
-    elif count <= 5:
-        widths = [available_width / count] * count
-    else:
-        widths = [available_width / count] * count
+    widths = [available_width / count] * count
 
     table = LongTable(
         data,
         colWidths=widths,
         repeatRows=1,
         splitByRow=1,
+        splitInRow=1,
         hAlign="LEFT",
     )
     table.setStyle(

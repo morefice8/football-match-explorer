@@ -354,6 +354,52 @@ class MatchReportPdfRendererTests(unittest.TestCase):
             places=6,
         )
 
+
+    def test_oversized_nested_table_cell_is_compacted_and_pdf_renders(self):
+        huge_events = pd.DataFrame(
+            {
+                "event_id": range(12_000),
+                "description": [
+                    "synthetic nested payload " * 12
+                    for _ in range(12_000)
+                ],
+            }
+        )
+
+        summary = {
+            "eligible_players": 11,
+            "touches": 702,
+            "team_length_m": 41.2,
+            "team_width_m": 48.9,
+            "raw_events": huge_events,
+        }
+        bundle = _bundle(
+            section_statuses={
+                "mean-positions": ReportSectionStatus.GENERATED,
+            },
+            section_payloads={
+                "mean-positions": {
+                    "Home FC": {
+                        "players": pd.DataFrame(),
+                        "summary": summary,
+                    },
+                    "Away FC": {
+                        "players": pd.DataFrame(),
+                        "summary": summary,
+                    },
+                }
+            },
+        )
+
+        pdf = render_match_report_pdf(
+            bundle,
+            _catalog(),
+            config=self.config,
+        )
+
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertGreaterEqual(_page_count(pdf), 18)
+
     def test_renderer_has_no_dash_app_html_or_browser_imports(self):
         source = (ROOT / "src" / "reporting" / "pdf_renderer.py").read_text(
             encoding="utf-8"
