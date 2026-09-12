@@ -50,6 +50,8 @@ from src.components.match_graph_shell import match_graph_panel, match_graph_shel
 from src import config
 from src.reporting.download_service import (
     MatchAnalysisDownloadError,
+    MatchAnalysisDownloadStatus,
+    MatchAnalysisPreflightError,
     build_match_analysis_download,
 )
 from src.metrics import pass_network_metrics
@@ -1818,6 +1820,21 @@ def generate_match_analysis_pack_download(
         download = build_match_analysis_download(
             stored_match_data
         )
+    except MatchAnalysisPreflightError as exc:
+        alert_color = (
+            "warning"
+            if exc.status is MatchAnalysisDownloadStatus.WARNING
+            else "danger"
+        )
+        return (
+            no_update,
+            dbc.Alert(
+                str(exc),
+                color=alert_color,
+                dismissable=True,
+                className="mb-2",
+            ),
+        )
     except MatchAnalysisDownloadError as exc:
         return (
             no_update,
@@ -1836,8 +1853,8 @@ def generate_match_analysis_pack_download(
             no_update,
             dbc.Alert(
                 (
-                    "Could not generate the Match Analysis Pack: "
-                    f"{exc}"
+                    "Could not generate the Match Analysis Pack. "
+                    "Review the application logs, then try again."
                 ),
                 color="danger",
                 dismissable=True,
@@ -1850,7 +1867,17 @@ def generate_match_analysis_pack_download(
             download.payload,
             download.filename,
         ),
-        None,
+        dbc.Alert(
+            download.message,
+            color={
+                MatchAnalysisDownloadStatus.SUCCESS: "success",
+                MatchAnalysisDownloadStatus.WARNING: "warning",
+                MatchAnalysisDownloadStatus.FAILURE: "danger",
+            }[download.status],
+            dismissable=True,
+            duration=5000 if download.status is MatchAnalysisDownloadStatus.SUCCESS else None,
+            className="mb-2",
+        ),
     )
 
 

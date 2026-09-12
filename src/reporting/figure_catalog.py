@@ -14,6 +14,7 @@ from typing import Any, Mapping, Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
+from src.utils.sequence_normalization import normalize_sequence
 
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
@@ -75,6 +76,7 @@ class ReportFigureArtifact:
     source_section_status: str | None = None
     error_type: str | None = None
     error_message: str | None = None
+    selection: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,7 @@ class _Rendered:
     status: ReportFigureStatus
     renderer_id: str | None = None
     selection_reason: str | None = None
+    selection: dict | None = None
 
 
 def _slug(value: str | None) -> str:
@@ -222,6 +225,8 @@ def _as_frame(value: Any) -> pd.DataFrame:
 def _id_column(frame: pd.DataFrame) -> str | None:
     for column in (
         "sequence_id",
+        "trigger_sequence_id",
+        "buildup_sequence_id",
         "loss_sequence_id",
         "restart_id",
         "id",
@@ -276,6 +281,89 @@ def _sequence_candidates(payload: Mapping[str, Any]) -> pd.DataFrame:
         if not frame.empty:
             return frame
 
+    sequences = payload.get("sequences")
+    if isinstance(sequences, Sequence) and not isinstance(
+        sequences,
+        (str, bytes),
+    ):
+        rows: list[dict[str, Any]] = []
+        for sequence in sequences:
+            frame = _as_frame(sequence)
+            if frame.empty:
+                continue
+
+            id_column = _id_column(frame)
+            if id_column is None:
+                continue
+
+            identifier = frame[id_column].dropna()
+            if identifier.empty:
+                continue
+
+            row: dict[str, Any] = {
+                id_column: identifier.iloc[0],
+                "event_count": int(len(frame)),
+            }
+
+            for team_column in ("team_name", "teamName", "Team", "team"):
+                if team_column in frame.columns:
+                    values = frame[team_column].dropna()
+                    if not values.empty:
+                        row[team_column] = values.iloc[0]
+                    break
+
+            milestone = None
+            for column in (
+                "sequence_outcome_type",
+                "terminal_outcome",
+                "sequence_outcome",
+                "final_outcome",
+            ):
+                if column in frame.columns:
+                    values = frame[column].dropna()
+                    if not values.empty:
+                        milestone = values.iloc[0]
+                        break
+            if milestone is not None:
+                row["milestone"] = milestone
+
+            for progression_column in (
+                "max_controlled_x",
+                "territorial_progression",
+                "territorial_gain",
+            ):
+                if progression_column in frame.columns:
+                    values = pd.to_numeric(
+                        frame[progression_column],
+                        errors="coerce",
+                    ).dropna()
+                    if not values.empty:
+                        row["max_controlled_x"] = float(values.max())
+                        break
+
+            if "total_seconds" in frame.columns:
+                seconds = pd.to_numeric(
+                    frame["total_seconds"],
+                    errors="coerce",
+                ).dropna()
+                if not seconds.empty:
+                    row["duration_seconds"] = float(
+                        seconds.max() - seconds.min()
+                    )
+            elif {"timeMin", "timeSec"}.issubset(frame.columns):
+                minutes = pd.to_numeric(frame["timeMin"], errors="coerce")
+                seconds = pd.to_numeric(frame["timeSec"], errors="coerce")
+                clock = (minutes * 60 + seconds).dropna()
+                if not clock.empty:
+                    row["duration_seconds"] = float(
+                        clock.max() - clock.min()
+                    )
+
+            rows.append(row)
+
+        if rows:
+            return pd.DataFrame(rows)
+
     combined = _as_frame(payload.get("combined"))
     id_column = _id_column(combined)
     if not combined.empty and id_column is not None:
@@ -286,30 +374,42 @@ def _sequence_candidates(payload: Mapping[str, Any]) -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _find_sequence(sequences: Any, selected_id: str) -> pd.DataFrame | None:
-    if isinstance(sequences, pd.DataFrame):
-        id_column = _id_column(sequences)
+def _find_sequence(
+    sequences: Any,
+    selected_id: str,
+) -> pd.DataFrame | None:
+    # Real REPORT-02 payloads preserve multiple source shapes. REPORT-04 is
+    # the presentation adapter and accepts them without changing calculations.
+    def _selected(frame: pd.DataFrame) -> pd.DataFrame | None:
+        if frame.empty:
+            return None
+        id_column = _id_column(frame)
         if id_column is None:
             return None
-        found = sequences[
-            sequences[id_column]
+        found = frame[
+            frame[id_column]
             .astype(str)
             .eq(str(selected_id))
         ].copy()
         return None if found.empty else found
+
+    direct = _selected(_as_frame(sequences))
+    if direct is not None:
+        return direct
 
     if isinstance(sequences, Sequence) and not isinstance(
         sequences,
         (str, bytes),
     ):
         for sequence in sequences:
-            if not isinstance(sequence, pd.DataFrame) or sequence.empty:
+            frame = _as_frame(sequence)
+            if frame.empty:
                 continue
-            id_column = _id_column(sequence)
+            id_column = _id_column(frame)
             if id_column is None:
                 continue
-            if str(sequence[id_column].iloc[0]) == str(selected_id):
-                return sequence.copy()
+            if str(frame[id_column].iloc[0]) == str(selected_id):
+                return frame.copy()
 
     return None
 
@@ -827,6 +927,7 @@ def _render_build_up(
         ReportFigureStatus.GENERATED,
         "build-up-sequence",
         selection.selection_reason,
+        selection.to_dict(),
     )
 
 
@@ -843,6 +944,16 @@ def _render_transition(
         {},
     )
     candidates = _sequence_candidates(payload)
+    if category == "defensive-transition" and not candidates.empty:
+        # Defensive-transition payloads are already keyed/scoped by the team
+        # that lost the ball. Their event rows describe the opponent's actions
+        # after that loss, so row-level team_name is the opponent. Adapt only
+        # the candidate view so selection stays attributed to the defending team.
+        candidates = candidates.copy()
+        for team_column in ("team_name", "teamName", "Team", "team"):
+            if team_column in candidates.columns:
+                candidates[team_column] = plan.team_name
+
     selection = (
         select_representative_sequence(
             candidates,
@@ -852,7 +963,6 @@ def _render_transition(
         if not candidates.empty
         else None
     )
-
     if selection is None:
         return _Rendered(
             _placeholder(
@@ -888,8 +998,26 @@ def _render_transition(
             selection_reason=selection.selection_reason,
         )
 
-    figure = registry.resolve("sequence-explorer")(
+    sequence_type = category.replace("-", "_")
+    normalize_kwargs: dict[str, Any] = {}
+    if sequence_type == "offensive_transition":
+        normalize_kwargs["team_name"] = plan.team_name
+        normalize_kwargs["opponent_name"] = next(
+            (
+                team
+                for team in _teams(bundle)
+                if team != plan.team_name
+            ),
+            None,
+        )
+
+    normalized_sequence = normalize_sequence(
         sequence,
+        sequence_type=sequence_type,
+        **normalize_kwargs,
+    )
+    figure = registry.resolve("sequence-explorer")(
+        normalized_sequence,
         team_color=_team_color(bundle, plan, config),
         height=plan.height_px,
     )
@@ -898,6 +1026,7 @@ def _render_transition(
         ReportFigureStatus.GENERATED,
         "sequence-explorer",
         selection.selection_reason,
+        selection.to_dict(),
     )
 
 
@@ -912,8 +1041,8 @@ def _render_restart(
         plan.team_name,
         {},
     )
-    records = _as_frame(payload.get("records"))
-    if records.empty:
+    records_frame = _as_frame(payload.get("records"))
+    if records_frame.empty:
         return _Rendered(
             _placeholder(
                 plan,
@@ -923,7 +1052,7 @@ def _render_restart(
         )
 
     selection = select_representative_restart(
-        records,
+        records_frame,
         plan.team_name,
     )
     if (
@@ -938,6 +1067,8 @@ def _render_restart(
             ReportFigureStatus.EMPTY,
         )
 
+    # restart_map is list-of-records based; DataFrame truth testing is ambiguous.
+    records = records_frame.to_dict(orient="records")
     figure = registry.resolve("restart-map")(
         records,
         team_color=_team_color(bundle, plan, config),
@@ -952,6 +1083,7 @@ def _render_restart(
         ReportFigureStatus.GENERATED,
         "restart-map",
         selection.selection_reason if selection else None,
+        selection.to_dict() if selection else None,
     )
 
 
@@ -1069,6 +1201,7 @@ def _render_player_highlight(
             ReportFigureStatus.GENERATED,
             "player-pass-map",
             selection.selection_reason,
+            selection.to_dict(),
         )
 
     if plan.figure_id == "player-highlight-shooting":
@@ -1107,6 +1240,7 @@ def _render_player_highlight(
             ReportFigureStatus.GENERATED,
             "player-reception-map",
             selection.selection_reason,
+            selection.to_dict(),
         )
 
     maps = team_maps.get("defending", {}) or {}
@@ -1140,6 +1274,7 @@ def _render_player_highlight(
         ReportFigureStatus.GENERATED,
         "player-defensive-map",
         selection.selection_reason,
+        selection.to_dict(),
     )
 
 
@@ -1379,6 +1514,7 @@ def build_report_figure_catalog(
                 ),
                 renderer_id=rendered.renderer_id,
                 selection_reason=rendered.selection_reason,
+                selection=rendered.selection,
                 source_section_status=source_status,
                 error_type=error_type,
                 error_message=error_message,

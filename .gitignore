@@ -48,3 +48,5 @@ data/
 Thumbs.db
 # Local virtual environments
 .venv-*/
+
+audit-output/

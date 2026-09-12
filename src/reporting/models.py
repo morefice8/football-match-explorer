@@ -81,6 +81,7 @@ class ReportFigureSpec:
     selection: ReportSelectionSpec
     export: ReportExportSpec
     missing_data: MissingDataBehavior = MissingDataBehavior.PLACEHOLDER
+    required: bool | None = None  # None inherits the section policy.
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,1136 @@
+{
+  "matchInfo": {
+    "id": "fixture-report11-001",
+    "date": "2026-09-12T18:00:00Z",
+    "week": 4,
+    "competition": {
+      "id": "serie-a",
+      "name": "Serie A"
+    },
+    "contestant": [
+      {
+        "id": "home-id",
+        "name": "Home FC",
+        "shortName": "Home",
+        "code": "HOM",
+        "position": "home"
+      },
+      {
+        "id": "away-id",
+        "name": "Away FC",
+        "shortName": "Away",
+        "code": "AWY",
+        "position": "away"
+      }
+    ]
+  },
+  "liveData": {
+    "matchDetails": {
+      "matchStatus": "Played",
+      "winner": "home",
+      "scores": {
+        "total": {
+          "home": 1,
+          "away": 1
+        }
+      },
+      "period": [
+        {
+          "id": 1,
+          "start": "2026-09-12T18:00:00Z"
+        },
+        {
+          "id": 2,
+          "start": "2026-09-12T19:00:00Z"
+        }
+      ]
+    },
+    "event": [
+      {
+        "id": 1,
+        "eventId": 1,
+        "typeId": 34,
+        "periodId": 1,
+        "timeMin": 0,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "outcome": 1,
+        "x": 0.0,
+        "y": 0.0,
+        "qualifier": [
+          {
+            "qualifierId": 30,
+            "value": "h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12,h13"
+          },
+          {
+            "qualifierId": 59,
+            "value": "1,2,3,4,5,6,7,8,9,10,11,12,13"
+          },
+          {
+            "qualifierId": 131,
+            "value": "1,2,3,4,5,6,7,8,9,10,11,0,0"
+          },
+          {
+            "qualifierId": 44,
+            "value": "1,2,2,3,2,2,3,3,4,4,4,5,5"
+          },
+          {
+            "qualifierId": 130,
+            "value": "4"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "eventId": 2,
+        "typeId": 34,
+        "periodId": 1,
+        "timeMin": 0,
+        "timeSec": 1,
+        "contestantId": "away-id",
+        "outcome": 1,
+        "x": 0.0,
+        "y": 0.0,
+        "qualifier": [
+          {
+            "qualifierId": 30,
+            "value": "a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13"
+          },
+          {
+            "qualifierId": 59,
+            "value": "1,2,3,4,5,6,7,8,9,10,11,12,13"
+          },
+          {
+            "qualifierId": 131,
+            "value": "1,2,3,4,5,6,7,8,9,10,11,0,0"
+          },
+          {
+            "qualifierId": 44,
+            "value": "1,2,2,3,2,2,3,3,4,4,4,5,5"
+          },
+          {
+            "qualifierId": 130,
+            "value": "8"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "eventId": 10,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h1",
+        "playerName": "Home GK",
+        "outcome": 1,
+        "x": 6.0,
+        "y": 50.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "22"
+          },
+          {
+            "qualifierId": 141,
+            "value": "48"
+          },
+          {
+            "qualifierId": 212,
+            "value": "16.1"
+          },
+          {
+            "qualifierId": 124
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "eventId": 11,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 3,
+        "contestantId": "home-id",
+        "playerId": "h5",
+        "playerName": "Home CB",
+        "outcome": 1,
+        "x": 24.0,
+        "y": 49.0,
+        "qualifier": []
+      },
+      {
+        "id": 12,
+        "eventId": 12,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 5,
+        "contestantId": "home-id",
+        "playerId": "h5",
+        "playerName": "Home CB",
+        "outcome": 1,
+        "x": 24.0,
+        "y": 49.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "44"
+          },
+          {
+            "qualifierId": 141,
+            "value": "46"
+          },
+          {
+            "qualifierId": 212,
+            "value": "20.2"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "eventId": 13,
+        "typeId": 3,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 8,
+        "contestantId": "home-id",
+        "playerId": "h8",
+        "playerName": "Home CM",
+        "outcome": 1,
+        "x": 48.0,
+        "y": 46.0,
+        "qualifier": []
+      },
+      {
+        "id": 14,
+        "eventId": 14,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 10,
+        "contestantId": "home-id",
+        "playerId": "h8",
+        "playerName": "Home CM",
+        "outcome": 1,
+        "x": 48.0,
+        "y": 46.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "70"
+          },
+          {
+            "qualifierId": 141,
+            "value": "40"
+          },
+          {
+            "qualifierId": 212,
+            "value": "22.8"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "eventId": 15,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 13,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 72.0,
+        "y": 41.0,
+        "qualifier": []
+      },
+      {
+        "id": 16,
+        "eventId": 16,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 15,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 72.0,
+        "y": 41.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "88"
+          },
+          {
+            "qualifierId": 141,
+            "value": "48"
+          },
+          {
+            "qualifierId": 212,
+            "value": "17.5"
+          },
+          {
+            "qualifierId": 2
+          }
+        ]
+      },
+      {
+        "id": 17,
+        "eventId": 17,
+        "typeId": 15,
+        "periodId": 1,
+        "timeMin": 1,
+        "timeSec": 18,
+        "contestantId": "home-id",
+        "playerId": "h9",
+        "playerName": "Home ST",
+        "outcome": 1,
+        "x": 89.0,
+        "y": 49.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 22
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "eventId": 20,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 0,
+        "contestantId": "away-id",
+        "playerId": "a4",
+        "playerName": "Away DM",
+        "outcome": 0,
+        "x": 52.0,
+        "y": 54.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "58"
+          },
+          {
+            "qualifierId": 141,
+            "value": "52"
+          },
+          {
+            "qualifierId": 212,
+            "value": "6.3"
+          }
+        ]
+      },
+      {
+        "id": 21,
+        "eventId": 21,
+        "typeId": 49,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 1,
+        "contestantId": "home-id",
+        "playerId": "h8",
+        "playerName": "Home CM",
+        "outcome": 1,
+        "x": 43.0,
+        "y": 48.0,
+        "qualifier": []
+      },
+      {
+        "id": 22,
+        "eventId": 22,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 3,
+        "contestantId": "home-id",
+        "playerId": "h8",
+        "playerName": "Home CM",
+        "outcome": 1,
+        "x": 43.0,
+        "y": 48.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "68"
+          },
+          {
+            "qualifierId": 141,
+            "value": "45"
+          },
+          {
+            "qualifierId": 212,
+            "value": "25.2"
+          },
+          {
+            "qualifierId": 1
+          }
+        ]
+      },
+      {
+        "id": 23,
+        "eventId": 23,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 5,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 70.0,
+        "y": 45.0,
+        "qualifier": []
+      },
+      {
+        "id": 24,
+        "eventId": 24,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 7,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 70.0,
+        "y": 45.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "86"
+          },
+          {
+            "qualifierId": 141,
+            "value": "50"
+          },
+          {
+            "qualifierId": 212,
+            "value": "16.8"
+          }
+        ]
+      },
+      {
+        "id": 25,
+        "eventId": 25,
+        "typeId": 13,
+        "periodId": 1,
+        "timeMin": 5,
+        "timeSec": 10,
+        "contestantId": "home-id",
+        "playerId": "h9",
+        "playerName": "Home ST",
+        "outcome": 0,
+        "x": 88.0,
+        "y": 50.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 23
+          }
+        ]
+      },
+      {
+        "id": 30,
+        "eventId": 30,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h6",
+        "playerName": "Home CB2",
+        "outcome": 0,
+        "x": 46.0,
+        "y": 60.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "58"
+          },
+          {
+            "qualifierId": 141,
+            "value": "58"
+          },
+          {
+            "qualifierId": 212,
+            "value": "12.2"
+          }
+        ]
+      },
+      {
+        "id": 31,
+        "eventId": 31,
+        "typeId": 49,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 1,
+        "contestantId": "away-id",
+        "playerId": "a8",
+        "playerName": "Away CM",
+        "outcome": 1,
+        "x": 42.0,
+        "y": 42.0,
+        "qualifier": []
+      },
+      {
+        "id": 32,
+        "eventId": 32,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 3,
+        "contestantId": "away-id",
+        "playerId": "a8",
+        "playerName": "Away CM",
+        "outcome": 1,
+        "x": 42.0,
+        "y": 42.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "70"
+          },
+          {
+            "qualifierId": 141,
+            "value": "50"
+          },
+          {
+            "qualifierId": 212,
+            "value": "29.1"
+          }
+        ]
+      },
+      {
+        "id": 33,
+        "eventId": 33,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 5,
+        "contestantId": "away-id",
+        "playerId": "a10",
+        "playerName": "Away AM",
+        "outcome": 1,
+        "x": 72.0,
+        "y": 50.0,
+        "qualifier": []
+      },
+      {
+        "id": 34,
+        "eventId": 34,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 7,
+        "contestantId": "away-id",
+        "playerId": "a10",
+        "playerName": "Away AM",
+        "outcome": 1,
+        "x": 72.0,
+        "y": 50.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "90"
+          },
+          {
+            "qualifierId": 141,
+            "value": "50"
+          },
+          {
+            "qualifierId": 212,
+            "value": "18.0"
+          }
+        ]
+      },
+      {
+        "id": 35,
+        "eventId": 35,
+        "typeId": 16,
+        "periodId": 1,
+        "timeMin": 12,
+        "timeSec": 10,
+        "contestantId": "away-id",
+        "playerId": "a9",
+        "playerName": "Away ST",
+        "outcome": 1,
+        "x": 91.0,
+        "y": 50.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 22
+          }
+        ]
+      },
+      {
+        "id": 40,
+        "eventId": 40,
+        "typeId": 5,
+        "periodId": 1,
+        "timeMin": 20,
+        "timeSec": 0,
+        "contestantId": "away-id",
+        "playerId": "a3",
+        "playerName": "Away LB",
+        "outcome": 0,
+        "x": 100.0,
+        "y": 10.0,
+        "qualifier": []
+      },
+      {
+        "id": 41,
+        "eventId": 41,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 20,
+        "timeSec": 2,
+        "contestantId": "home-id",
+        "playerId": "h2",
+        "playerName": "Home RB",
+        "outcome": 1,
+        "x": 32.0,
+        "y": 10.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "42"
+          },
+          {
+            "qualifierId": 141,
+            "value": "15"
+          },
+          {
+            "qualifierId": 212,
+            "value": "11.2"
+          },
+          {
+            "qualifierId": 107
+          }
+        ]
+      },
+      {
+        "id": 42,
+        "eventId": 42,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 20,
+        "timeSec": 5,
+        "contestantId": "home-id",
+        "playerId": "h7",
+        "playerName": "Home RCM",
+        "outcome": 1,
+        "x": 43.0,
+        "y": 16.0,
+        "qualifier": []
+      },
+      {
+        "id": 43,
+        "eventId": 43,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 20,
+        "timeSec": 7,
+        "contestantId": "home-id",
+        "playerId": "h7",
+        "playerName": "Home RCM",
+        "outcome": 1,
+        "x": 43.0,
+        "y": 16.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "61"
+          },
+          {
+            "qualifierId": 141,
+            "value": "25"
+          },
+          {
+            "qualifierId": 212,
+            "value": "20.1"
+          }
+        ]
+      },
+      {
+        "id": 44,
+        "eventId": 44,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 25,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h4",
+        "playerName": "Home CM2",
+        "outcome": 1,
+        "x": 40.0,
+        "y": 55.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "62"
+          },
+          {
+            "qualifierId": 141,
+            "value": "50"
+          },
+          {
+            "qualifierId": 212,
+            "value": "22.6"
+          },
+          {
+            "qualifierId": 5
+          }
+        ]
+      },
+      {
+        "id": 45,
+        "eventId": 45,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 25,
+        "timeSec": 3,
+        "contestantId": "home-id",
+        "playerId": "h11",
+        "playerName": "Home LW",
+        "outcome": 1,
+        "x": 63.0,
+        "y": 50.0,
+        "qualifier": []
+      },
+      {
+        "id": 46,
+        "eventId": 46,
+        "typeId": 6,
+        "periodId": 1,
+        "timeMin": 30,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 99.0,
+        "y": 2.0,
+        "qualifier": []
+      },
+      {
+        "id": 47,
+        "eventId": 47,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 30,
+        "timeSec": 2,
+        "contestantId": "home-id",
+        "playerId": "h10",
+        "playerName": "Home RW",
+        "outcome": 1,
+        "x": 95.0,
+        "y": 2.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "88"
+          },
+          {
+            "qualifierId": 141,
+            "value": "45"
+          },
+          {
+            "qualifierId": 212,
+            "value": "43.6"
+          },
+          {
+            "qualifierId": 6
+          },
+          {
+            "qualifierId": 2
+          }
+        ]
+      },
+      {
+        "id": 48,
+        "eventId": 48,
+        "typeId": 14,
+        "periodId": 1,
+        "timeMin": 30,
+        "timeSec": 5,
+        "contestantId": "home-id",
+        "playerId": "h9",
+        "playerName": "Home ST",
+        "outcome": 0,
+        "x": 90.0,
+        "y": 48.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 25
+          }
+        ]
+      },
+      {
+        "id": 50,
+        "eventId": 50,
+        "typeId": 18,
+        "periodId": 1,
+        "timeMin": 60,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h11",
+        "playerName": "Home LW",
+        "outcome": 1,
+        "x": 0.0,
+        "y": 0.0,
+        "qualifier": []
+      },
+      {
+        "id": 51,
+        "eventId": 51,
+        "typeId": 19,
+        "periodId": 1,
+        "timeMin": 60,
+        "timeSec": 1,
+        "contestantId": "home-id",
+        "playerId": "h12",
+        "playerName": "Home Sub",
+        "outcome": 1,
+        "x": 0.0,
+        "y": 0.0,
+        "qualifier": [
+          {
+            "qualifierId": 145,
+            "value": "11"
+          },
+          {
+            "qualifierId": 292,
+            "value": "6"
+          }
+        ]
+      },
+      {
+        "id": 52,
+        "eventId": 52,
+        "typeId": 34,
+        "periodId": 2,
+        "timeMin": 60,
+        "timeSec": 2,
+        "contestantId": "home-id",
+        "outcome": 1,
+        "x": 0.0,
+        "y": 0.0,
+        "qualifier": [
+          {
+            "qualifierId": 130,
+            "value": "8"
+          }
+        ]
+      },
+      {
+        "id": 53,
+        "eventId": 53,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 61,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h4",
+        "playerName": "Home CM2",
+        "outcome": 1,
+        "x": 45.0,
+        "y": 55.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "65"
+          },
+          {
+            "qualifierId": 141,
+            "value": "55"
+          },
+          {
+            "qualifierId": 212,
+            "value": "20.0"
+          }
+        ]
+      },
+      {
+        "id": 54,
+        "eventId": 54,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 61,
+        "timeSec": 3,
+        "contestantId": "home-id",
+        "playerId": "h12",
+        "playerName": "Home Sub",
+        "outcome": 1,
+        "x": 66.0,
+        "y": 55.0,
+        "qualifier": []
+      },
+      {
+        "id": 55,
+        "eventId": 55,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 61,
+        "timeSec": 5,
+        "contestantId": "home-id",
+        "playerId": "h12",
+        "playerName": "Home Sub",
+        "outcome": 1,
+        "x": 66.0,
+        "y": 55.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "84"
+          },
+          {
+            "qualifierId": 141,
+            "value": "62"
+          },
+          {
+            "qualifierId": 212,
+            "value": "19.3"
+          },
+          {
+            "qualifierId": 210,
+            "value": "16"
+          }
+        ]
+      },
+      {
+        "id": 56,
+        "eventId": 56,
+        "typeId": 16,
+        "periodId": 1,
+        "timeMin": 61,
+        "timeSec": 8,
+        "contestantId": "home-id",
+        "playerId": "h9",
+        "playerName": "Home ST",
+        "outcome": 1,
+        "x": 89.0,
+        "y": 54.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 22
+          }
+        ]
+      },
+      {
+        "id": 60,
+        "eventId": 60,
+        "typeId": 8,
+        "periodId": 1,
+        "timeMin": 70,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h5",
+        "playerName": "Home CB",
+        "outcome": 1,
+        "x": 38.0,
+        "y": 50.0,
+        "qualifier": []
+      },
+      {
+        "id": 61,
+        "eventId": 61,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 70,
+        "timeSec": 2,
+        "contestantId": "home-id",
+        "playerId": "h5",
+        "playerName": "Home CB",
+        "outcome": 1,
+        "x": 38.0,
+        "y": 50.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "58"
+          },
+          {
+            "qualifierId": 141,
+            "value": "52"
+          },
+          {
+            "qualifierId": 212,
+            "value": "20.1"
+          }
+        ]
+      },
+      {
+        "id": 62,
+        "eventId": 62,
+        "typeId": 7,
+        "periodId": 1,
+        "timeMin": 72,
+        "timeSec": 0,
+        "contestantId": "away-id",
+        "playerId": "a5",
+        "playerName": "Away CB",
+        "outcome": 1,
+        "x": 35.0,
+        "y": 40.0,
+        "qualifier": []
+      },
+      {
+        "id": 63,
+        "eventId": 63,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 72,
+        "timeSec": 2,
+        "contestantId": "away-id",
+        "playerId": "a5",
+        "playerName": "Away CB",
+        "outcome": 1,
+        "x": 35.0,
+        "y": 40.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "55"
+          },
+          {
+            "qualifierId": 141,
+            "value": "45"
+          },
+          {
+            "qualifierId": 212,
+            "value": "20.6"
+          }
+        ]
+      },
+      {
+        "id": 64,
+        "eventId": 64,
+        "typeId": 45,
+        "periodId": 1,
+        "timeMin": 74,
+        "timeSec": 0,
+        "contestantId": "home-id",
+        "playerId": "h6",
+        "playerName": "Home CB2",
+        "outcome": 1,
+        "x": 40.0,
+        "y": 60.0,
+        "qualifier": []
+      },
+      {
+        "id": 65,
+        "eventId": 65,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 75,
+        "timeSec": 0,
+        "contestantId": "away-id",
+        "playerId": "a7",
+        "playerName": "Away RM",
+        "outcome": 1,
+        "x": 60.0,
+        "y": 20.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "76"
+          },
+          {
+            "qualifierId": 141,
+            "value": "28"
+          },
+          {
+            "qualifierId": 212,
+            "value": "17.9"
+          }
+        ]
+      },
+      {
+        "id": 66,
+        "eventId": 66,
+        "typeId": 61,
+        "periodId": 1,
+        "timeMin": 75,
+        "timeSec": 3,
+        "contestantId": "away-id",
+        "playerId": "a11",
+        "playerName": "Away LM",
+        "outcome": 1,
+        "x": 77.0,
+        "y": 28.0,
+        "qualifier": []
+      },
+      {
+        "id": 67,
+        "eventId": 67,
+        "typeId": 1,
+        "periodId": 1,
+        "timeMin": 75,
+        "timeSec": 5,
+        "contestantId": "away-id",
+        "playerId": "a11",
+        "playerName": "Away LM",
+        "outcome": 1,
+        "x": 77.0,
+        "y": 28.0,
+        "qualifier": [
+          {
+            "qualifierId": 140,
+            "value": "89"
+          },
+          {
+            "qualifierId": 141,
+            "value": "42"
+          },
+          {
+            "qualifierId": 212,
+            "value": "18.4"
+          },
+          {
+            "qualifierId": 2
+          }
+        ]
+      },
+      {
+        "id": 68,
+        "eventId": 68,
+        "typeId": 15,
+        "periodId": 1,
+        "timeMin": 75,
+        "timeSec": 8,
+        "contestantId": "away-id",
+        "playerId": "a9",
+        "playerName": "Away ST",
+        "outcome": 1,
+        "x": 90.0,
+        "y": 43.0,
+        "qualifier": [
+          {
+            "qualifierId": 20
+          },
+          {
+            "qualifierId": 22
+          }
+        ]
+      }
+    ]
+  }
+}

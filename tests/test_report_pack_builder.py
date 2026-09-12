@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import ast
 import csv
+from dataclasses import replace
 from io import BytesIO, StringIO
 import json
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 import zipfile
 
@@ -20,10 +22,12 @@ from src.reporting.bundle import (
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportScope
 from src.reporting.pack_builder import (
+    CsvColumnCollisionError,
     MAX_RECOMMENDED_PACK_BYTES,
     TABLE_PATHS,
     build_match_analysis_pack,
     build_match_analysis_pack_buffer,
+    build_pack_tables,
     match_report_pdf_filename,
 )
 
@@ -384,7 +388,7 @@ def _bundle(
 def _build(bundle):
     with patch(
         "src.reporting.pack_builder.build_report_figure_catalog",
-        return_value=object(),
+        return_value=SimpleNamespace(figures=()),
     ) as catalog:
         with patch(
             "src.reporting.pack_builder.render_match_report_pdf",
@@ -392,6 +396,18 @@ def _build(bundle):
         ) as pdf:
             pack = build_match_analysis_pack(bundle)
     return pack, catalog, pdf
+
+
+def _replace_section_data(bundle, section_id, data):
+    return replace(
+        bundle,
+        sections=tuple(
+            replace(section, data=data)
+            if section.id == section_id
+            else section
+            for section in bundle.sections
+        ),
+    )
 
 
 class MatchAnalysisPackTests(unittest.TestCase):
@@ -480,6 +496,122 @@ class MatchAnalysisPackTests(unittest.TestCase):
                     1,
                     msg=path,
                 )
+                self.assertEqual(
+                    len(rows[0]),
+                    len(set(rows[0])),
+                    msg=f"duplicate CSV headers in {path}",
+                )
+
+    def test_known_legacy_duplicate_slots_are_normalized_without_loss(self):
+        bundle = _bundle()
+        overview = dict(bundle.section("overview").data)
+        overview["shots"] = pd.DataFrame(
+            [
+                [
+                    2941348915,
+                    74,
+                    15,
+                    1,
+                    23,
+                    51,
+                    "Napoli",
+                    "K. De Bruyne",
+                    "Successful",
+                    83.4,
+                    48.2,
+                    6,
+                    11,
+                ]
+            ],
+            columns=[
+                "id",
+                "eventId",
+                "typeId",
+                "periodId",
+                "timeMin",
+                "timeSec",
+                "team_name",
+                "playerName",
+                "outcome",
+                "x",
+                "y",
+                # Legacy preprocessing order: Q292 first, Q145 second.
+                "Formation slot",
+                "Formation slot",
+            ],
+        )
+        bundle = _replace_section_data(bundle, "overview", overview)
+
+        event_explorer = build_pack_tables(bundle)[
+            "tables/event-explorer.csv"
+        ]
+        self.assertTrue(event_explorer.columns.is_unique)
+
+        shot = event_explorer.loc[
+            event_explorer["source_dataset"].eq("shots")
+        ].iloc[0]
+        self.assertEqual(shot["Substitution position code"], 6)
+        self.assertEqual(shot["Formation slot"], 11)
+
+    def test_real_shaped_event_explorer_csv_is_readable(self):
+        bundle = _bundle()
+        overview = dict(bundle.section("overview").data)
+        overview["shots"] = pd.DataFrame(
+            [
+                {
+                    "id": 2941348915,
+                    "eventId": 74,
+                    "typeId": 15,
+                    "periodId": 1,
+                    "timeMin": 23,
+                    "timeSec": 51,
+                    "team_name": "Napoli",
+                    "playerName": "K. De Bruyne",
+                    "outcome": "Successful",
+                    "x": 83.4,
+                    "y": 48.2,
+                    "Substitution position code": 6,
+                    "Formation slot": 11,
+                }
+            ]
+        )
+        bundle = _replace_section_data(bundle, "overview", overview)
+
+        payload, _, _ = _build(bundle)
+        with zipfile.ZipFile(BytesIO(payload)) as archive:
+            exported = pd.read_csv(
+                BytesIO(archive.read("tables/event-explorer.csv"))
+            )
+
+        self.assertTrue(exported.columns.is_unique)
+        exported_shot = exported.loc[
+            exported["source_dataset"].eq("shots")
+        ].iloc[0]
+        self.assertEqual(
+            exported_shot["Substitution position code"],
+            6,
+        )
+        self.assertEqual(exported_shot["Formation slot"], 11)
+
+    def test_unknown_duplicate_columns_raise_readable_error(self):
+        bundle = _bundle()
+        overview = dict(bundle.section("overview").data)
+        overview["shots"] = pd.DataFrame(
+            [[50, "Home FC", "left", "right"]],
+            columns=[
+                "id",
+                "team_name",
+                "Unexpected field",
+                "Unexpected field",
+            ],
+        )
+        bundle = _replace_section_data(bundle, "overview", overview)
+
+        with self.assertRaisesRegex(
+            CsvColumnCollisionError,
+            r"event-explorer\.csv.*Unexpected field.*2 occurrences",
+        ):
+            build_pack_tables(bundle)
 
     def test_special_team_names_have_sanitized_deterministic_pdf_name(self):
         bundle = _bundle(
@@ -600,7 +732,7 @@ class MatchAnalysisPackTests(unittest.TestCase):
 
         with patch(
             "src.reporting.pack_builder.build_report_figure_catalog",
-            return_value=object(),
+            return_value=SimpleNamespace(figures=()),
         ):
             with patch(
                 "src.reporting.pack_builder.render_match_report_pdf",

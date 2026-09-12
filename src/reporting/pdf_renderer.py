@@ -7,7 +7,8 @@ HTML renderers, browser automation or screenshot tooling.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
 from io import BytesIO
 import json
 from pathlib import Path
@@ -31,6 +32,7 @@ from reportlab.platypus import (
     KeepTogether,
     LongTable,
     PageBreak,
+    PageBreakIfNotEmpty,
     PageTemplate,
     Paragraph,
     Spacer,
@@ -41,6 +43,9 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
+from src.reporting.render_audit import artifact_key
+
+logger = logging.getLogger(__name__)
 
 
 CORAL = HexColor("#E96A4A")
@@ -65,6 +70,7 @@ class MatchReportPdfConfig:
     max_table_columns: int = 10
     brand_font_path: str | Path | None = None
     enable_brand_font: bool = True
+    render_audit: dict | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.image_scale <= 0:
@@ -307,6 +313,18 @@ def _styles(config: MatchReportPdfConfig) -> dict[str, ParagraphStyle]:
             spaceAfter=6,
             keepWithNext=True,
         ),
+
+"table_subheading": ParagraphStyle(
+    "ReportTableSubheading",
+    parent=sample["Heading2"],
+    fontName="Helvetica-Bold",
+    fontSize=12,
+    leading=15,
+    textColor=TEXT,
+    spaceBefore=7,
+    spaceAfter=6,
+    keepWithNext=False,
+),
         "body": ParagraphStyle(
             "ReportBody",
             parent=sample["BodyText"],
@@ -391,23 +409,55 @@ def _cover_context(bundle) -> dict[str, str]:
     away = str(teams[1]) if len(teams) > 1 else str(
         _first_present(info, "ateamName", "away_team", "awayTeam") or "Away"
     )
-
     overview = _section(bundle, "overview")
     overview_data = getattr(overview, "data", {}) or {}
-    result = overview_data.get("result", {}) if isinstance(overview_data, Mapping) else {}
-    metadata = overview_data.get("metadata", {}) if isinstance(overview_data, Mapping) else {}
-    merged = {**info, **(metadata if isinstance(metadata, Mapping) else {})}
+    result = (
+        overview_data.get("result", {})
+        if isinstance(overview_data, Mapping)
+        else {}
+    )
+    metadata = (
+        overview_data.get("metadata", {})
+        if isinstance(overview_data, Mapping)
+        else {}
+    )
+    merged = {
+        **info,
+        **(metadata if isinstance(metadata, Mapping) else {}),
+    }
 
-    home_score = result.get("home_score") if isinstance(result, Mapping) else None
-    away_score = result.get("away_score") if isinstance(result, Mapping) else None
+    home_score = (
+        result.get("home_score")
+        if isinstance(result, Mapping)
+        else None
+    )
+    away_score = (
+        result.get("away_score")
+        if isinstance(result, Mapping)
+        else None
+    )
     if home_score in (None, ""):
-        home_score = _first_present(merged, "hteamScore", "home_score", "homeScore")
+        home_score = _first_present(
+            merged,
+            "hteamScore",
+            "home_score",
+            "homeScore",
+        )
     if away_score in (None, ""):
-        away_score = _first_present(merged, "ateamScore", "away_score", "awayScore")
+        away_score = _first_present(
+            merged,
+            "ateamScore",
+            "away_score",
+            "awayScore",
+        )
 
     score = "-"
     if home_score not in (None, "") or away_score not in (None, ""):
-        score = f"{home_score if home_score not in (None, '') else '-'} - {away_score if away_score not in (None, '') else '-'}"
+        score = (
+            f"{home_score if home_score not in (None, '') else '-'}"
+            " - "
+            f"{away_score if away_score not in (None, '') else '-'}"
+        )
 
     competition = _first_present(
         merged,
@@ -422,12 +472,14 @@ def _cover_context(bundle) -> dict[str, str]:
 
     date = _first_present(
         merged,
+        "date_formatted",
         "game_date",
         "match_date",
         "matchDate",
         "date",
         "startDate",
         "start_date",
+        "date_iso",
     ) or "Date not specified"
 
     return {
@@ -654,6 +706,8 @@ def _image_flowable(
     if variant != "summary":
         caption_parts.append(variant.title())
     caption = " - ".join(caption_parts)
+    audit = config.render_audit
+    record = audit.get(artifact_key(artifact)) if audit is not None else None
 
     try:
         png = pio.to_image(
@@ -678,6 +732,10 @@ def _image_flowable(
             image,
         ]
     except Exception as exc:
+        logger.exception("PDF figure export failed: %s", artifact.id)
+        if record is not None:
+            record.update(render_status="error", error_type=type(exc).__name__,
+                          error_message="PNG conversion failed.")
         message = (
             f"Figure unavailable: {type(exc).__name__}: {exc}"
         )
@@ -688,6 +746,16 @@ def _image_flowable(
         error = message
     else:
         error = None
+        if record is not None:
+            status = getattr(artifact.status, "value", artifact.status)
+            record.update(
+                render_status=status,
+                error_type=(
+                    (getattr(artifact, "error_type", None) or "FigureConstructionError")
+                    if status == "error" else None
+                ),
+                error_message="Figure construction failed." if status == "error" else None,
+            )
 
     reason = getattr(artifact, "selection_reason", None)
     if reason:
@@ -1222,7 +1290,7 @@ def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
 
     story: list[Any] = []
     for title, frame in payloads:
-        story.append(Paragraph(escape(title), styles["subheading"]))
+        story.append(Paragraph(escape(title), styles["table_subheading"]))
         story.append(
             _long_table(
                 frame,
@@ -1268,7 +1336,7 @@ def _overview_notes(bundle, styles) -> list[Any]:
         return []
 
     return [
-        Paragraph("Goals", styles["subheading"]),
+        Paragraph("Goals", styles["table_subheading"]),
         _long_table(pd.DataFrame(rows), styles, max_columns=4),
         Spacer(1, 4 * mm),
     ]
@@ -1314,14 +1382,14 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
 
     story.extend(
         [
-            Paragraph("Canonical manifest", styles["subheading"]),
+            Paragraph("Canonical manifest", styles["table_subheading"]),
             _long_table(
                 _appendix_manifest_table(manifest),
                 styles,
                 max_columns=6,
             ),
             Spacer(1, 4 * mm),
-            Paragraph("Generation metadata", styles["subheading"]),
+            Paragraph("Generation metadata", styles["table_subheading"]),
             _long_table(
                 pd.DataFrame(
                     [
@@ -1458,7 +1526,7 @@ def render_match_report_pdf(
     story.extend(_toc_story(styles))
 
     for section_spec in manifest.sections:
-        story.append(PageBreak())
+        story.append(PageBreakIfNotEmpty())
         try:
             story.extend(
                 _section_story(
@@ -1471,6 +1539,11 @@ def render_match_report_pdf(
                 )
             )
         except Exception as exc:
+            logger.exception("PDF section composition failed: %s", section_spec.id)
+            for record in (config.render_audit or {}).values():
+                if record["section_id"] == section_spec.id:
+                    record.update(render_status="error", error_type=type(exc).__name__,
+                                  error_message="Section composition failed.")
             # Last-resort section isolation: a ReportLab composition problem in
             # one section must not prevent the remaining document from building.
             story.extend(_section_heading(section_spec, styles))

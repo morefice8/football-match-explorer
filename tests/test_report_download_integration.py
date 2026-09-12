@@ -11,11 +11,26 @@ import pandas as pd
 from src.reporting import download_service
 from src.reporting.download_service import (
     MatchAnalysisDownloadError,
+    MatchAnalysisDownloadStatus,
+    MatchAnalysisPreflightError,
     build_match_analysis_download,
+)
+from src.reporting.figure_export import (
+    StaticExportPreflightCode,
+    StaticExportPreflightResult,
+    StaticExportPreflightStatus,
 )
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def successful_preflight():
+    return StaticExportPreflightResult(
+        status=StaticExportPreflightStatus.SUCCESS,
+        code=StaticExportPreflightCode.READY,
+        user_message="The report export engine is ready.",
+    )
 
 
 def stored_match(*, match_info=None):
@@ -54,6 +69,10 @@ class MatchAnalysisDownloadServiceTests(unittest.TestCase):
 
         with patch.object(
             download_service,
+            "preflight_match_report_export",
+            return_value=successful_preflight(),
+        ) as preflight, patch.object(
+            download_service,
             "build_match_report_data_bundle",
             return_value=fake_bundle,
         ) as build_bundle, patch.object(
@@ -75,9 +94,14 @@ class MatchAnalysisDownloadServiceTests(unittest.TestCase):
         self.assertEqual(build_bundle.call_count, 1)
         self.assertEqual(build_pack.call_count, 1)
         self.assertEqual(build_filename.call_count, 1)
+        self.assertEqual(result.status, MatchAnalysisDownloadStatus.SUCCESS)
 
         built_bundle = build_bundle.return_value
         self.assertIs(build_pack.call_args.args[0], built_bundle)
+        self.assertIs(
+            build_pack.call_args.kwargs["pdf_config"],
+            preflight.call_args.args[0],
+        )
         self.assertIs(build_filename.call_args.args[0], built_bundle)
         self.assertEqual(len(build_bundle.call_args.args), 2)
         self.assertIsInstance(
@@ -122,6 +146,10 @@ class MatchAnalysisDownloadServiceTests(unittest.TestCase):
 
         with patch.object(
             download_service,
+            "preflight_match_report_export",
+            return_value=successful_preflight(),
+        ), patch.object(
+            download_service,
             "build_match_report_data_bundle",
             return_value=fake_bundle,
         ), patch.object(
@@ -130,19 +158,30 @@ class MatchAnalysisDownloadServiceTests(unittest.TestCase):
             side_effect=RuntimeError(
                 "Kaleido renderer unavailable"
             ),
-        ):
+        ), self.assertLogs(
+            "src.reporting.download_service",
+            level="ERROR",
+        ) as captured:
             with self.assertRaisesRegex(
                 MatchAnalysisDownloadError,
-                "Could not render.*Kaleido renderer unavailable",
+                "Could not render.*Review the application logs",
             ):
                 build_match_analysis_download(
                     stored_match(match_info={})
                 )
+        self.assertIn(
+            "Kaleido renderer unavailable",
+            "\n".join(captured.output),
+        )
 
     def test_missing_match_metadata_is_allowed(self):
         fake_bundle = object()
 
         with patch.object(
+            download_service,
+            "preflight_match_report_export",
+            return_value=successful_preflight(),
+        ), patch.object(
             download_service,
             "build_match_report_data_bundle",
             return_value=fake_bundle,
@@ -167,6 +206,78 @@ class MatchAnalysisDownloadServiceTests(unittest.TestCase):
             build_bundle.call_args.args[1],
             {},
         )
+
+    def test_preflight_warning_stops_before_expensive_generation(self):
+        warning = StaticExportPreflightResult(
+            status=StaticExportPreflightStatus.WARNING,
+            code=StaticExportPreflightCode.CHROME_MISSING,
+            user_message=(
+                "Chrome is unavailable. Run `plotly_get_chrome`."
+            ),
+            technical_detail="synthetic ChromeNotFoundError",
+        )
+
+        with patch.object(
+            download_service,
+            "preflight_match_report_export",
+            return_value=warning,
+        ), patch.object(
+            download_service,
+            "build_match_report_data_bundle",
+        ) as build_bundle, patch.object(
+            download_service,
+            "build_match_analysis_pack",
+        ) as build_pack:
+            with self.assertRaises(MatchAnalysisPreflightError) as raised:
+                build_match_analysis_download(
+                    stored_match(match_info={})
+                )
+
+        self.assertIs(
+            raised.exception.status,
+            MatchAnalysisDownloadStatus.WARNING,
+        )
+        self.assertIn("plotly_get_chrome", str(raised.exception))
+        self.assertNotIn("ChromeNotFoundError", str(raised.exception))
+        build_bundle.assert_not_called()
+        build_pack.assert_not_called()
+
+    def test_preflight_failure_stops_before_expensive_generation(self):
+        failure = StaticExportPreflightResult(
+            status=StaticExportPreflightStatus.FAILURE,
+            code=StaticExportPreflightCode.RENDERER_ERROR,
+            user_message=(
+                "The export engine failed. Review the application logs."
+            ),
+            technical_detail="synthetic renderer internals",
+        )
+
+        with patch.object(
+            download_service,
+            "preflight_match_report_export",
+            return_value=failure,
+        ), patch.object(
+            download_service,
+            "build_match_report_data_bundle",
+        ) as build_bundle, patch.object(
+            download_service,
+            "build_match_analysis_pack",
+        ) as build_pack:
+            with self.assertRaises(MatchAnalysisPreflightError) as raised:
+                build_match_analysis_download(
+                    stored_match(match_info={})
+                )
+
+        self.assertIs(
+            raised.exception.status,
+            MatchAnalysisDownloadStatus.FAILURE,
+        )
+        self.assertNotIn(
+            "synthetic renderer internals",
+            str(raised.exception),
+        )
+        build_bundle.assert_not_called()
+        build_pack.assert_not_called()
 
     def test_service_has_no_dash_ui_or_filesystem_dependency(self):
         path = (
@@ -311,6 +422,23 @@ class MatchAnalysisDashIntegrationTests(unittest.TestCase):
             block,
         )
         self.assertIn("dbc.Alert(", block)
+
+    def test_callback_distinguishes_success_warning_and_failure(self):
+        block = self.callback_source
+
+        self.assertIn("MatchAnalysisPreflightError", block)
+        self.assertIn("MatchAnalysisDownloadStatus.WARNING", block)
+        self.assertIn('"warning"', block)
+        self.assertIn('color="danger"', block)
+        self.assertIn('MatchAnalysisDownloadStatus.SUCCESS: "success"', block)
+        self.assertIn("download.message", block)
+
+    def test_callback_does_not_expose_unexpected_technical_detail(self):
+        block = self.callback_source
+
+        self.assertIn("logger.exception(", block)
+        self.assertIn("Review the application logs", block)
+        self.assertNotIn('f"{exc}"', block)
 
     def test_legacy_report_store_is_not_executable_when_unused(self):
         executable_lines = [

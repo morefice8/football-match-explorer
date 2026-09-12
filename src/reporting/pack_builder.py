@@ -8,6 +8,7 @@ does not calculate football metrics, touch Dash/app.py, or persist temp files.
 from __future__ import annotations
 
 from io import BytesIO, StringIO
+from dataclasses import replace
 import json
 import re
 import unicodedata
@@ -23,13 +24,16 @@ from src.reporting.figure_catalog import (
 )
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
+from src.reporting.render_audit import (
+    prepare_render_audit, summarize_render_audit, MatchAnalysisPackBytes,
+)
 from src.reporting.pdf_renderer import (
     MatchReportPdfConfig,
     render_match_report_pdf,
 )
 
 
-PACK_SCHEMA_VERSION = "1.0"
+PACK_SCHEMA_VERSION = "1.1"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 TABLE_PATHS: tuple[str, ...] = (
@@ -53,6 +57,84 @@ _ALLOWED_SECTION_STATUSES = {
     "skipped",
     "error",
 }
+
+
+class CsvColumnCollisionError(ValueError):
+    """Raised when a report table cannot be exported without ambiguity."""
+
+
+# Compatibility for bundles produced before qualifier 145 and qualifier 292
+# received distinct canonical names in preprocessing. In that legacy frame,
+# qualifier 292 was inserted first and qualifier 145 was renamed second.
+# Keeping this order explicit preserves both values instead of dropping one.
+_KNOWN_CSV_COLUMN_COLLISIONS = {
+    "Formation slot": (
+        "Substitution position code",
+        "Formation slot",
+    ),
+}
+
+
+def _duplicate_column_names(columns: pd.Index) -> list[Any]:
+    return list(
+        dict.fromkeys(
+            columns[columns.duplicated(keep=False)].tolist()
+        )
+    )
+
+
+def _normalize_csv_columns(
+    frame: pd.DataFrame,
+    *,
+    context: str,
+) -> pd.DataFrame:
+    """Return a copy with a unique and explicitly understood schema."""
+
+    frame = frame.copy()
+    if frame.columns.is_unique:
+        return frame
+
+    columns = list(frame.columns)
+    unsupported = []
+
+    for duplicate in _duplicate_column_names(frame.columns):
+        positions = [
+            index
+            for index, column in enumerate(columns)
+            if column == duplicate
+        ]
+        canonical_names = _KNOWN_CSV_COLUMN_COLLISIONS.get(duplicate)
+
+        if (
+            canonical_names is None
+            or len(canonical_names) != len(positions)
+        ):
+            unsupported.append(
+                f"{duplicate!r} ({len(positions)} occurrences)"
+            )
+            continue
+
+        for position, canonical_name in zip(
+            positions,
+            canonical_names,
+        ):
+            columns[position] = canonical_name
+
+    normalized_columns = pd.Index(columns)
+    remaining = _duplicate_column_names(normalized_columns)
+    if unsupported or remaining:
+        details = unsupported + [
+            f"{name!r} (after known-collision normalization)"
+            for name in remaining
+        ]
+        raise CsvColumnCollisionError(
+            f"CSV export for {context} has unsupported duplicate "
+            f"column names: {', '.join(details)}. "
+            "Add an explicit canonical mapping before exporting."
+        )
+
+    frame.columns = normalized_columns
+    return frame
 
 
 def _safe_slug(
@@ -175,12 +257,18 @@ def _concat(
     frames: Sequence[pd.DataFrame],
     *,
     required_columns: Sequence[str],
+    context: str,
 ) -> pd.DataFrame:
-    usable = [
-        frame
-        for frame in frames
-        if isinstance(frame, pd.DataFrame) and not frame.empty
-    ]
+    usable = []
+    for index, frame in enumerate(frames):
+        if not isinstance(frame, pd.DataFrame) or frame.empty:
+            continue
+        usable.append(
+            _normalize_csv_columns(
+                frame,
+                context=f"{context} input {index + 1}",
+            )
+        )
     if not usable:
         return pd.DataFrame(columns=list(required_columns))
 
@@ -218,8 +306,12 @@ def _csv_bytes(
     frame: pd.DataFrame,
     *,
     required_columns: Sequence[str],
+    context: str,
 ) -> bytes:
-    frame = _as_frame(frame)
+    frame = _normalize_csv_columns(
+        _as_frame(frame),
+        context=context,
+    )
 
     for column in reversed(tuple(required_columns)):
         if column not in frame.columns:
@@ -317,7 +409,11 @@ def _pass_network_table(bundle) -> pd.DataFrame:
         payload = teams_data.get(team, {}) if isinstance(teams_data, Mapping) else {}
         edges = payload.get("edges") if isinstance(payload, Mapping) else None
         frames.append(_with_report_team(_as_frame(edges), team))
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/pass-network-connections.csv",
+    )
 
 
 def _progressive_passers_table(bundle) -> pd.DataFrame:
@@ -336,7 +432,11 @@ def _progressive_passers_table(bundle) -> pd.DataFrame:
             else None
         )
         frames.append(_with_report_team(_as_frame(ranking), team))
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/progressive-passers.csv",
+    )
 
 
 def _final_third_entries_table(bundle) -> pd.DataFrame:
@@ -351,7 +451,11 @@ def _final_third_entries_table(bundle) -> pd.DataFrame:
         payload = teams_data.get(team, {}) if isinstance(teams_data, Mapping) else {}
         entries = payload.get("entries") if isinstance(payload, Mapping) else None
         frames.append(_with_report_team(_as_frame(entries), team))
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/final-third-entries.csv",
+    )
 
 
 def _cross_routes_table(bundle) -> pd.DataFrame:
@@ -361,7 +465,11 @@ def _cross_routes_table(bundle) -> pd.DataFrame:
         payload = data.get(team, {}) if isinstance(data, Mapping) else {}
         routes = payload.get("routes") if isinstance(payload, Mapping) else None
         frames.append(_with_report_team(_as_frame(routes), team))
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/cross-routes.csv",
+    )
 
 
 def _buildup_summary_table(bundle) -> pd.DataFrame:
@@ -376,7 +484,11 @@ def _buildup_summary_table(bundle) -> pd.DataFrame:
         payload = teams_data.get(team, {}) if isinstance(teams_data, Mapping) else {}
         summary = payload.get("summary") if isinstance(payload, Mapping) else None
         frames.append(_with_report_team(_as_frame(summary), team))
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/buildup-summary.csv",
+    )
 
 
 def _transition_table(
@@ -416,6 +528,7 @@ def _transition_table(
     return _concat(
         frames,
         required_columns=("report_team", "team_name"),
+        context=f"tables/{section_id}.csv",
     )
 
 
@@ -428,7 +541,11 @@ def _restarts_table(bundle) -> pd.DataFrame:
         records = payload.get("records") if isinstance(payload, Mapping) else None
         frames.append(_with_report_team(_as_frame(records), team))
 
-    return _concat(frames, required_columns=("report_team", "team_name"))
+    return _concat(
+        frames,
+        required_columns=("report_team", "team_name"),
+        context="tables/restarts.csv",
+    )
 
 
 def _player_rankings_table(bundle) -> pd.DataFrame:
@@ -453,6 +570,7 @@ def _player_rankings_table(bundle) -> pd.DataFrame:
     return _concat(
         frames,
         required_columns=("ranking_family",),
+        context="tables/player-rankings.csv",
     )
 
 
@@ -506,6 +624,7 @@ def _event_explorer_table(bundle) -> pd.DataFrame:
     return _concat(
         frames,
         required_columns=("source_dataset",),
+        context="tables/event-explorer.csv",
     )
 
 
@@ -626,6 +745,8 @@ def build_match_analysis_pack(
         manifest,
         config=figure_config,
     )
+    audit = prepare_render_audit(catalog, manifest)
+    pdf_config = replace(pdf_config or MatchReportPdfConfig(), render_audit=audit)
     pdf_bytes = render_match_report_pdf(
         bundle,
         catalog,
@@ -643,13 +764,27 @@ def build_match_analysis_pack(
         if hasattr(bundle, "to_json")
         else _json_bytes(bundle)
     )
-    manifest_data = _json_bytes(
-        _generation_manifest(
+    generation_manifest = _generation_manifest(
             bundle,
             manifest,
             pdf_filename=pdf_filename,
         )
+    summary = summarize_render_audit(audit.values())
+    generation_manifest["generation"]["artifacts"] = list(audit.values())
+    for section in generation_manifest["sections"]:
+        rows = [r for r in audit.values() if r["section_id"] == section["id"]]
+        section["generation"]["data_status"] = section["generation"]["status"]
+        if rows:
+            states = {r["render_status"] for r in rows}
+            state = next(s for s in ("error", "generated", "empty", "skipped") if s in states)
+            section["generation"]["status"] = state
+            generation_manifest["generation"]["section_statuses"][section["id"]] = state
+    generation_manifest["generation"].update(summary)
+    generation_manifest["generation"]["status"] = (
+        "error" if summary["required_figures_failed"] else
+        "warning" if summary["figures_failed"] else "generated"
     )
+    manifest_data = _json_bytes(generation_manifest)
 
     tables = build_pack_tables(bundle)
 
@@ -723,10 +858,11 @@ def build_match_analysis_pack(
                 _csv_bytes(
                     frame,
                     required_columns=required,
+                    context=path,
                 ),
             )
 
-    return buffer.getvalue()
+    return MatchAnalysisPackBytes(buffer.getvalue(), summary)
 
 
 def build_match_analysis_pack_buffer(

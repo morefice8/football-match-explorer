@@ -9,8 +9,10 @@ filesystem state is part of the contract.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from io import StringIO
 import json
+import logging
 from typing import Any, Mapping
 
 import pandas as pd
@@ -23,16 +25,49 @@ from src.reporting.pack_builder import (
     build_match_analysis_pack,
     match_analysis_pack_filename,
 )
+from src.reporting.figure_export import (
+    StaticExportPreflightStatus,
+    preflight_match_report_export,
+)
+from src.reporting.pdf_renderer import MatchReportPdfConfig
+
+
+logger = logging.getLogger(__name__)
+
+
+class MatchAnalysisDownloadStatus(str, Enum):
+    SUCCESS = "success"
+    WARNING = "warning"
+    FAILURE = "failure"
 
 
 @dataclass(frozen=True)
 class MatchAnalysisDownload:
     filename: str
     payload: bytes
+    status: MatchAnalysisDownloadStatus = (
+        MatchAnalysisDownloadStatus.SUCCESS
+    )
+    message: str = "Match Analysis Pack generated successfully."
 
 
 class MatchAnalysisDownloadError(RuntimeError):
     """Readable REPORT-07 generation failure."""
+
+    status = MatchAnalysisDownloadStatus.FAILURE
+
+
+class MatchAnalysisPreflightError(MatchAnalysisDownloadError):
+    """Safe UI message for a failed static-export preflight."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status: MatchAnalysisDownloadStatus,
+    ) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 def _parse_match_info(value: Any) -> dict[str, Any]:
@@ -107,6 +142,19 @@ def build_match_analysis_download(
         stored_match_data.get("match_info")
     )
 
+    pdf_config = MatchReportPdfConfig()
+    preflight = preflight_match_report_export(pdf_config)
+    if not preflight.passed:
+        status = (
+            MatchAnalysisDownloadStatus.WARNING
+            if preflight.status is StaticExportPreflightStatus.WARNING
+            else MatchAnalysisDownloadStatus.FAILURE
+        )
+        raise MatchAnalysisPreflightError(
+            preflight.user_message,
+            status=status,
+        )
+
     default_config = MatchReportBundleConfig()
     raw_scope = getattr(default_config, "scope", None)
     scope = getattr(raw_scope, "value", raw_scope)
@@ -121,17 +169,41 @@ def build_match_analysis_download(
             match_info,
         )
     except Exception as exc:
+        logger.exception(
+            "Could not build the canonical Full Match report data."
+        )
         raise MatchAnalysisDownloadError(
-            "Could not build the canonical Full Match report data: "
-            f"{exc}"
+            "Could not build the canonical Full Match report data. "
+            "Review the application logs, then try again."
         ) from exc
 
     try:
-        payload = build_match_analysis_pack(bundle)
+        payload = build_match_analysis_pack(
+            bundle,
+            pdf_config=pdf_config,
+        )
     except Exception as exc:
+        logger.exception("Could not render the Match Analysis Pack.")
         raise MatchAnalysisDownloadError(
-            f"Could not render the Match Analysis Pack: {exc}"
+            "Could not render the Match Analysis Pack. "
+            "Review the application logs, then try again."
         ) from exc
+
+    summary = getattr(payload, "render_summary", {})
+    status = MatchAnalysisDownloadStatus.SUCCESS
+    message = "Match Analysis Pack generated successfully."
+    if summary.get("required_figures_failed", 0):
+        status = MatchAnalysisDownloadStatus.FAILURE
+        message = (
+            "Report incomplete: required plots failed to render. "
+            "A diagnostic pack is available; review report-manifest.json and the logs."
+        )
+    elif summary.get("figures_failed", 0):
+        status = MatchAnalysisDownloadStatus.WARNING
+        message = (
+            "Pack generated with warnings: optional plots failed to render. "
+            "Review report-manifest.json for details."
+        )
 
     if hasattr(payload, "getvalue"):
         payload = payload.getvalue()
@@ -163,4 +235,6 @@ def build_match_analysis_download(
     return MatchAnalysisDownload(
         filename=str(filename),
         payload=payload_bytes,
+        status=status,
+        message=message,
     )

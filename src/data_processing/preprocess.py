@@ -6,6 +6,16 @@ import os
 import pandas as pd
 from src.utils import position_mapper
 
+
+# Opta qualifier 145 is the 1-11 tactical formation slot occupied by a
+# player coming on. Qualifier 292 is a separate provider position code for
+# that substitute. They can legitimately differ, so they must never share a
+# DataFrame column name (Napoli-Udinese: De Bruyne is slot 11, position 6).
+CANONICAL_QUALIFIER_NAMES = {
+    145: "Formation slot",
+    292: "Substitution position code",
+}
+
 def get_shorter_name(full_name):
     if not isinstance(full_name, str) or not full_name.strip(): return None
     parts = full_name.split()
@@ -103,8 +113,6 @@ def process_opta_events(opta_data, event_mapping, qualifier_mapping, match_info,
 
                     if q_id == 55: # Related eventId
                         event_dict['related_eventId'] = q_val
-                    elif q_id == 292: # Formation slot
-                        event_dict['Formation slot'] = q_val
 
         if isinstance(qualifiers_list, list):
             for q_dict in qualifiers_list:
@@ -174,15 +182,24 @@ def process_opta_events(opta_data, event_mapping, qualifier_mapping, match_info,
                 elif isinstance(q_id_from_set, str) and q_id_from_set.isdigit(): q_id_lookup_key = int(q_id_from_set)
                 else: q_id_lookup_key = str(q_id_from_set)
 
-                qualifier_info = qualifier_mapping.get(q_id_lookup_key)
-                if not qualifier_info:
-                    if isinstance(q_id_lookup_key, int): qualifier_info = qualifier_mapping.get(str(q_id_lookup_key))
-                    elif isinstance(q_id_lookup_key, str):
-                        try: qualifier_info = qualifier_mapping.get(int(q_id_lookup_key))
-                        except ValueError: pass
+                canonical_name = CANONICAL_QUALIFIER_NAMES.get(q_id_lookup_key)
+                if canonical_name:
+                    qualifier_name = canonical_name
+                else:
+                    qualifier_info = qualifier_mapping.get(q_id_lookup_key)
+                    if not qualifier_info:
+                        if isinstance(q_id_lookup_key, int): qualifier_info = qualifier_mapping.get(str(q_id_lookup_key))
+                        elif isinstance(q_id_lookup_key, str):
+                            try: qualifier_info = qualifier_mapping.get(int(q_id_lookup_key))
+                            except ValueError: pass
 
-                if qualifier_info:
-                    qualifier_name = qualifier_info.get('name', f"UnknownQ_{q_id_from_set}")
+                    qualifier_name = (
+                        qualifier_info.get('name', f"UnknownQ_{q_id_from_set}")
+                        if qualifier_info
+                        else None
+                    )
+
+                if qualifier_name:
                     if qualifier_name in rename_dict.values():
                          qualifier_name_clashes[qualifier_name] = qualifier_name_clashes.get(qualifier_name, 0) + 1
                          qualifier_name = f"{qualifier_name}_{qualifier_name_clashes[qualifier_name]}"
