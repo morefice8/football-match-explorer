@@ -414,66 +414,242 @@ def _find_sequence(
     return None
 
 
-def _formation_states(
+def _formation_player_map(
     model: Mapping[str, Any],
     team_name: str,
     team_index: int,
-) -> tuple[Any, Any, Any]:
+) -> Mapping[str, Any]:
+    """Return the player lookup used by static formation-state plots."""
+
     side = "home" if team_index == 0 else "away"
-    player_map = (
+    direct = (
         model.get(f"{side}_player_data_map")
         or model.get("player_data_map")
-        or {}
+        or model.get("player_data")
     )
-
-    side_payload = model.get(side)
-    if isinstance(side_payload, Mapping):
-        states = (
-            side_payload.get("states")
-            or side_payload.get("timeline")
-            or side_payload.get("moments")
-            or []
-        )
-        if isinstance(states, Sequence) and states:
-            return states[0], states[-1], player_map
+    if isinstance(direct, Mapping):
+        return direct
 
     teams_payload = model.get("teams")
     if isinstance(teams_payload, Mapping):
-        team_payload = (
-            teams_payload.get(team_name)
-            or teams_payload.get(side)
-        )
+        team_payload = teams_payload.get(team_name) or teams_payload.get(side)
         if isinstance(team_payload, Mapping):
-            states = (
-                team_payload.get("states")
-                or team_payload.get("timeline")
-                or team_payload.get("moments")
-                or []
+            nested = team_payload.get("player_data_map") or team_payload.get("player_data")
+            if isinstance(nested, Mapping):
+                return nested
+    return {}
+
+
+def _formation_state_from_moment(
+    moment: Mapping[str, Any],
+    *,
+    side: str,
+    team_name: str,
+) -> Mapping[str, Any] | None:
+    state = (
+        moment.get(f"{side}_state")
+        or moment.get(side)
+        or moment.get(team_name)
+    )
+    return state if isinstance(state, Mapping) else None
+
+
+def _formation_state_signature(state: Mapping[str, Any] | None) -> tuple[Any, ...] | None:
+    """Return a stable visual-state signature for duplicate suppression."""
+
+    if not isinstance(state, Mapping):
+        return None
+    formation_id = state.get("formation_id")
+    players = state.get("players") or {}
+    if not isinstance(players, Mapping):
+        players = {}
+    return (
+        str(formation_id),
+        tuple(
+            sorted(
+                (str(player_id), str(position))
+                for player_id, position in players.items()
             )
-            if isinstance(states, Sequence) and states:
-                return (
-                    states[0],
-                    states[-1],
-                    team_payload.get("player_data_map") or player_map,
-                )
+        ),
+    )
 
-    extracted = []
-    for moment in model.get("moments") or []:
-        if not isinstance(moment, Mapping):
-            continue
-        state = (
-            moment.get(f"{side}_state")
-            or moment.get(side)
-            or moment.get(team_name)
+
+def _formation_pair_signature(
+    model: Mapping[str, Any],
+    moment: Mapping[str, Any],
+) -> tuple[Any, Any]:
+    home_team = str(model.get("home_team") or "Home")
+    away_team = str(model.get("away_team") or "Away")
+    return (
+        _formation_state_signature(
+            _formation_state_from_moment(moment, side="home", team_name=home_team)
+        ),
+        _formation_state_signature(
+            _formation_state_from_moment(moment, side="away", team_name=away_team)
+        ),
+    )
+
+
+def _formation_state_delta(
+    before: Mapping[str, Any] | None,
+    after: Mapping[str, Any] | None,
+) -> tuple[int, int]:
+    """Return (shape changes, player/slot changes) between two states."""
+
+    if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+        return 0, 0
+
+    shape_changed = int(str(before.get("formation_id")) != str(after.get("formation_id")))
+    before_players = before.get("players") or {}
+    after_players = after.get("players") or {}
+    if not isinstance(before_players, Mapping):
+        before_players = {}
+    if not isinstance(after_players, Mapping):
+        after_players = {}
+
+    player_ids = set(map(str, before_players)) | set(map(str, after_players))
+    changed_players = 0
+    for player_id in player_ids:
+        before_value = next(
+            (value for key, value in before_players.items() if str(key) == player_id),
+            None,
         )
-        if state is not None:
-            extracted.append(state)
+        after_value = next(
+            (value for key, value in after_players.items() if str(key) == player_id),
+            None,
+        )
+        if str(before_value) != str(after_value):
+            changed_players += 1
+    return shape_changed, changed_players
 
-    if extracted:
-        return extracted[0], extracted[-1], player_map
 
-    return None, None, player_map
+def _formation_moment_seconds(moment: Mapping[str, Any]) -> int:
+    value = moment.get("time_seconds")
+    try:
+        return max(int(float(value)), 0)
+    except (TypeError, ValueError):
+        minute = moment.get("minute")
+        try:
+            return max(int(float(minute)) * 60, 0)
+        except (TypeError, ValueError):
+            return 0
 
+
+def _formation_plot_moments(model: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """Select synchronized opening/intermediate/final moments deterministically.
+
+    REPORT-14 keeps the plot story intentionally small: opening state, the most
+    relevant *visual* tactical change in the match, and a final state only when
+    it adds a distinct shape/personnel picture.  The intermediate ranking is
+    lexicographic, never weighted: actual shape change -> declared formation
+    change -> dismissal -> substitutions -> persistence -> player/slot delta ->
+    earlier clock time.
+    """
+
+    raw_moments = [
+        moment
+        for moment in (model.get("moments") or [])
+        if isinstance(moment, Mapping)
+    ]
+    if not raw_moments:
+        return {}
+
+    moments = [
+        moment
+        for _, moment in sorted(
+            enumerate(raw_moments),
+            key=lambda item: (_formation_moment_seconds(item[1]), item[0]),
+        )
+    ]
+    start = moments[0]
+    start_signature = _formation_pair_signature(model, start)
+
+    match_end = model.get("match_end_seconds")
+    try:
+        match_end_seconds = max(int(float(match_end)), _formation_moment_seconds(moments[-1]))
+    except (TypeError, ValueError):
+        match_end_seconds = _formation_moment_seconds(moments[-1])
+
+    best: tuple[tuple[int, ...], Mapping[str, Any]] | None = None
+    for index in range(1, len(moments)):
+        previous = moments[index - 1]
+        current = moments[index]
+        previous_signature = _formation_pair_signature(model, previous)
+        current_signature = _formation_pair_signature(model, current)
+        if current_signature == previous_signature:
+            # Goals or feed markers with no tactical visual change remain in the
+            # table but do not consume one of the scarce report plots.
+            continue
+
+        home_team = str(model.get("home_team") or "Home")
+        away_team = str(model.get("away_team") or "Away")
+        shape_changes = 0
+        player_changes = 0
+        for side, team_name in (("home", home_team), ("away", away_team)):
+            shape_delta, player_delta = _formation_state_delta(
+                _formation_state_from_moment(previous, side=side, team_name=team_name),
+                _formation_state_from_moment(current, side=side, team_name=team_name),
+            )
+            shape_changes += shape_delta
+            player_changes += player_delta
+
+        counts = {"formation_change": 0, "dismissal": 0, "substitution": 0}
+        for event in current.get("events") or []:
+            if not isinstance(event, Mapping):
+                continue
+            kind = str(event.get("kind") or "")
+            if kind in counts:
+                counts[kind] += 1
+
+        if not any(counts.values()) and not shape_changes:
+            continue
+
+        tier = (
+            3
+            if shape_changes or counts["formation_change"]
+            else 2
+            if counts["dismissal"]
+            else 1
+        )
+
+        current_seconds = _formation_moment_seconds(current)
+        current_signature = _formation_pair_signature(model, current)
+        next_change_seconds = match_end_seconds
+        for later in moments[index + 1 :]:
+            if _formation_pair_signature(model, later) != current_signature:
+                next_change_seconds = _formation_moment_seconds(later)
+                break
+        persistence = max(next_change_seconds - current_seconds, 0)
+
+        rank = (
+            tier,
+            shape_changes,
+            counts["formation_change"],
+            counts["dismissal"],
+            counts["substitution"],
+            persistence,
+            player_changes,
+            -current_seconds,
+        )
+        if best is None or rank > best[0]:
+            best = (rank, current)
+
+    selected: dict[str, Mapping[str, Any]] = {"starting": start}
+    if best is not None:
+        intermediate = best[1]
+        if _formation_pair_signature(model, intermediate) != start_signature:
+            selected["intermediate"] = intermediate
+
+    final = moments[-1]
+    final_signature = _formation_pair_signature(model, final)
+    selected_signatures = {
+        _formation_pair_signature(model, moment)
+        for moment in selected.values()
+    }
+    if final_signature not in selected_signatures:
+        selected["final"] = final
+
+    return selected
 
 def _ppda_summary(
     bundle,
@@ -843,13 +1019,26 @@ def _render_formation(
 ) -> _Rendered:
     section = _section(bundle, "formation-timeline")
     model = getattr(section, "data", {}) or {}
-    starting, final, player_map = _formation_states(
-        model,
-        plan.team_name or "",
-        int(plan.team_index or 0),
-    )
-    state = starting if plan.variant == "starting" else final
+    selected = _formation_plot_moments(model) if isinstance(model, Mapping) else {}
+    moment = selected.get(plan.variant)
 
+    if moment is None:
+        return _Rendered(
+            _placeholder(
+                plan,
+                f"No {plan.variant} formation state for {plan.team_name}.",
+            ),
+            ReportFigureStatus.EMPTY,
+        )
+
+    team_index = int(plan.team_index or 0)
+    side = "home" if team_index == 0 else "away"
+    team_name = plan.team_name or str(model.get(f"{side}_team") or side.title())
+    state = _formation_state_from_moment(
+        moment,
+        side=side,
+        team_name=team_name,
+    )
     if state is None:
         return _Rendered(
             _placeholder(
@@ -859,15 +1048,39 @@ def _render_formation(
             ReportFigureStatus.EMPTY,
         )
 
+    player_map = _formation_player_map(model, team_name, team_index)
+    highlights = moment.get(f"{side}_highlights") or []
     figure = registry.resolve("formation-state")(
         state,
         player_map,
         is_away=plan.is_away,
+        highlighted_players=highlights,
+    )
+
+    time_label = str(moment.get("time_label") or "").strip()
+    score = str(moment.get("score") or "").strip()
+    selection = {
+        "variant": plan.variant,
+        "time_seconds": _formation_moment_seconds(moment),
+        "time_label": time_label,
+        "score": score,
+        "event_kinds": [
+            str(event.get("kind"))
+            for event in (moment.get("events") or [])
+            if isinstance(event, Mapping) and event.get("kind")
+        ],
+    }
+    reason = (
+        f"{plan.variant.title()} formation state"
+        + (f" at {time_label}" if time_label else "")
+        + (f" ({score})" if score else "")
     )
     return _Rendered(
         _pdf_layout(figure, plan),
         ReportFigureStatus.GENERATED,
         "formation-state",
+        selection_reason=reason,
+        selection=selection,
     )
 
 
@@ -1379,8 +1592,19 @@ def build_figure_plans(
     for section in manifest.sections:
         for figure in section.figures:
             if figure.id == "formation-timeline-figure":
+                section_bundle = _section(bundle, section.id)
+                model = getattr(section_bundle, "data", {}) or {}
+                selected = (
+                    _formation_plot_moments(model)
+                    if isinstance(model, Mapping)
+                    else {}
+                )
+                # Even an empty/failed source gets one deterministic opening
+                # placeholder per team.  With data, plot only the synchronized
+                # REPORT-14 selections and never emit a duplicate final state.
+                variants = tuple(selected) or ("starting",)
                 for index, team_name in enumerate(teams):
-                    for variant in ("starting", "final"):
+                    for variant in variants:
                         plans.append(
                             FigurePlan(
                                 section.id,

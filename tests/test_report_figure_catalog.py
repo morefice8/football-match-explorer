@@ -84,7 +84,7 @@ class ReportFigureCatalogTests(unittest.TestCase):
         }
         self.assertEqual(actual, expected)
 
-    def test_starting_and_final_formation_are_planned_for_both_teams(self):
+    def test_empty_formation_source_plans_only_opening_placeholders(self):
         plans = [
             plan
             for plan in build_figure_plans(_bundle())
@@ -94,9 +94,7 @@ class ReportFigureCatalogTests(unittest.TestCase):
             {(plan.team_name, plan.variant) for plan in plans},
             {
                 ("Home FC", "starting"),
-                ("Home FC", "final"),
                 ("Away FC", "starting"),
-                ("Away FC", "final"),
             },
         )
 

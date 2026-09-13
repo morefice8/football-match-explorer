@@ -938,8 +938,21 @@ def _image_flowable(
     caption_parts.append(str(getattr(artifact, "title", "Figure")))
     variant = str(getattr(artifact, "variant", "summary") or "summary")
     if variant != "summary":
-        caption_parts.append(variant.title())
-    caption = " - ".join(caption_parts)
+        variant_label = variant.title()
+        if getattr(artifact, "id", None) == "formation-timeline-figure":
+            selection = getattr(artifact, "selection", None) or {}
+            time_label = _pdf_safe_helvetica_text(
+                str(selection.get("time_label") or "").strip()
+            )
+            score = _pdf_safe_helvetica_text(
+                str(selection.get("score") or "").strip().replace("–", "-")
+            )
+            if time_label:
+                variant_label += f" @ {time_label}"
+            if score:
+                variant_label += f" / {score}"
+        caption_parts.append(variant_label)
+    caption = _pdf_safe_helvetica_text(" - ".join(caption_parts))
     audit = config.render_audit
     record = audit.get(artifact_key(artifact)) if audit is not None else None
 
@@ -1046,6 +1059,10 @@ def _figure_story_for_spec(
             variants.append(variant)
 
     story: list[Any] = []
+    compact_formation = (
+        figure_spec.id == "formation-timeline-figure"
+        and len(variants) >= 3
+    )
     for variant in variants:
         group = [
             item
@@ -1058,7 +1075,7 @@ def _figure_story_for_spec(
             # Two-team figures are deliberately compact so editorial sections
             # can keep visual comparison + concise tables on one/two pages.
             max_cell_width = 92 * mm
-            max_cell_height = 54 * mm
+            max_cell_height = (42 * mm if compact_formation else 54 * mm)
             left = _image_flowable(
                 home_away[0],
                 styles,
@@ -1089,7 +1106,10 @@ def _figure_story_for_spec(
                     ]
                 )
             )
-            story.extend([pair, Spacer(1, 4 * mm)])
+            story.extend([
+                pair,
+                Spacer(1, (2 * mm if compact_formation else 4 * mm)),
+            ])
             continue
 
         for artifact in group:
@@ -1153,11 +1173,14 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
     ),
     "data-coverage": ("Metric", "Value"),
     "formation-spells": (
-        ("time", "time_label", "minute", "timeMin", "start_minute"),
-        ("score", "Score"),
-        ("home_formation", "home_formation_name", "Home Formation", "homeFormation"),
-        ("away_formation", "away_formation_name", "Away Formation", "awayFormation"),
-        ("change", "event_summary", "Reason", "change_reason"),
+        "start",
+        "end",
+        "duration",
+        "score",
+        "home formation",
+        "away formation",
+        "change reason",
+        "subs / dismissals",
     ),
     "mean-position-summary": (
         "team_name",
@@ -1323,6 +1346,7 @@ def _long_table(
     *,
     max_columns: int,
     available_width: float = 268 * mm,
+    column_widths: Sequence[float] | None = None,
 ) -> LongTable | Table:
     frame = _trim_columns(frame.copy(), max_columns)
     if frame.empty:
@@ -1345,7 +1369,11 @@ def _long_table(
         )
 
     count = len(headers)
-    widths = [available_width / count] * count
+    widths = (
+        list(column_widths)
+        if column_widths is not None and len(column_widths) == count
+        else [available_width / count] * count
+    )
 
     table = LongTable(
         data,
@@ -1560,43 +1588,128 @@ def _ppda_summary_rows(bundle) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _formation_spells_rows(moments: Any) -> pd.DataFrame:
-    """Flatten formation timeline moments into an editorial scalar table."""
+def _formation_clock_label(seconds: Any) -> str:
+    try:
+        total = max(int(float(seconds)), 0)
+    except (TypeError, ValueError):
+        return "-"
+    minute, second = divmod(total, 60)
+    return f"{minute}'" if second == 0 else f"{minute}' {second:02d}\""
 
-    rows: list[dict[str, Any]] = []
+
+def _formation_duration_label(seconds: Any) -> str:
+    try:
+        total = max(int(float(seconds)), 0)
+    except (TypeError, ValueError):
+        return "-"
+    minute, second = divmod(total, 60)
+    if minute and second:
+        return f"{minute}m {second:02d}s"
+    if minute:
+        return f"{minute}m"
+    return f"{second}s"
+
+
+def _formation_spells_rows(
+    moments: Any,
+    *,
+    match_end_seconds: Any = None,
+) -> pd.DataFrame:
+    """Build REPORT-14's compact scalar Formation Timeline table.
+
+    The analytical model keeps rich nested home/away state snapshots and event
+    payloads.  The PDF deliberately exposes only editorial spell metadata;
+    complete nested structures remain in report-data.json.
+    """
+
     labels = {
         "starting_xi": "Starting XI",
         "goal": "Goal",
         "substitution": "Substitution",
-        "formation_change": "Formation change",
-        "red_card": "Red card",
+        "formation_change": "Tactical change",
+        "dismissal": "Dismissal",
+        "red_card": "Dismissal",
     }
-    for moment in moments or []:
+
+    ordered: list[tuple[int, int, Mapping[str, Any]]] = []
+    for index, moment in enumerate(moments or []):
         if not isinstance(moment, Mapping):
             continue
+        raw_seconds = moment.get("time_seconds")
+        if raw_seconds is None:
+            raw_seconds = (moment.get("minute") or 0) * 60
+        try:
+            seconds = max(int(float(raw_seconds)), 0)
+        except (TypeError, ValueError):
+            seconds = 0
+        ordered.append((seconds, index, moment))
+    ordered.sort(key=lambda item: (item[0], item[1]))
+
+    if not ordered:
+        return pd.DataFrame(
+            columns=[
+                "start",
+                "end",
+                "duration",
+                "score",
+                "home formation",
+                "away formation",
+                "change reason",
+                "subs / dismissals",
+            ]
+        )
+
+    try:
+        resolved_match_end = max(
+            int(float(match_end_seconds)),
+            ordered[-1][0],
+        )
+    except (TypeError, ValueError):
+        resolved_match_end = ordered[-1][0]
+
+    rows: list[dict[str, Any]] = []
+    for position, (start_seconds, _, moment) in enumerate(ordered):
+        end_seconds = (
+            ordered[position + 1][0]
+            if position + 1 < len(ordered)
+            else resolved_match_end
+        )
+        end_seconds = max(end_seconds, start_seconds)
+
+        reasons: list[str] = []
+        personnel: list[str] = []
         events = moment.get("events") or []
-        changes: list[str] = []
         if isinstance(events, Sequence) and not isinstance(events, (str, bytes)):
             for event in events:
                 if not isinstance(event, Mapping):
                     continue
                 kind = str(event.get("kind") or "").strip()
-                label = labels.get(kind, kind.replace("_", " ").title() if kind else "")
-                team = str(event.get("team") or "").strip()
-                value = f"{team}: {label}" if team and team.casefold() != "both" else label
-                if value and value not in changes:
-                    changes.append(value)
+                label = labels.get(
+                    kind,
+                    kind.replace("_", " ").title() if kind else "",
+                )
+                if label and label not in reasons:
+                    reasons.append(label)
+
+                if kind in {"substitution", "dismissal", "red_card"}:
+                    description = str(event.get("description") or "").strip()
+                    if description and description not in personnel:
+                        personnel.append(description)
+
         rows.append(
             {
-                "time": moment.get("time_label") or moment.get("minute"),
-                "score": moment.get("score"),
-                "home_formation": moment.get("home_formation_name"),
-                "away_formation": moment.get("away_formation_name"),
-                "change": ", ".join(changes) if changes else "-",
+                "start": _formation_clock_label(start_seconds),
+                "end": _formation_clock_label(end_seconds),
+                "duration": _formation_duration_label(end_seconds - start_seconds),
+                "score": str(moment.get("score") or "-").replace("–", "-"),
+                "home formation": moment.get("home_formation_name") or "-",
+                "away formation": moment.get("away_formation_name") or "-",
+                "change reason": " + ".join(reasons) if reasons else "-",
+                "subs / dismissals": "; ".join(personnel) if personnel else "-",
             }
         )
-    return pd.DataFrame(rows)
 
+    return pd.DataFrame(rows)
 
 def _restart_summary_rows(bundle) -> pd.DataFrame:
     section = _section(bundle, "restarts")
@@ -1829,7 +1942,18 @@ def _table_payloads(
         section = _section(bundle, "formation-timeline")
         data = getattr(section, "data", {}) or {}
         moments = data.get("moments", []) if isinstance(data, Mapping) else []
-        return [("Formation spells", _formation_spells_rows(moments))]
+        match_end_seconds = (
+            data.get("match_end_seconds")
+            if isinstance(data, Mapping)
+            else None
+        )
+        return [(
+            "Formation spells",
+            _formation_spells_rows(
+                moments,
+                match_end_seconds=match_end_seconds,
+            ),
+        )]
 
     if table_id == "mean-position-summary":
         section = _section(bundle, "mean-positions")
@@ -2208,6 +2332,31 @@ def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
                 styles,
             ),
             Spacer(1, 3 * mm),
+        ]
+
+    # REPORT-14: the eight-column timeline is intentionally asymmetric.
+    # Clock/score columns stay narrow while change/personnel descriptions get
+    # enough width to remain readable without inflating the section beyond two
+    # pages on A4 landscape.
+    if table_spec.id == "formation-spells" and len(prepared) == 1:
+        title, frame = prepared[0]
+        return [
+            Paragraph(escape(title), styles["table_subheading"]),
+            _long_table(
+                frame,
+                styles,
+                max_columns=8,
+                column_widths=[
+                    15 * mm,
+                    15 * mm,
+                    17 * mm,
+                    18 * mm,
+                    30 * mm,
+                    30 * mm,
+                    42 * mm,
+                    101 * mm,
+                ],
+            ),
         ]
 
     # REPORT-12: restart takers are a comparison, not two full-width tables.

@@ -150,28 +150,50 @@ class Report12EditorialPdfTests(unittest.TestCase):
     def test_formation_spells_are_flattened_into_meaningful_editorial_fields(self):
         moments = [
             {
-                "time_label": "67'",
+                "time_seconds": 67 * 60,
                 "score": "1 - 0",
                 "home_formation_name": "4-3-3",
                 "away_formation_name": "3-5-2",
                 "events": [
-                    {"kind": "substitution", "team": "Napoli"},
-                    {"kind": "formation_change", "team": "Napoli"},
+                    {
+                        "kind": "substitution",
+                        "team": "Napoli",
+                        "description": "Napoli · Player B on for Player A",
+                    },
+                    {
+                        "kind": "formation_change",
+                        "team": "Napoli",
+                        "description": "Napoli · shape change to 4-3-3",
+                    },
                 ],
                 "home_state": {"nested": "must not leak"},
             }
         ]
-        frame = _formation_spells_rows(moments)
+        frame = _formation_spells_rows(
+            moments,
+            match_end_seconds=75 * 60,
+        )
         prepared = _prepare_pdf_table_frame("formation-spells", frame)
 
         self.assertEqual(
             list(prepared.columns),
-            ["time", "score", "home_formation", "away_formation", "change"],
+            [
+                "start",
+                "end",
+                "duration",
+                "score",
+                "home formation",
+                "away formation",
+                "change reason",
+                "subs / dismissals",
+            ],
         )
-        self.assertEqual(prepared.iloc[0]["home_formation"], "4-3-3")
-        self.assertIn("Substitution", prepared.iloc[0]["change"])
-        self.assertIn("Formation change", prepared.iloc[0]["change"])
+        self.assertEqual(prepared.iloc[0]["home formation"], "4-3-3")
+        self.assertIn("Substitution", prepared.iloc[0]["change reason"])
+        self.assertIn("Tactical change", prepared.iloc[0]["change reason"])
+        self.assertIn("Player B", prepared.iloc[0]["subs / dismissals"])
         self.assertNotIn("home_state", prepared.columns)
+
 
     def test_restart_takers_render_as_one_compact_comparison_table(self):
         left = pd.DataFrame(

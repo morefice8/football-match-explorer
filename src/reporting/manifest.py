@@ -70,6 +70,15 @@ TOP_PLAYER = ReportSelectionSpec(
     limit=1,
 )
 
+FORMATION_STATES = ReportSelectionSpec(
+    rule="initial-most-relevant-tactical-final-distinct",
+    limit=3,
+    notes=(
+        "Opening state, one deterministic intermediate tactical change, "
+        "and a final state only when it is distinct from prior selections."
+    ),
+)
+
 
 def figure(
     item_id: str,
@@ -167,6 +176,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
             figure(
                 "formation-timeline-figure",
                 "Formation Timeline",
+                selection=FORMATION_STATES,
             ),
         ),
         tables=(
