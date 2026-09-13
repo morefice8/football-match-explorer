@@ -1204,19 +1204,31 @@ def _player_highlights(ctx: _BundleContext) -> _Produced:
         "shot-sequence-stats",
         lambda: _cached_shot_sequence_stats(ctx.df),
     )
+    # REPORT-13 selects the top three *per team* in the PDF.  Keep the full
+    # candidate rankings here; a global top-N truncation could otherwise remove
+    # valid players from one team before the per-team selector ever sees them.
+    shot_candidate_count = (
+        int(len(shot_sequence_stats))
+        if shot_sequence_stats is not None and not shot_sequence_stats.empty
+        else 0
+    )
     shot_ranking = (
         shot_sequence_involvement_metrics.prepare_shot_sequence_ranking(
             shot_sequence_stats,
-            num_players=ctx.config.top_players,
+            num_players=max(1, shot_candidate_count),
         )
-        if shot_sequence_stats is not None
-        and not shot_sequence_stats.empty
+        if shot_candidate_count
         else pd.DataFrame()
+    )
+    defensive_candidate_count = (
+        int(ctx.df["playerName"].dropna().nunique())
+        if "playerName" in ctx.df.columns
+        else 0
     )
     defensive_ranking = (
         defensive_contribution_metrics.build_defensive_ranking(
             ctx.df,
-            num_players=ctx.config.top_players,
+            num_players=max(1, defensive_candidate_count),
         )
     )
 

@@ -164,21 +164,111 @@ def _as_frame(value: Any) -> pd.DataFrame:
 
 
 def _with_named_index(frame: pd.DataFrame) -> pd.DataFrame:
-    """Materialise a meaningful player/sequence index for PDF display.
+    """Materialise named Index/MultiIndex levels without losing identity.
 
-    Several canonical ranking frames use ``playerName`` as their index.  The
-    previous renderer silently dropped that identity and printed only metric
-    columns.  REPORT-12 keeps the identity while still leaving the underlying
-    bundle/CSV payload untouched.
+    REPORT-13 player-ranking inputs may carry ``playerName`` and/or
+    ``team_name`` in an Index or MultiIndex.  Those levels must become columns
+    *before* editorial column trimming and per-team selection.
     """
 
     frame = frame.copy()
-    if isinstance(frame.index, pd.RangeIndex) and frame.index.name is None:
+    index = frame.index
+    if isinstance(index, pd.RangeIndex) and index.name is None:
         return frame
-    index_name = str(frame.index.name or "item")
-    if index_name in frame.columns:
-        index_name = "item"
-    return frame.reset_index(names=index_name)
+
+    raw_names = list(index.names) if isinstance(index, pd.MultiIndex) else [index.name]
+    names: list[str] = []
+    used = {str(column) for column in frame.columns}
+    for position, raw_name in enumerate(raw_names):
+        base = str(raw_name).strip() if raw_name not in (None, "") else (
+            "item" if len(raw_names) == 1 else f"index_level_{position}"
+        )
+        name = base
+        suffix = 1
+        while name in used or name in names:
+            name = f"index_{base}" if suffix == 1 else f"index_{base}_{suffix}"
+            suffix += 1
+        names.append(name)
+        used.add(name)
+
+    return frame.reset_index(names=names)
+
+
+def _coalesce_player_alias(
+    frame: pd.DataFrame,
+    canonical: str,
+    aliases: Sequence[str],
+) -> pd.DataFrame:
+    """Create/fill one canonical identity column from any accepted aliases."""
+
+    frame = frame.copy()
+    candidates = [
+        column
+        for column in frame.columns
+        if str(column).strip().casefold()
+        in {str(alias).strip().casefold() for alias in aliases}
+    ]
+    if canonical in frame.columns:
+        target = frame[canonical].copy()
+    elif candidates:
+        first = candidates.pop(0)
+        target = frame[first].copy()
+        if first != canonical:
+            frame = frame.drop(columns=[first])
+    else:
+        return frame
+
+    for column in candidates:
+        missing = target.isna() | target.astype(str).str.strip().eq("")
+        target = target.where(~missing, frame[column])
+        if column != canonical:
+            frame = frame.drop(columns=[column])
+    frame[canonical] = target
+    return frame
+
+
+def _normalize_player_ranking_frame(
+    value: Any,
+    *,
+    team_lookup: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """Return a canonical player ranking frame for REPORT-13 PDF selection."""
+
+    frame = _with_named_index(_as_frame(value))
+    if frame.empty:
+        return frame
+
+    frame = _coalesce_player_alias(
+        frame,
+        "playerName",
+        ("playerName", "player_name", "Player", "player", "name"),
+    )
+    frame = _coalesce_player_alias(
+        frame,
+        "team_name",
+        ("team_name", "teamName", "Team", "team"),
+    )
+
+    if "playerName" not in frame.columns:
+        return frame
+
+    frame["playerName"] = frame["playerName"].map(
+        lambda value: str(value).strip() if pd.notna(value) else value
+    )
+
+    lookup = {str(key): str(value) for key, value in (team_lookup or {}).items()}
+    inferred = frame["playerName"].astype(str).map(lookup)
+    if "team_name" not in frame.columns:
+        frame["team_name"] = inferred
+    else:
+        team = frame["team_name"]
+        missing = team.isna() | team.astype(str).str.strip().eq("")
+        frame["team_name"] = team.where(~missing, inferred)
+        frame["team_name"] = frame["team_name"].map(
+            lambda value: str(value).strip() if pd.notna(value) else value
+        )
+
+    return frame
 
 
 def _column_lookup(frame: pd.DataFrame, *aliases: str) -> str | None:
@@ -1178,23 +1268,26 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "primary_restart",
         "shots",
     ),
+    # Family-specific REPORT-13 columns are selected before this generic
+    # scalar-safety policy is applied.  Keep every allowed family field here.
     "player-highlights-table": (
-        ("playerName", "player_name", "Player", "item"),
         "team_name",
+        ("playerName", "player_name", "Player", "item"),
         "Offensive Pass Contributions",
         "Progressive Passes",
         "Passes into Box",
         "Key Passes",
-        "Successful Passes",
-        "Shot Sequence Involvements",
+        "Assists",
         "Shot Sequence Shots",
-        "Shot Sequence Shot Assists",
+        ("Shot Sequence Shot Assists", "Shot Sequence Assists", "Shot Assists"),
         "Shot Sequence Pre-Assists",
+        "Shot Sequence Involvements",
         ("unique", "Unique Defensive Contributions"),
         ("tackles_won", "Tackles Won"),
         ("interceptions", "Interceptions"),
         ("recoveries", "Recoveries"),
         ("clearances", "Clearances"),
+        ("blocks", "Blocks"),
     ),
     "methodology-notes": ("Metric", "Value"),
     "metric-definitions": ("Term", "Definition"),
@@ -1616,57 +1709,53 @@ def _player_highlight_payloads(bundle, limit: int) -> list[tuple[str, pd.DataFra
             "Passing",
             "player_stats",
             (
-                ("playerName", "player_name", "Player"),
                 "team_name",
+                "playerName",
                 "Offensive Pass Contributions",
                 "Progressive Passes",
                 "Passes into Box",
                 "Key Passes",
-                "Successful Passes",
+                "Assists",
             ),
-            ("Offensive Pass Contributions", "Progressive Passes", "Successful Passes"),
         ),
         (
             "Shooting",
             "shot_sequence_ranking",
             (
-                ("playerName", "player_name", "Player"),
                 "team_name",
-                "Shot Sequence Involvements",
+                "playerName",
                 "Shot Sequence Shots",
-                "Shot Sequence Shot Assists",
+                ("Shot Sequence Shot Assists", "Shot Sequence Assists", "Shot Assists"),
                 "Shot Sequence Pre-Assists",
+                "Shot Sequence Involvements",
             ),
-            ("Shot Sequence Involvements", "Shot Sequence Shots"),
         ),
         (
             "Defending",
             "defensive_ranking",
             (
-                ("playerName", "player_name", "Player"),
                 "team_name",
+                "playerName",
                 ("unique", "Unique Defensive Contributions"),
                 ("tackles_won", "Tackles Won"),
                 ("interceptions", "Interceptions"),
                 ("recoveries", "Recoveries"),
                 ("clearances", "Clearances"),
+                ("blocks", "Blocks"),
             ),
-            ("unique", "tackles_won", "interceptions"),
         ),
     )
 
     payloads: list[tuple[str, pd.DataFrame]] = []
-    for label, key, columns, _sort_aliases in families:
-        frame = _with_named_index(_as_frame(data.get(key)))
-        if frame.empty:
+    for label, key, columns in families:
+        # REPORT-13: identity may live in Index/MultiIndex.  Canonicalise it
+        # before any selector or PDF column trimming is allowed to run.
+        frame = _normalize_player_ranking_frame(
+            data.get(key),
+            team_lookup=team_lookup,
+        )
+        if frame.empty or "playerName" not in frame.columns:
             continue
-        player_col = _column_lookup(frame, "playerName", "player_name", "Player", "item")
-        team_col = _column_lookup(frame, "team_name", "teamName", "Team")
-        if player_col is None:
-            continue
-        if team_col is None:
-            frame["team_name"] = frame[player_col].astype(str).map(team_lookup)
-            team_col = "team_name"
 
         selected_rows = []
         category = label.casefold()
@@ -1681,6 +1770,7 @@ def _player_highlight_payloads(bundle, limit: int) -> list[tuple[str, pd.DataFra
                 selected_rows.append(scoped)
         if not selected_rows:
             continue
+
         selected = pd.concat(selected_rows, ignore_index=True, sort=False)
         selected = _explicit_columns(selected, columns)
         payloads.append((f"Player highlights - {label}", selected))

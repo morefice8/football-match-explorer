@@ -208,10 +208,13 @@ def searchable_pdf_text(pdf_bytes: bytes) -> str:
     """
 
     chunks: list[bytes] = [pdf_bytes]
-    for match in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", pdf_bytes, re.S):
+    # ReportLab may place ``endstream`` immediately after ASCII85 data rather
+    # than on a fresh line.  Accept both forms so this helper really exposes
+    # visible PDF text for REPORT-13 assertions and REPORT-11 phrase audits.
+    for match in re.finditer(rb"stream\r?\n(.*?)endstream", pdf_bytes, re.S):
         header_start = max(0, match.start() - 768)
         header = pdf_bytes[header_start:match.start()]
-        decoded = _decode_pdf_stream(match.group(1), header)
+        decoded = _decode_pdf_stream(match.group(1).rstrip(b"\r\n"), header)
         if decoded:
             chunks.append(decoded)
     return "\n".join(chunk.decode("latin-1", errors="ignore") for chunk in chunks)
