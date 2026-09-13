@@ -986,27 +986,77 @@ def _render_team_renderer(
 
     if plan.figure_id == "defensive-shape-figure":
         section = _section(bundle, "defensive-shape")
-        profile = (getattr(section, "data", {}) or {}).get(
+        team_payload = (getattr(section, "data", {}) or {}).get(
             plan.team_name,
             {},
         )
-        if not profile or not profile.get("action_count", 0):
+        profile = (
+            team_payload.get(plan.variant, {})
+            if isinstance(team_payload, Mapping)
+            else {}
+        )
+        period_label = {
+            "first_half": "1H",
+            "second_half": "2H",
+        }.get(plan.variant, plan.variant)
+        actions = _as_frame(profile.get("actions")) if profile else pd.DataFrame()
+        if (
+            not profile
+            or not profile.get("action_count", 0)
+            or actions.empty
+        ):
             return _Rendered(
                 _placeholder(
                     plan,
-                    f"No defensive-shape sample for {plan.team_name}.",
+                    f"No defensive actions for {plan.team_name} ({period_label}).",
                 ),
                 ReportFigureStatus.EMPTY,
             )
+
         figure = registry.resolve("defensive-shape")(
             profile,
             color,
             mode="density",
         )
+
+        # Keep the same contour behaviour used by the interactive app.  The
+        # previous report-only fixed-bin/percentage override made half-match
+        # samples look like isolated polygons rather than broad defensive
+        # activity zones.  Plotly therefore keeps its app-style automatic
+        # contour surface and local intensity scaling; only the raw-event
+        # markers are softened for static editorial use.
+        for trace in getattr(figure, "data", ()):
+            trace_type = getattr(trace, "type", "")
+            if trace_type == "histogram2dcontour":
+                trace.update(
+                    ncontours=7,
+                    contours=dict(coloring="fill", showlines=False),
+                    opacity=0.52,
+                )
+            elif trace_type == "scatter":
+                trace.update(
+                    marker=dict(
+                        size=3,
+                        opacity=0.26,
+                        line=dict(width=0.25, color="rgba(255,255,255,0.55)"),
+                    )
+                )
+        figure.update_xaxes(range=[0, 100])
+        figure.update_yaxes(range=[0, 100])
+
         return _Rendered(
             _pdf_layout(figure, plan),
             ReportFigureStatus.GENERATED,
-            "defensive-shape",
+            "defensive-density",
+            selection_reason=(
+                f"{period_label} density from all qualifying defensive actions in the half."
+            ),
+            selection={
+                "period": plan.variant,
+                "action_count": profile.get("action_count"),
+                "density_rendering": "interactive-app-style",
+                "colour_scale": "panel-local",
+            },
         )
 
     raise KeyError(plan.figure_id)
@@ -1605,6 +1655,24 @@ def build_figure_plans(
                 variants = tuple(selected) or ("starting",)
                 for index, team_name in enumerate(teams):
                     for variant in variants:
+                        plans.append(
+                            FigurePlan(
+                                section.id,
+                                section.order,
+                                figure.id,
+                                figure.title,
+                                figure.export.width_px,
+                                figure.export.height_px,
+                                team_name,
+                                index,
+                                variant,
+                            )
+                        )
+                continue
+
+            if figure.id == "defensive-shape-figure":
+                for index, team_name in enumerate(teams):
+                    for variant in ("first_half", "second_half"):
                         plans.append(
                             FigurePlan(
                                 section.id,

@@ -872,7 +872,7 @@ def _toc_story(styles) -> list[Any]:
     return [
         Paragraph("Contents", styles["toc_title"]),
         Paragraph(
-            "All analytical sections use the Full Match scope. Empty or failed sections remain visible as explicit report placeholders.",
+            "The report covers the full match. Selected sections may compare explicitly defined match periods such as 1H and 2H. Empty or failed sections remain visible as explicit report placeholders.",
             styles["body"],
         ),
         Spacer(1, 4 * mm),
@@ -886,9 +886,14 @@ def _section_heading(section_spec, styles) -> list[Any]:
         styles["section"],
     )
     setattr(heading, "_report_bookmark", f"section-{section_spec.order:02d}-{section_spec.id}")
+    scope_label = (
+        "1H vs 2H"
+        if section_spec.id == "defensive-shape"
+        else "FULL MATCH"
+    )
     return [
         Paragraph(
-            f"SECTION {section_spec.order:02d} / FULL MATCH",
+            f"SECTION {section_spec.order:02d} / {scope_label}",
             styles["section_kicker"],
         ),
         heading,
@@ -938,7 +943,13 @@ def _image_flowable(
     caption_parts.append(str(getattr(artifact, "title", "Figure")))
     variant = str(getattr(artifact, "variant", "summary") or "summary")
     if variant != "summary":
-        variant_label = variant.title()
+        if getattr(artifact, "id", None) == "defensive-shape-figure":
+            variant_label = {
+                "first_half": "1H",
+                "second_half": "2H",
+            }.get(variant, variant.replace("_", " ").title())
+        else:
+            variant_label = variant.replace("_", " ").title()
         if getattr(artifact, "id", None) == "formation-timeline-figure":
             selection = getattr(artifact, "selection", None) or {}
             time_label = _pdf_safe_helvetica_text(
@@ -1042,8 +1053,16 @@ def _figure_story_for_spec(
     figure_spec,
     styles,
     config,
+    *,
+    variants_filter: Sequence[str] | None = None,
 ) -> list[Any]:
     artifacts = _artifacts_for(catalog, figure_spec.id)
+    if variants_filter is not None:
+        allowed = {str(item) for item in variants_filter}
+        artifacts = [
+            item for item in artifacts
+            if str(getattr(item, "variant", "summary") or "summary") in allowed
+        ]
     if not artifacts:
         return [
             _placeholder_box(
@@ -1063,6 +1082,9 @@ def _figure_story_for_spec(
         figure_spec.id == "formation-timeline-figure"
         and len(variants) >= 3
     )
+    large_defensive_density = (
+        figure_spec.id == "defensive-shape-figure"
+    )
     for variant in variants:
         group = [
             item
@@ -1074,8 +1096,16 @@ def _figure_story_for_spec(
         if len(home_away) == 2:
             # Two-team figures are deliberately compact so editorial sections
             # can keep visual comparison + concise tables on one/two pages.
-            max_cell_width = 92 * mm
-            max_cell_height = (42 * mm if compact_formation else 54 * mm)
+            max_cell_width = (
+                131 * mm
+                if large_defensive_density
+                else 92 * mm
+            )
+            max_cell_height = (
+                86 * mm
+                if large_defensive_density
+                else (42 * mm if compact_formation else 54 * mm)
+            )
             left = _image_flowable(
                 home_away[0],
                 styles,
@@ -1099,16 +1129,43 @@ def _figure_story_for_spec(
                 TableStyle(
                     [
                         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                        ("TOPPADDING", (0, 0), (-1, -1), 3),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                        (
+                            "LEFTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            1 if large_defensive_density else 3,
+                        ),
+                        (
+                            "RIGHTPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            1 if large_defensive_density else 3,
+                        ),
+                        (
+                            "TOPPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            1 if large_defensive_density else 3,
+                        ),
+                        (
+                            "BOTTOMPADDING",
+                            (0, 0),
+                            (-1, -1),
+                            2 if large_defensive_density else 5,
+                        ),
                     ]
                 )
             )
             story.extend([
                 pair,
-                Spacer(1, (2 * mm if compact_formation else 4 * mm)),
+                Spacer(
+                    1,
+                    (
+                        1 * mm
+                        if large_defensive_density
+                        else (2 * mm if compact_formation else 4 * mm)
+                    ),
+                ),
             ])
             continue
 
@@ -1235,12 +1292,12 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "duration_seconds",
     ),
     "defensive-shape-summary": (
-        "team_name",
-        "block_height_m",
-        "width_m",
-        "compactness_m",
-        "action_count",
-        "snapshot_count",
+        "Team",
+        "Block height (m)",
+        "Width (m)",
+        "Compactness (m)",
+        "Sample size",
+        "Δ vs 1H",
     ),
     "ppda-summary": (
         "team_name",
@@ -1890,6 +1947,77 @@ def _player_highlight_payloads(bundle, limit: int) -> list[tuple[str, pd.DataFra
     return payloads
 
 
+def _defensive_shape_delta_text(first: Mapping[str, Any], second: Mapping[str, Any]) -> str:
+    """Compact 2H-v-1H change for defensive-action density metrics."""
+    parts = []
+    for key, label in (
+        ("block_height_m", "BH"),
+        ("width_m", "W"),
+        ("compactness_m", "C"),
+    ):
+        before = first.get(key) if isinstance(first, Mapping) else None
+        after = second.get(key) if isinstance(second, Mapping) else None
+        try:
+            if before is None or after is None or pd.isna(before) or pd.isna(after):
+                continue
+            delta = float(after) - float(before)
+        except Exception:
+            continue
+        parts.append(f"{label} {delta:+.1f}m")
+    return " · ".join(parts) if parts else "-"
+
+
+def _defensive_shape_period_frame(bundle, period_key: str) -> pd.DataFrame:
+    section = _section(bundle, "defensive-shape")
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+
+    for team in teams:
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        profile = (
+            payload.get(period_key, {})
+            if isinstance(payload, Mapping)
+            else {}
+        )
+        first = (
+            payload.get("first_half", {})
+            if isinstance(payload, Mapping)
+            else {}
+        )
+        action_count = profile.get("action_count", 0) if isinstance(profile, Mapping) else 0
+        sample_size = f"{int(action_count or 0)} actions"
+
+        row = {
+            "Team": team,
+            "Block height (m)": profile.get("block_height_m") if isinstance(profile, Mapping) else None,
+            "Width (m)": profile.get("width_m") if isinstance(profile, Mapping) else None,
+            "Compactness (m)": profile.get("compactness_m") if isinstance(profile, Mapping) else None,
+            "Sample size": sample_size,
+        }
+        if period_key == "second_half":
+            row["Δ vs 1H"] = _defensive_shape_delta_text(first, profile)
+        rows.append(row)
+
+    columns = [
+        "Team",
+        "Block height (m)",
+        "Width (m)",
+        "Compactness (m)",
+        "Sample size",
+    ]
+    if period_key == "second_half":
+        columns.append("Δ vs 1H")
+    return pd.DataFrame(rows, columns=columns)
+
+
+def _defensive_shape_table_payloads(bundle) -> list[tuple[str, pd.DataFrame]]:
+    return [
+        ("1H metrics", _defensive_shape_period_frame(bundle, "first_half")),
+        ("2H metrics and change vs 1H", _defensive_shape_period_frame(bundle, "second_half")),
+    ]
+
+
 def _table_payloads(
     bundle,
     table_id: str,
@@ -2098,30 +2226,7 @@ def _table_payloads(
         return payloads
 
     if table_id == "defensive-shape-summary":
-        section = _section(bundle, "defensive-shape")
-        data = getattr(section, "data", {}) or {}
-        rows = []
-        for team in teams:
-            profile = data.get(team, {}) if isinstance(data, Mapping) else {}
-            if isinstance(profile, Mapping):
-                simple = {
-                    key: value
-                    for key, value in profile.items()
-                    if not isinstance(value, (pd.DataFrame, Mapping, list, tuple))
-                }
-                rows.append({"team_name": team, **simple})
-        frame = _explicit_columns(
-            pd.DataFrame(rows),
-            (
-                "team_name",
-                "block_height_m",
-                "width_m",
-                "compactness_m",
-                "action_count",
-                "snapshot_count",
-            ),
-        )
-        return [("Defensive shape summary", frame)]
+        return _defensive_shape_table_payloads(bundle)
 
     if table_id == "ppda-summary":
         return [("PPDA summary", _ppda_summary_rows(bundle))]
@@ -2211,7 +2316,7 @@ def _table_payloads(
         definitions = [
             {
                 "Term": "Full Match",
-                "Definition": "All report sections use the canonical full-match scope; current UI filters do not alter the report.",
+                "Definition": "Default report scope. Individual sections may use explicitly declared sub-periods when the analysis requires temporal comparison; current UI filters do not alter the report.",
             },
             {
                 "Term": "Progressive pass",
@@ -2220,6 +2325,10 @@ def _table_payloads(
             {
                 "Term": "Final third entry",
                 "Definition": "Derived by the canonical final-third entry analyzer from qualifying passes and carries.",
+            },
+            {
+                "Term": "Defensive density",
+                "Definition": "Spatial distribution of all qualifying defensive actions in each half; it shows where defending occurs, not simultaneous player positions.",
             },
             {
                 "Term": "PPDA",
@@ -2486,6 +2595,63 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
     return story
 
 
+def _defensive_shape_section_story(
+    bundle,
+    catalog,
+    section_spec,
+    styles,
+    config,
+) -> list[Any]:
+    """Two-page 1H/2H defensive-action density comparison."""
+
+    story: list[Any] = []
+    figure_spec = section_spec.figures[0] if section_spec.figures else None
+
+    for index, (period_key, title) in enumerate((
+        ("first_half", "First half (1H)"),
+        ("second_half", "Second half (2H)"),
+    )):
+        if index:
+            story.append(PageBreak())
+        story.append(Paragraph(title, styles["subheading"]))
+        story.append(
+            Paragraph(
+                "Same density rendering as the interactive app. "
+                "Colour intensity is scaled within each panel; light points "
+                "show the underlying defensive actions.",
+                styles["small"],
+            )
+        )
+
+        if figure_spec is not None:
+            story.extend(
+                _figure_story_for_spec(
+                    catalog,
+                    figure_spec,
+                    styles,
+                    config,
+                    variants_filter=(period_key,),
+                )
+            )
+
+        frame = _defensive_shape_period_frame(bundle, period_key)
+        table_title = (
+            "1H defensive-density metrics"
+            if period_key == "first_half"
+            else "2H defensive-density metrics · change vs 1H"
+        )
+        story.append(Paragraph(table_title, styles["table_subheading"]))
+        story.append(
+            _long_table(
+                frame,
+                styles,
+                max_columns=6,
+            )
+        )
+
+    return story
+
+
 def _section_story(
     bundle,
     catalog,
@@ -2529,6 +2695,18 @@ def _section_story(
 
     if section_spec.id == "overview":
         story.extend(_overview_notes(bundle, styles))
+
+    if section_spec.id == "defensive-shape":
+        story.extend(
+            _defensive_shape_section_story(
+                bundle,
+                catalog,
+                section_spec,
+                styles,
+                config,
+            )
+        )
+        return story
 
     for figure_spec in section_spec.figures:
         story.append(Paragraph(escape(figure_spec.title), styles["subheading"]))

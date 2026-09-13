@@ -566,10 +566,10 @@ def _defensive_shape_time_minutes(df):
 def _defensive_shape_period_mask(df, period):
     import pandas as pd
 
-    period = (period or "full").lower()
+    period = (period or "full").lower().strip().replace("-", "_").replace(" ", "_")
     minutes = _defensive_shape_time_minutes(df)
 
-    if period == "1h":
+    if period in {"1h", "1", "first_half", "first"}:
         if "periodId" in df.columns:
             period_id = pd.to_numeric(
                 df["periodId"],
@@ -578,7 +578,7 @@ def _defensive_shape_period_mask(df, period):
             return period_id.eq(1)
         return minutes.lt(45.0)
 
-    if period == "2h":
+    if period in {"2h", "2", "second_half", "second"}:
         if "periodId" in df.columns:
             period_id = pd.to_numeric(
                 df["periodId"],
@@ -837,7 +837,13 @@ def _defensive_shape_lineup_change_minutes(
     df,
     team_name,
 ):
-    """Return team substitution minutes used to reject mixed-lineup windows."""
+    """Return substitution/dismissal minutes that split stable lineups.
+
+    A defensive-shape snapshot must never straddle a personnel change.  Both
+    substitutions and dismissals therefore create hard boundaries.  Multiple
+    Opta events at the same clock minute (Player Off + Player On) collapse to
+    one boundary.
+    """
     import pandas as pd
 
     if (
@@ -857,40 +863,104 @@ def _defensive_shape_lineup_change_minutes(
     if team_df.empty:
         return []
 
-    mask = pd.Series(
+    substitution_mask = pd.Series(
+        False,
+        index=team_df.index,
+        dtype=bool,
+    )
+    dismissal_mask = pd.Series(
         False,
         index=team_df.index,
         dtype=bool,
     )
 
+    type_ids = pd.Series(
+        float("nan"),
+        index=team_df.index,
+        dtype=float,
+    )
     if "typeId" in team_df.columns:
         type_ids = pd.to_numeric(
             team_df["typeId"],
             errors="coerce",
         )
-        mask = mask | type_ids.isin(
-            [18, 19]
+        substitution_mask = (
+            substitution_mask
+            | type_ids.isin([18, 19])
         )
 
+    names = pd.Series(
+        "",
+        index=team_df.index,
+        dtype=object,
+    )
     if "type_name" in team_df.columns:
         names = (
             team_df["type_name"]
             .fillna("")
             .astype(str)
             .str.lower()
+            .str.strip()
+        )
+        substitution_mask = (
+            substitution_mask
+            | names.str.contains(
+                "substitution",
+                regex=False,
+            )
+            | names.isin(
+                {
+                    "player off",
+                    "player on",
+                }
+            )
+        )
+        dismissal_mask = (
+            dismissal_mask
+            | names.str.contains(
+                "dismissal",
+                regex=False,
+            )
+            | names.str.contains(
+                "red card",
+                regex=False,
+            )
         )
 
-        mask = mask | names.str.contains(
-            "substitution",
-            regex=False,
-        )
-        mask = mask | names.isin(
-            {
-                "player off",
-                "player on",
-            }
-        )
+    qualifier_dismissal = pd.Series(
+        False,
+        index=team_df.index,
+        dtype=bool,
+    )
+    for column in (
+        "Red card",
+        "Red Card",
+        "Second yellow",
+        "Second Yellow",
+        "Second yellow card",
+    ):
+        if column in team_df.columns:
+            qualifier_dismissal = (
+                qualifier_dismissal
+                | team_df[column].map(
+                    _truthy_qualifier
+                )
+            )
 
+    # Opta card events use typeId 17.  Qualifiers distinguish dismissals from
+    # ordinary yellow cards, so a yellow does not split the lineup.
+    dismissal_mask = (
+        dismissal_mask
+        | (
+            qualifier_dismissal
+            & (
+                type_ids.eq(17)
+                | names.eq("card")
+            )
+        )
+    )
+
+    mask = substitution_mask | dismissal_mask
     if not mask.any():
         return []
 
@@ -903,9 +973,193 @@ def _defensive_shape_lineup_change_minutes(
         .tolist()
     )
 
-    return sorted(
-        set(minutes)
+    return sorted(set(minutes))
+
+
+def _defensive_shape_stable_windows(
+    source_df,
+    team_name,
+    period,
+    window_minutes,
+):
+    """Yield time windows that never cross a personnel-change boundary.
+
+    Windows are anchored to actual stable-lineup spells rather than fixed
+    0/15/30/45-minute buckets.  This is important after multiple second-half
+    substitutions: a useful 8- or 14-minute stable spell must not be discarded
+    just because a substitution occurred elsewhere in the surrounding
+    15-minute bucket.  Long stable spells are still capped to ``window_minutes``
+    so 1H and 2H use the same temporal scale.
+    """
+    if source_df is None or source_df.empty:
+        return []
+
+    minutes = source_df["__match_minute"].dropna().astype(float)
+    if minutes.empty:
+        return []
+
+    normalized = (
+        (period or "full")
+        .lower()
+        .strip()
+        .replace("-", "_")
+        .replace(" ", "_")
     )
+
+    if normalized in {"1h", "1", "first_half", "first"}:
+        period_start = 0.0
+        period_end = max(45.0, float(minutes.max()) + 1e-6)
+    elif normalized in {"2h", "2", "second_half", "second"}:
+        period_start = 45.0
+        period_end = float(minutes.max()) + 1.0
+    else:
+        period_start = min(0.0, float(minutes.min()))
+        period_end = float(minutes.max()) + 1.0
+
+    if period_end <= period_start:
+        return []
+
+    changes = [
+        float(value)
+        for value in _defensive_shape_lineup_change_minutes(
+            source_df,
+            team_name,
+        )
+        if period_start < float(value) < period_end
+    ]
+
+    boundaries = sorted(
+        {period_start, period_end, *changes}
+    )
+
+    windows = []
+    max_span = max(float(window_minutes), 1e-6)
+
+    for segment_start, segment_end in zip(
+        boundaries[:-1],
+        boundaries[1:],
+    ):
+        if segment_end <= segment_start:
+            continue
+
+        cursor = float(segment_start)
+        while cursor < float(segment_end) - 1e-9:
+            window_end = min(
+                cursor + max_span,
+                float(segment_end),
+            )
+            if window_end > cursor:
+                windows.append((cursor, window_end))
+            cursor = window_end
+
+    return windows
+
+
+
+
+DEFENSIVE_DENSITY_BIN_SIZE = 12.5
+
+
+def build_defensive_density_profile(
+    df_processed,
+    team_name,
+    period="full",
+    bin_size=DEFENSIVE_DENSITY_BIN_SIZE,
+):
+    """Build a half-scoped defensive-action density profile.
+
+    Unlike the optional interactive ``shape`` view, report density does not
+    reconstruct a simultaneous XI.  Every qualifying defensive action in the
+    requested period contributes to the spatial distribution and to the robust
+    summary metrics below.
+    """
+    import numpy as np
+    import pandas as pd
+
+    empty = {
+        "team_name": team_name,
+        "period": period or "full",
+        "actions": pd.DataFrame(),
+        "action_count": 0,
+        "block_height_m": None,
+        "width_m": None,
+        "compactness_m": None,
+        "density_bin_size": float(bin_size),
+        "density_peak_pct": None,
+        "density_scale_max_pct": None,
+    }
+
+    if df_processed is None or df_processed.empty:
+        return empty
+
+    required = {"team_name", "type_name", "x", "y"}
+    if not required.issubset(df_processed.columns):
+        return empty
+
+    source_df = df_processed.loc[
+        _defensive_shape_period_mask(df_processed, period)
+        & df_processed["team_name"].eq(team_name)
+    ].copy()
+
+    actions = get_defensive_actions(source_df)
+    if actions is None or actions.empty:
+        return empty
+
+    actions = actions.loc[
+        actions["team_name"].eq(team_name)
+        & actions["x"].notna()
+        & actions["y"].notna()
+    ].copy()
+    if actions.empty:
+        return empty
+
+    x = pd.to_numeric(actions["x"], errors="coerce").dropna().clip(0.0, 100.0)
+    y = pd.to_numeric(actions.loc[x.index, "y"], errors="coerce").dropna().clip(0.0, 100.0)
+    common = x.index.intersection(y.index)
+    actions = actions.loc[common].copy()
+    x = x.loc[common]
+    y = y.loc[common]
+    if actions.empty:
+        return empty
+
+    pitch_x = DEFENSIVE_SHAPE_PITCH_LENGTH_M / 100.0
+    pitch_y = DEFENSIVE_SHAPE_PITCH_WIDTH_M / 100.0
+
+    block_height_m = float(x.median() * pitch_x)
+    # Central 80% is intentionally robust to isolated wide actions.
+    width_m = float((y.quantile(0.90) - y.quantile(0.10)) * pitch_y)
+
+    center_x = float(x.median())
+    center_y = float(y.median())
+    distances = np.sqrt(
+        ((x - center_x) * pitch_x) ** 2
+        + ((y - center_y) * pitch_y) ** 2
+    )
+    compactness_m = float(distances.median())
+
+    bin_size = float(bin_size or DEFENSIVE_DENSITY_BIN_SIZE)
+    if bin_size <= 0:
+        bin_size = DEFENSIVE_DENSITY_BIN_SIZE
+    edges = np.arange(0.0, 100.0 + bin_size, bin_size)
+    if edges[-1] < 100.0:
+        edges = np.append(edges, 100.0)
+    hist, _, _ = np.histogram2d(x.to_numpy(), y.to_numpy(), bins=(edges, edges))
+    peak_pct = (
+        float(hist.max()) / float(len(actions)) * 100.0
+        if len(actions)
+        else 0.0
+    )
+
+    return {
+        **empty,
+        "actions": actions,
+        "action_count": int(len(actions)),
+        "block_height_m": block_height_m,
+        "width_m": width_m,
+        "compactness_m": compactness_m,
+        "density_bin_size": bin_size,
+        "density_peak_pct": peak_pct,
+    }
 
 
 def build_defensive_shape_profile(
@@ -970,13 +1224,6 @@ def build_defensive_shape_profile(
     # match clock to build coherent time windows, so filter the source first
     # and then reattach the derived clock by preserved original index.
     source_df = df_processed.copy()
-
-    lineup_change_minutes = (
-        _defensive_shape_lineup_change_minutes(
-            source_df,
-            team_name,
-        )
-    )
 
     source_df[
         "__match_minute"
@@ -1064,46 +1311,32 @@ def build_defensive_shape_profile(
     if player_column is None:
         return result
 
-    actions["__window_start"] = (
-        np.floor(
-            actions[
-                "__match_minute"
-            ].astype(float)
-            / float(window_minutes)
-        )
-        * float(window_minutes)
-    )
-
     snapshots = []
 
-    for (
-        window_start,
-        window_df,
-    ) in actions.groupby(
-        "__window_start"
+    stable_windows = _defensive_shape_stable_windows(
+        source_df,
+        team_name,
+        period,
+        window_minutes,
+    )
+
+    for window_index, (window_start, window_end) in enumerate(
+        stable_windows
     ):
-        window_start = float(
-            window_start
-        )
-        window_end = (
-            window_start
-            + float(
-                window_minutes
+        is_last_window = window_index == len(stable_windows) - 1
+        if is_last_window:
+            mask = (
+                actions["__match_minute"].ge(window_start)
+                & actions["__match_minute"].le(window_end)
             )
-        )
-
-        contains_lineup_change = any(
-            (
-                minute
-                >= window_start
-                and minute
-                < window_end
+        else:
+            mask = (
+                actions["__match_minute"].ge(window_start)
+                & actions["__match_minute"].lt(window_end)
             )
-            for minute
-            in lineup_change_minutes
-        )
 
-        if contains_lineup_change:
+        window_df = actions.loc[mask].copy()
+        if window_df.empty:
             continue
 
         aggregations = {

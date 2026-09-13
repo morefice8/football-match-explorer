@@ -607,13 +607,35 @@ def _event_explorer_table(bundle) -> pd.DataFrame:
     defensive_shape = _section_data(bundle, "defensive-shape")
     if isinstance(defensive_shape, Mapping):
         for team in tuple(getattr(bundle, "teams", ()) or ()):
-            profile = defensive_shape.get(team, {})
-            actions = (
-                profile.get("actions")
-                if isinstance(profile, Mapping)
-                else None
-            )
-            frame = _with_report_team(_as_frame(actions), team)
+            payload = defensive_shape.get(team, {})
+            action_frames = []
+            if isinstance(payload, Mapping) and (
+                "first_half" in payload or "second_half" in payload
+            ):
+                for period_key in ("first_half", "second_half"):
+                    profile = payload.get(period_key, {})
+                    actions = (
+                        profile.get("actions")
+                        if isinstance(profile, Mapping)
+                        else None
+                    )
+                    frame = _as_frame(actions)
+                    if not frame.empty:
+                        action_frames.append(frame)
+                actions_frame = (
+                    pd.concat(action_frames, ignore_index=True, sort=False)
+                    if action_frames
+                    else pd.DataFrame()
+                )
+            else:
+                # Backward-compatible support for pre REPORT-15 fixtures.
+                actions_frame = _as_frame(
+                    payload.get("actions")
+                    if isinstance(payload, Mapping)
+                    else None
+                )
+
+            frame = _with_report_team(actions_frame, team)
             frames.append(
                 _with_source(
                     frame,

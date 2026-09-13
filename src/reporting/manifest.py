@@ -79,6 +79,17 @@ FORMATION_STATES = ReportSelectionSpec(
     ),
 )
 
+DEFENSIVE_DENSITY_HALVES = ReportSelectionSpec(
+    rule="first-and-second-half-defensive-density",
+    limit=2,
+    notes=(
+        "Render 1H and 2H defensive-action density from every qualifying "
+        "action in the half using the same contour method as the interactive "
+        "app. Colour intensity is scaled within each panel for legibility; "
+        "full-match values are numeric reference only."
+    ),
+)
+
 
 def figure(
     item_id: str,
@@ -329,18 +340,20 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     ),
     section(
         "defensive-shape",
-        "Defensive Shape",
+        "Defensive Density",
         10,
         figures=(
             figure(
                 "defensive-shape-figure",
-                "Defensive Shape",
+                "Defensive Density",
+                selection=DEFENSIVE_DENSITY_HALVES,
             ),
         ),
         tables=(
             table(
                 "defensive-shape-summary",
-                "Defensive shape summary",
+                "Defensive density summary",
+                selection=DEFENSIVE_DENSITY_HALVES,
             ),
         ),
     ),

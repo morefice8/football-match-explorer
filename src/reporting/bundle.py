@@ -1016,18 +1016,73 @@ def _build_up(ctx: _BundleContext) -> _Produced:
 
 
 def _defensive_shape(ctx: _BundleContext) -> _Produced:
+    from math import ceil
     from src.metrics import defensive_metrics
 
+    def numeric_summary(profile: Mapping[str, Any]) -> dict[str, Any]:
+        # Full-match density is reference data only.  Editorial plots compare
+        # 1H with 2H on one shared scale.
+        return {
+            key: profile.get(key)
+            for key in (
+                "team_name",
+                "period",
+                "action_count",
+                "block_height_m",
+                "width_m",
+                "compactness_m",
+                "density_bin_size",
+                "density_peak_pct",
+            )
+        }
+
     data = {}
+    half_profiles = []
     non_empty = False
     for team in ctx.teams:
-        profile = defensive_metrics.build_defensive_shape_profile(
+        first_half = defensive_metrics.build_defensive_density_profile(
+            ctx.df,
+            team,
+            period="first_half",
+        )
+        second_half = defensive_metrics.build_defensive_density_profile(
+            ctx.df,
+            team,
+            period="second_half",
+        )
+        full_match = defensive_metrics.build_defensive_density_profile(
             ctx.df,
             team,
             period="full",
         )
-        data[team] = profile
-        non_empty |= bool(profile.get("action_count", 0))
+
+        data[team] = {
+            "first_half": first_half,
+            "second_half": second_half,
+            "full_match": numeric_summary(full_match),
+        }
+        half_profiles.extend((first_half, second_half))
+        non_empty |= bool(
+            first_half.get("action_count", 0)
+            or second_half.get("action_count", 0)
+        )
+
+    # Histogram2dContour otherwise auto-scales independently.  One common
+    # percentage ceiling makes team-v-team and 1H-v-2H colour intensity
+    # genuinely comparable.
+    peaks = [
+        float(profile.get("density_peak_pct"))
+        for profile in half_profiles
+        if profile.get("density_peak_pct") is not None
+    ]
+    shared_scale = max(peaks, default=0.0)
+    if shared_scale > 0:
+        shared_scale = min(100.0, max(5.0, ceil(shared_scale / 5.0) * 5.0))
+    else:
+        shared_scale = 5.0
+
+    for profile in half_profiles:
+        profile["density_scale_max_pct"] = shared_scale
 
     return _produced(data, empty=not non_empty)
 
