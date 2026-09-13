@@ -8,6 +8,7 @@ import zlib
 
 from src.reporting.audit import (
     MATCH_JSON_ENV_VAR,
+    pdf_page_count,
     resolve_match_json_path,
     searchable_pdf_text,
     validate_pdf_bytes,
@@ -48,6 +49,16 @@ class ReportAuditUtilityTests(unittest.TestCase):
         self.assertIn("Figure unavailable", searchable_pdf_text(pdf))
         issues = validate_pdf_bytes(pdf)
         self.assertTrue(any(i.code == "pdf-forbidden-text" for i in issues))
+
+    def test_pdf_page_count_ignores_pages_tree_object(self):
+        pdf = (
+            b"%PDF-1.4\n"
+            b"1 0 obj << /Type /Pages /Count 2 >> endobj\n"
+            b"2 0 obj << /Type /Page /Parent 1 0 R >> endobj\n"
+            b"3 0 obj << /Type /Page /Parent 1 0 R >> endobj\n"
+            b"%%EOF\n"
+        )
+        self.assertEqual(pdf_page_count(pdf), 2)
 
     def test_clean_pdf_has_no_forbidden_text_issue(self):
         pdf = b"%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n"

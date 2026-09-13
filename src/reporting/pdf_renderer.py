@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import unicodedata
 from io import BytesIO
 import json
 from pathlib import Path
@@ -43,6 +44,10 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
+from src.reporting.selectors import (
+    rank_players_by_metric_family,
+    rank_sequences_by_outcome_priority,
+)
 from src.reporting.render_audit import artifact_key
 
 logger = logging.getLogger(__name__)
@@ -67,10 +72,16 @@ class MatchReportPdfConfig:
     brand_name: str = "IL LAB DELL'8"
     report_label: str = "MATCH ANALYSIS"
     image_scale: float = 1.0
-    max_table_columns: int = 10
+    # REPORT-12: the PDF is an editorial reading layer, not a data dump.
+    # Eight deliberately selected columns remain legible on A4 landscape;
+    # complete analytical schemas continue to live in the CSV files.
+    max_table_columns: int = 8
     brand_font_path: str | Path | None = None
     enable_brand_font: bool = True
     render_audit: dict | None = field(default=None, compare=False, repr=False)
+    # Selection reasons remain in the machine-readable catalog/manifest.
+    # The editorial PDF hides implementation-level ranking traces by default.
+    include_selection_reasons: bool = False
 
     def __post_init__(self) -> None:
         if self.image_scale <= 0:
@@ -152,6 +163,95 @@ def _as_frame(value: Any) -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _with_named_index(frame: pd.DataFrame) -> pd.DataFrame:
+    """Materialise a meaningful player/sequence index for PDF display.
+
+    Several canonical ranking frames use ``playerName`` as their index.  The
+    previous renderer silently dropped that identity and printed only metric
+    columns.  REPORT-12 keeps the identity while still leaving the underlying
+    bundle/CSV payload untouched.
+    """
+
+    frame = frame.copy()
+    if isinstance(frame.index, pd.RangeIndex) and frame.index.name is None:
+        return frame
+    index_name = str(frame.index.name or "item")
+    if index_name in frame.columns:
+        index_name = "item"
+    return frame.reset_index(names=index_name)
+
+
+def _column_lookup(frame: pd.DataFrame, *aliases: str) -> str | None:
+    by_name = {
+        str(column).strip().casefold(): column
+        for column in frame.columns
+    }
+    for alias in aliases:
+        found = by_name.get(str(alias).strip().casefold())
+        if found is not None:
+            return found
+    return None
+
+
+def _explicit_columns(
+    frame: pd.DataFrame,
+    columns: Sequence[str | Sequence[str]],
+) -> pd.DataFrame:
+    """Return only explicitly declared PDF columns that exist in ``frame``."""
+
+    frame = _with_named_index(frame)
+    selected: list[Any] = []
+    for candidate in columns:
+        aliases = (candidate,) if isinstance(candidate, str) else tuple(candidate)
+        column = _column_lookup(frame, *aliases)
+        if column is not None and column not in selected:
+            selected.append(column)
+    return frame.loc[:, selected].copy() if selected else pd.DataFrame()
+
+
+def _is_nested_pdf_value(value: Any) -> bool:
+    return isinstance(value, (pd.DataFrame, pd.Series, Mapping, list, tuple, set))
+
+
+def _drop_nested_pdf_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Never render nested analytical payloads inside native PDF tables."""
+
+    if frame.empty:
+        return frame.copy()
+    keep: list[Any] = []
+    for column in frame.columns:
+        series = frame[column]
+        if any(_is_nested_pdf_value(value) for value in series if value is not None):
+            continue
+        keep.append(column)
+    return frame.loc[:, keep].copy()
+
+
+def _metric_rows(
+    frame: pd.DataFrame,
+    *,
+    exact: Sequence[str] = (),
+    prefixes: Sequence[str] = (),
+    limit: int | None = None,
+) -> pd.DataFrame:
+    """Select a compact allow-listed subset from a Metric/Value table."""
+
+    if frame.empty or "Metric" not in frame.columns:
+        return frame.head(0).copy()
+    exact_keys = {item.casefold() for item in exact}
+    prefix_keys = tuple(item.casefold() for item in prefixes)
+    mask = frame["Metric"].astype(str).map(
+        lambda value: (
+            value.casefold() in exact_keys
+            or any(value.casefold().startswith(prefix) for prefix in prefix_keys)
+        )
+    )
+    result = frame.loc[mask].copy()
+    if limit is not None:
+        result = result.head(limit)
+    return result
+
+
 def _json_text(value: Any) -> str:
     try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
@@ -179,6 +279,50 @@ def _format_scalar(value: Any) -> str:
     if isinstance(value, Mapping) or isinstance(value, (list, tuple, set)):
         return _json_text(value)
     return str(value)
+
+
+def _pdf_safe_helvetica_text(value: Any) -> str:
+    """Return text that core Helvetica can render without black-square glyphs.
+
+    ReportLab's core Helvetica font uses WinAnsi/CP1252.  Football names can
+    contain Latin characters outside that repertoire (for example č/ć).
+    Preserve characters supported by CP1252 and transliterate only unsupported
+    code points to an ASCII approximation.  The analytical source values remain
+    untouched in CSV/JSON exports.
+    """
+
+    text = str(value)
+    # Normalize common typographic punctuation to ASCII before the generic
+    # CP1252/transliteration pass.  Formation timeline labels use prime and
+    # double-prime symbols (e.g. 31′ 05″), which core Helvetica cannot render
+    # and would otherwise become question marks in the PDF.
+    punctuation = {
+        "\u2032": "'",   # prime / minutes
+        "\u2033": '"',   # double prime / seconds
+        "\u2018": "'",   # left single quotation mark
+        "\u2019": "'",   # right single quotation mark
+        "\u201c": '"',   # left double quotation mark
+        "\u201d": '"',   # right double quotation mark
+        "\u2013": "-",   # en dash
+        "\u2014": "-",   # em dash
+    }
+    text = "".join(punctuation.get(char, char) for char in text)
+
+    output: list[str] = []
+    for char in text:
+        try:
+            char.encode("cp1252")
+        except UnicodeEncodeError:
+            decomposed = unicodedata.normalize("NFKD", char)
+            ascii_part = "".join(
+                item
+                for item in decomposed
+                if ord(item) < 128 and not unicodedata.combining(item)
+            )
+            output.append(ascii_part or "?")
+        else:
+            output.append(char)
+    return "".join(output)
 
 
 def _mapping_rows(
@@ -376,16 +520,16 @@ def _styles(config: MatchReportPdfConfig) -> dict[str, ParagraphStyle]:
             "ReportTableCell",
             parent=sample["BodyText"],
             fontName="Helvetica",
-            fontSize=6.8,
-            leading=8.6,
+            fontSize=7.4,
+            leading=9.2,
             textColor=TEXT,
         ),
         "table_header": ParagraphStyle(
             "ReportTableHeader",
             parent=sample["BodyText"],
             fontName="Helvetica-Bold",
-            fontSize=6.8,
-            leading=8.6,
+            fontSize=7.2,
+            leading=9.0,
             textColor=WHITE,
             alignment=TA_LEFT,
         ),
@@ -675,7 +819,7 @@ def _section_heading(section_spec, styles) -> list[Any]:
 
 def _placeholder_box(message: str, styles, *, height: float = 28 * mm) -> Table:
     content = Paragraph(escape(message), styles["placeholder"])
-    table = Table([[content]], colWidths=[175 * mm], rowHeights=[height])
+    table = Table([[content]], colWidths=[268 * mm], rowHeights=[height])
     table.setStyle(
         TableStyle(
             [
@@ -758,10 +902,10 @@ def _image_flowable(
             )
 
     reason = getattr(artifact, "selection_reason", None)
-    if reason:
+    if reason and config.include_selection_reasons:
         flowables.append(
             Paragraph(
-                "<b>Selection reason:</b> " + escape(str(reason)),
+                "<b>Selection reason:</b> " + escape(_pdf_safe_helvetica_text(reason)),
                 styles["reason"],
             )
         )
@@ -821,8 +965,10 @@ def _figure_story_for_spec(
 
         home_away = [item for item in group if getattr(item, "team_name", None)]
         if len(home_away) == 2:
-            max_cell_width = 84 * mm
-            max_cell_height = 92 * mm
+            # Two-team figures are deliberately compact so editorial sections
+            # can keep visual comparison + concise tables on one/two pages.
+            max_cell_width = 92 * mm
+            max_cell_height = 54 * mm
             left = _image_flowable(
                 home_away[0],
                 styles,
@@ -839,7 +985,7 @@ def _figure_story_for_spec(
             )
             pair = Table(
                 [[list(left.flowables), list(right.flowables)]],
-                colWidths=[88 * mm, 88 * mm],
+                colWidths=[133 * mm, 133 * mm],
                 hAlign="LEFT",
             )
             pair.setStyle(
@@ -861,8 +1007,8 @@ def _figure_story_for_spec(
                 artifact,
                 styles,
                 config,
-                max_width=176 * mm,
-                max_height=118 * mm,
+                max_width=220 * mm,
+                max_height=92 * mm,
             )
             story.extend([KeepTogether(list(cell.flowables)), Spacer(1, 4 * mm)])
 
@@ -904,26 +1050,165 @@ def _trim_columns(frame: pd.DataFrame, limit: int) -> pd.DataFrame:
 _MAX_TABLE_CELL_CHARS = 420
 
 
+_PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
+    "match-overview": (
+        "team_name",
+        "passes",
+        "pass_completion_pct",
+        "shots",
+        "shots_on_target",
+        "progressive_passes",
+        "final_third_entries",
+        "crosses",
+    ),
+    "data-coverage": ("Metric", "Value"),
+    "formation-spells": (
+        ("time", "time_label", "minute", "timeMin", "start_minute"),
+        ("score", "Score"),
+        ("home_formation", "home_formation_name", "Home Formation", "homeFormation"),
+        ("away_formation", "away_formation_name", "Away Formation", "awayFormation"),
+        ("change", "event_summary", "Reason", "change_reason"),
+    ),
+    "mean-position-summary": (
+        "team_name",
+        "touches",
+        "team_length_m",
+        "team_width_m",
+        "team_compactness_m",
+        "average_height_m",
+    ),
+    "pass-network-leaders": (
+        "team_name",
+        "playerName",
+        "jersey_number",
+        "pass_sent",
+        "pass_received",
+        "pass_involvement",
+        "minutes",
+    ),
+    "progressive-pass-leaders": (
+        "team_name",
+        "Player",
+        "Successful",
+        "Attempted",
+        "Completion %",
+        "Progression m",
+    ),
+    "final-third-entry-breakdown": ("team_name", "entries", "passes", "carries", "left", "central", "right", "zone14"),
+    "pass-location-breakdown": ("team_name", "pass_attempts"),
+    "cross-top-routes": (
+        "Origin Zone",
+        "Destination Zone",
+        "Crosses",
+        "Share %",
+        "Completion %",
+        "Retention %",
+        "Shots",
+        "Shot Rate %",
+    ),
+    "build-up-summary": (
+        "team_name",
+        "sequences",
+        "avg_duration_s",
+        "avg_completed_passes",
+    ),
+    "build-up-sequences": (
+        "sequence_id",
+        "start_zone",
+        "buildup_type",
+        "terminal_outcome",
+        "termination_reason",
+        "pass_count",
+        "duration_seconds",
+    ),
+    "defensive-shape-summary": (
+        "team_name",
+        "block_height_m",
+        "width_m",
+        "compactness_m",
+        "action_count",
+        "snapshot_count",
+    ),
+    "ppda-summary": (
+        "team_name",
+        "ppda",
+        "first_half",
+        "second_half",
+        "opponent_passes",
+        "defensive_actions",
+    ),
+    "defensive-transitions-summary": (
+        "team_name", "transitions", "goals", "shots", "consolidated", "regained", "dominant_channel",
+    ),
+    "offensive-transitions-summary": (
+        "team_name", "transitions", "goals", "shots", "consolidated", "regained", "dominant_channel",
+    ),
+    "defensive-transitions-sequences": (
+        "sequence_id",
+        "minute",
+        "player_name",
+        "start_zone",
+        "sequence_outcome",
+        "terminal_outcome",
+        "event_count",
+        "duration_seconds",
+    ),
+    "offensive-transitions-sequences": (
+        "sequence_id",
+        "minute",
+        "player_name",
+        "start_zone",
+        "sequence_outcome",
+        "terminal_outcome",
+        "event_count",
+        "duration_seconds",
+    ),
+    "restart-summary": (
+        "team_name",
+        "restarts",
+        "corners",
+        "free_kicks",
+        "throw_ins",
+        "goal_kicks",
+        "shots",
+    ),
+    "restart-takers": (
+        "player_name",
+        "restart_count",
+        "primary_restart",
+        "shots",
+    ),
+    "player-highlights-table": (
+        ("playerName", "player_name", "Player", "item"),
+        "team_name",
+        "Offensive Pass Contributions",
+        "Progressive Passes",
+        "Passes into Box",
+        "Key Passes",
+        "Successful Passes",
+        "Shot Sequence Involvements",
+        "Shot Sequence Shots",
+        "Shot Sequence Shot Assists",
+        "Shot Sequence Pre-Assists",
+        ("unique", "Unique Defensive Contributions"),
+        ("tackles_won", "Tackles Won"),
+        ("interceptions", "Interceptions"),
+        ("recoveries", "Recoveries"),
+        ("clearances", "Clearances"),
+    ),
+    "methodology-notes": ("Metric", "Value"),
+    "metric-definitions": ("Term", "Definition"),
+    "data-quality-notes": ("Metric", "Value"),
+}
+
+
 def _format_table_cell(value: Any) -> str:
     """Return a bounded, human-readable representation for a PDF table cell."""
 
-    if isinstance(value, pd.DataFrame):
-        return (
-            f"[table: {len(value):,} rows x "
-            f"{len(value.columns):,} columns]"
-        )
-
-    if isinstance(value, pd.Series):
-        if len(value) > 12:
-            return f"[series: {len(value):,} values]"
-        value = value.to_dict()
-
-    if isinstance(value, Mapping):
-        text = _json_text(value)
-    elif isinstance(value, (list, tuple, set)):
-        if len(value) > 12:
-            return f"[collection: {len(value):,} items]"
-        text = _json_text(value)
+    if isinstance(value, (pd.DataFrame, pd.Series, Mapping, list, tuple, set)):
+        # Editorial PDFs never expose nested analytical structures.  Those
+        # values remain available in report-data.json and the CSV tables.
+        return "-"
     elif (
         not isinstance(value, (str, bytes, bytearray))
         and getattr(value, "shape", None) not in (None, ())
@@ -936,7 +1221,7 @@ def _format_table_cell(value: Any) -> str:
     text = " ".join(str(text).split())
     if len(text) > _MAX_TABLE_CELL_CHARS:
         text = text[: _MAX_TABLE_CELL_CHARS - 3].rstrip() + "..."
-    return text
+    return _pdf_safe_helvetica_text(text)
 
 
 def _long_table(
@@ -944,7 +1229,7 @@ def _long_table(
     styles,
     *,
     max_columns: int,
-    available_width: float = 176 * mm,
+    available_width: float = 268 * mm,
 ) -> LongTable | Table:
     frame = _trim_columns(frame.copy(), max_columns)
     if frame.empty:
@@ -1010,7 +1295,404 @@ def _rows_from_team_mapping(data: Mapping[str, Any], teams: Iterable[str]) -> pd
     return pd.DataFrame(rows)
 
 
-def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
+def _sequence_summary_frame(
+    frame: pd.DataFrame,
+    *,
+    id_aliases: Sequence[str],
+    zone_aliases: Sequence[str] = (),
+) -> pd.DataFrame:
+    """Collapse event-level sequence rows into one editorial row per sequence."""
+
+    frame = _as_frame(frame)
+    if frame.empty:
+        return pd.DataFrame()
+    id_column = _column_lookup(frame, *id_aliases)
+    if id_column is None:
+        return pd.DataFrame()
+
+    rows: list[dict[str, Any]] = []
+    for sequence_id, group in frame.groupby(id_column, dropna=True, sort=False):
+        row: dict[str, Any] = {"sequence_id": sequence_id}
+
+        minute_col = _column_lookup(group, "timeMin", "minute")
+        if minute_col is not None:
+            minutes = pd.to_numeric(group[minute_col], errors="coerce").dropna()
+            if not minutes.empty:
+                row["minute"] = int(minutes.min())
+
+        seconds_col = _column_lookup(group, "total_seconds", "match_second")
+        if seconds_col is not None:
+            seconds = pd.to_numeric(group[seconds_col], errors="coerce").dropna()
+            if not seconds.empty:
+                row["duration_seconds"] = round(float(seconds.max() - seconds.min()), 1)
+
+        row["event_count"] = int(len(group))
+
+        for output, aliases in (
+            ("player_name", ("playerName", "player_name", "Player")),
+            ("start_zone", tuple(zone_aliases)),
+            ("sequence_outcome", ("sequence_outcome_type", "final_outcome", "outcome")),
+            ("terminal_outcome", ("terminal_outcome", "result")),
+            ("termination_reason", ("termination_reason",)),
+            ("pass_count", ("buildup_pass_count", "pass_count", "opponent_pass_count")),
+        ):
+            if not aliases:
+                continue
+            column = _column_lookup(group, *aliases)
+            if column is None:
+                continue
+            values = group[column].dropna()
+            if not values.empty:
+                row[output] = values.iloc[-1]
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _top_sequence_rows(frame: pd.DataFrame, limit: int) -> pd.DataFrame:
+    """Apply the canonical TOP_SEQUENCES selector ordering."""
+
+    return rank_sequences_by_outcome_priority(frame, limit=limit)
+
+
+def _build_up_summary_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "build-up")
+    data = getattr(section, "data", {}) or {}
+    comparison = data.get("comparison", {}) if isinstance(data, Mapping) else {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    if not isinstance(comparison, Mapping):
+        return pd.DataFrame()
+
+    profile = comparison.get("profile", {}) or {}
+    rows = []
+    for index, team in enumerate(teams[:2]):
+        side = "home" if index == 0 else "away"
+        side_profile = profile.get(side, {}) if isinstance(profile, Mapping) else {}
+        rows.append(
+            {
+                "team_name": team,
+                "sequences": comparison.get(f"{side}_total"),
+                "avg_duration_s": (
+                    side_profile.get("avg_duration_seconds")
+                    if isinstance(side_profile, Mapping)
+                    else None
+                ),
+                "avg_completed_passes": (
+                    side_profile.get("avg_completed_passes")
+                    if isinstance(side_profile, Mapping)
+                    else None
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _final_third_summary_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "final-third-entries")
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+    for team in teams:
+        stats = (data.get("teams", {}).get(team, {}) or {}).get("stats", {}) if isinstance(data, Mapping) else {}
+        if not isinstance(stats, Mapping):
+            continue
+        rows.append(
+            {
+                "team_name": team,
+                "entries": stats.get("total_final_third", 0),
+                "passes": stats.get("pass_entries", 0),
+                "carries": stats.get("carry_entries", 0),
+                "left": stats.get("channel_left", 0),
+                "central": stats.get("channel_central", 0),
+                "right": stats.get("channel_right", 0),
+                "zone14": stats.get("zone14", 0),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _transition_summary_rows(bundle, section_id: str) -> pd.DataFrame:
+    section = _section(bundle, section_id)
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+    for team in teams:
+        stats = (data.get(team, {}) or {}).get("stats", {}) if isinstance(data, Mapping) else {}
+        if not isinstance(stats, Mapping):
+            continue
+        outcomes = stats.get("outcomes", {}) or {}
+        flanks = stats.get("flanks", {}) or {}
+
+        def summed(token: str) -> int:
+            if not isinstance(outcomes, Mapping):
+                return 0
+            return int(sum(float(v or 0) for k, v in outcomes.items() if token in str(k).casefold()))
+
+        dominant = "-"
+        if isinstance(flanks, Mapping) and flanks:
+            dominant = str(max(flanks.items(), key=lambda item: float(item[1] or 0))[0])
+        rows.append(
+            {
+                "team_name": team,
+                "transitions": stats.get("total", 0),
+                "goals": summed("goal"),
+                "shots": summed("shot"),
+                "consolidated": summed("consolid"),
+                "regained": summed("regain"),
+                "dominant_channel": dominant,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _ppda_summary_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "ppda")
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+    for team in teams:
+        payload = (data.get("teams", {}).get(team, {}) or {}) if isinstance(data, Mapping) else {}
+        overall = payload.get("overall", {}) if isinstance(payload, Mapping) else {}
+        first = payload.get("first_half", {}) if isinstance(payload, Mapping) else {}
+        second = payload.get("second_half", {}) if isinstance(payload, Mapping) else {}
+        rows.append(
+            {
+                "team_name": team,
+                "ppda": overall.get("ppda") if isinstance(overall, Mapping) else None,
+                "first_half": first.get("ppda") if isinstance(first, Mapping) else None,
+                "second_half": second.get("ppda") if isinstance(second, Mapping) else None,
+                "opponent_passes": overall.get("opponent_passes") if isinstance(overall, Mapping) else None,
+                "defensive_actions": overall.get("defensive_actions") if isinstance(overall, Mapping) else None,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _formation_spells_rows(moments: Any) -> pd.DataFrame:
+    """Flatten formation timeline moments into an editorial scalar table."""
+
+    rows: list[dict[str, Any]] = []
+    labels = {
+        "starting_xi": "Starting XI",
+        "goal": "Goal",
+        "substitution": "Substitution",
+        "formation_change": "Formation change",
+        "red_card": "Red card",
+    }
+    for moment in moments or []:
+        if not isinstance(moment, Mapping):
+            continue
+        events = moment.get("events") or []
+        changes: list[str] = []
+        if isinstance(events, Sequence) and not isinstance(events, (str, bytes)):
+            for event in events:
+                if not isinstance(event, Mapping):
+                    continue
+                kind = str(event.get("kind") or "").strip()
+                label = labels.get(kind, kind.replace("_", " ").title() if kind else "")
+                team = str(event.get("team") or "").strip()
+                value = f"{team}: {label}" if team and team.casefold() != "both" else label
+                if value and value not in changes:
+                    changes.append(value)
+        rows.append(
+            {
+                "time": moment.get("time_label") or moment.get("minute"),
+                "score": moment.get("score"),
+                "home_formation": moment.get("home_formation_name"),
+                "away_formation": moment.get("away_formation_name"),
+                "change": ", ".join(changes) if changes else "-",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _restart_summary_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "restarts")
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+    for team in teams:
+        summary = (data.get(team, {}) or {}).get("summary", {}) if isinstance(data, Mapping) else {}
+        if not isinstance(summary, Mapping):
+            continue
+
+        def count(mapping_name: str, token: str) -> int:
+            mapping = summary.get(mapping_name, {}) or {}
+            if not isinstance(mapping, Mapping):
+                return 0
+            return int(
+                sum(
+                    float(value or 0)
+                    for key, value in mapping.items()
+                    if token in str(key).casefold()
+                )
+            )
+
+        rows.append(
+            {
+                "team_name": team,
+                "restarts": summary.get("total", 0),
+                "corners": count("action_types", "corner"),
+                "free_kicks": count("action_types", "free kick"),
+                "throw_ins": count("action_types", "throw"),
+                "goal_kicks": count("action_types", "goal kick"),
+                "shots": count("development_outcomes", "shot"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _restart_takers(records: Any, limit: int) -> pd.DataFrame:
+    frame = _as_frame(records)
+    if frame.empty:
+        return frame
+    player = _column_lookup(frame, "player_name", "playerName", "Player")
+    if player is None:
+        return pd.DataFrame()
+    jersey = _column_lookup(frame, "jersey_number", "jersey", "Mapped Jersey Number")
+    outcome = _column_lookup(frame, "outcome", "Outcome")
+    development = _column_lookup(frame, "development_outcome", "Development Outcome")
+    restart_type = _column_lookup(frame, "restart_type", "Action Type")
+
+    rows = []
+    for player_name, group in frame.groupby(player, dropna=True, sort=False):
+        row = {
+            "player_name": player_name,
+            "restart_count": int(len(group)),
+        }
+        if jersey is not None:
+            values = group[jersey].dropna()
+            row["jersey"] = values.iloc[0] if not values.empty else None
+        if restart_type is not None:
+            modes = group[restart_type].dropna().astype(str).value_counts()
+            row["primary_restart"] = modes.index[0] if not modes.empty else None
+        if outcome is not None:
+            row["successful"] = int(
+                group[outcome].astype(str).str.contains("success", case=False, na=False).sum()
+            )
+        if development is not None:
+            row["shots"] = int(
+                group[development].astype(str).str.contains("shot", case=False, na=False).sum()
+            )
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    return result.sort_values(
+        ["restart_count", "player_name"],
+        ascending=[False, True],
+        kind="stable",
+    ).head(limit)
+
+
+def _player_team_lookup(data: Mapping[str, Any]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    options = data.get("player_options", {}) if isinstance(data, Mapping) else {}
+    if not isinstance(options, Mapping):
+        return lookup
+    for team, families in options.items():
+        if not isinstance(families, Mapping):
+            continue
+        for payload in families.values():
+            if not isinstance(payload, Sequence) or isinstance(payload, (str, bytes)):
+                continue
+            for item in payload:
+                if isinstance(item, Mapping):
+                    name = item.get("player_name") or item.get("playerName")
+                else:
+                    name = item
+                if name:
+                    lookup[str(name)] = str(team)
+    return lookup
+
+
+def _player_highlight_payloads(bundle, limit: int) -> list[tuple[str, pd.DataFrame]]:
+    section = _section(bundle, "player-highlights")
+    data = getattr(section, "data", {}) or {}
+    if not isinstance(data, Mapping):
+        return []
+    team_lookup = _player_team_lookup(data)
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+
+    families = (
+        (
+            "Passing",
+            "player_stats",
+            (
+                ("playerName", "player_name", "Player"),
+                "team_name",
+                "Offensive Pass Contributions",
+                "Progressive Passes",
+                "Passes into Box",
+                "Key Passes",
+                "Successful Passes",
+            ),
+            ("Offensive Pass Contributions", "Progressive Passes", "Successful Passes"),
+        ),
+        (
+            "Shooting",
+            "shot_sequence_ranking",
+            (
+                ("playerName", "player_name", "Player"),
+                "team_name",
+                "Shot Sequence Involvements",
+                "Shot Sequence Shots",
+                "Shot Sequence Shot Assists",
+                "Shot Sequence Pre-Assists",
+            ),
+            ("Shot Sequence Involvements", "Shot Sequence Shots"),
+        ),
+        (
+            "Defending",
+            "defensive_ranking",
+            (
+                ("playerName", "player_name", "Player"),
+                "team_name",
+                ("unique", "Unique Defensive Contributions"),
+                ("tackles_won", "Tackles Won"),
+                ("interceptions", "Interceptions"),
+                ("recoveries", "Recoveries"),
+                ("clearances", "Clearances"),
+            ),
+            ("unique", "tackles_won", "interceptions"),
+        ),
+    )
+
+    payloads: list[tuple[str, pd.DataFrame]] = []
+    for label, key, columns, _sort_aliases in families:
+        frame = _with_named_index(_as_frame(data.get(key)))
+        if frame.empty:
+            continue
+        player_col = _column_lookup(frame, "playerName", "player_name", "Player", "item")
+        team_col = _column_lookup(frame, "team_name", "teamName", "Team")
+        if player_col is None:
+            continue
+        if team_col is None:
+            frame["team_name"] = frame[player_col].astype(str).map(team_lookup)
+            team_col = "team_name"
+
+        selected_rows = []
+        category = label.casefold()
+        for team in teams:
+            scoped = rank_players_by_metric_family(
+                frame,
+                str(team),
+                category=category,
+                limit=limit,
+            )
+            if not scoped.empty:
+                selected_rows.append(scoped)
+        if not selected_rows:
+            continue
+        selected = pd.concat(selected_rows, ignore_index=True, sort=False)
+        selected = _explicit_columns(selected, columns)
+        payloads.append((f"Player highlights - {label}", selected))
+    return payloads
+
+
+def _table_payloads(
+    bundle,
+    table_id: str,
+    *,
+    selection_limit: int | None = None,
+) -> list[tuple[str, pd.DataFrame]]:
     teams = tuple(getattr(bundle, "teams", ()) or ())
 
     if table_id in {"match-overview", "data-coverage"}:
@@ -1022,15 +1704,42 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
             if not frame.empty:
                 frame.index.name = "team_name"
                 frame = frame.reset_index()
+            frame = _explicit_columns(
+                frame,
+                (
+                    "team_name",
+                    "passes",
+                    "pass_completion_pct",
+                    "shots",
+                    "shots_on_target",
+                    "progressive_passes",
+                    "final_third_entries",
+                    "crosses",
+                ),
+            )
             return [("Match overview", frame)]
         coverage = data.get("data_coverage", {}) if isinstance(data, Mapping) else {}
-        return [("Data coverage", pd.DataFrame(_mapping_rows(coverage)))]
+        frame = pd.DataFrame(_mapping_rows(coverage))
+        frame = _metric_rows(
+            frame,
+            exact=(
+                "event_rows",
+                "receiver.eligible",
+                "receiver.resolved",
+                "receiver.coverage_pct",
+                "coordinates.coverage_pct",
+                "outcome.known_pct",
+            ),
+            prefixes=("final_third_carries.",),
+            limit=10,
+        )
+        return [("Data coverage", frame)]
 
     if table_id == "formation-spells":
         section = _section(bundle, "formation-timeline")
         data = getattr(section, "data", {}) or {}
         moments = data.get("moments", []) if isinstance(data, Mapping) else []
-        return [("Formation spells", _as_frame(moments))]
+        return [("Formation spells", _formation_spells_rows(moments))]
 
     if table_id == "mean-position-summary":
         section = _section(bundle, "mean-positions")
@@ -1041,40 +1750,62 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
             summary = payload.get("summary", {}) if isinstance(payload, Mapping) else {}
             if isinstance(summary, Mapping):
                 rows.append({"team_name": team, **summary})
-        return [("Mean position summary", pd.DataFrame(rows))]
+        frame = _explicit_columns(
+            pd.DataFrame(rows),
+            (
+                "team_name",
+                "touches",
+                "team_length_m",
+                "team_width_m",
+                "team_compactness_m",
+                "average_height_m",
+            ),
+        )
+        return [("Mean position summary", frame)]
 
     if table_id == "pass-network-leaders":
         section = _section(bundle, "pass-network")
         data = getattr(section, "data", {}) or {}
-        payloads = []
+        frames = []
         for team in teams:
             nodes = _as_frame((data.get("teams", {}).get(team, {}) or {}).get("nodes"))
-            payloads.append((f"Pass network leaders - {team}", nodes))
-        return payloads
+            involvement = _column_lookup(nodes, "pass_involvement")
+            if involvement is not None:
+                nodes = nodes.sort_values(involvement, ascending=False, kind="stable")
+            nodes = _explicit_columns(
+                nodes.head(5),
+                (
+                    "playerName",
+                    "jersey_number",
+                    "pass_sent",
+                    "pass_received",
+                    "pass_involvement",
+                    "minutes",
+                ),
+            )
+            if not nodes.empty:
+                nodes.insert(0, "team_name", team)
+                frames.append(nodes)
+        combined = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+        return [("Pass network leaders", combined)]
 
     if table_id == "progressive-pass-leaders":
         section = _section(bundle, "progressive-passes")
         data = getattr(section, "data", {}) or {}
-        return [
-            (
-                f"Progressive pass leaders - {team}",
-                _as_frame((data.get("teams", {}).get(team, {}) or {}).get("player_ranking")),
+        frames = []
+        for team in teams:
+            frame = _explicit_columns(
+                _as_frame((data.get("teams", {}).get(team, {}) or {}).get("player_ranking")).head(5),
+                ("Player", "Successful", "Attempted", "Completion %", "Progression m"),
             )
-            for team in teams
-        ]
+            if not frame.empty:
+                frame.insert(0, "team_name", team)
+                frames.append(frame)
+        combined = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+        return [("Progressive pass leaders", combined)]
 
     if table_id == "final-third-entry-breakdown":
-        section = _section(bundle, "final-third-entries")
-        data = getattr(section, "data", {}) or {}
-        rows = []
-        for team in teams:
-            stats = (data.get("teams", {}).get(team, {}) or {}).get("stats", {})
-            if isinstance(stats, Mapping):
-                rows.extend(
-                    {"team_name": team, **row}
-                    for row in _mapping_rows(stats)
-                )
-        return [("Final third entry breakdown", pd.DataFrame(rows))]
+        return [("Final third entry breakdown", _final_third_summary_rows(bundle))]
 
     if table_id == "pass-location-breakdown":
         section = _section(bundle, "pass-locations")
@@ -1088,45 +1819,67 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
     if table_id == "cross-top-routes":
         section = _section(bundle, "cross-flow")
         data = getattr(section, "data", {}) or {}
-        return [
-            (
-                f"Top cross routes - {team}",
-                _as_frame((data.get(team, {}) or {}).get("routes")),
+        payloads = []
+        for team in teams:
+            routes = _as_frame((data.get(team, {}) or {}).get("routes"))
+            crosses = _column_lookup(routes, "Crosses", "crosses")
+            if crosses is not None:
+                routes = routes.sort_values(crosses, ascending=False, kind="stable")
+            routes = routes.head(selection_limit or 8)
+            routes = _explicit_columns(
+                routes,
+                (
+                    "Origin Zone",
+                    "Destination Zone",
+                    "Crosses",
+                    "Share %",
+                    "Completion %",
+                    "Retention %",
+                    "Shots",
+                    "Shot Rate %",
+                ),
             )
-            for team in teams
-        ]
+            payloads.append((f"Top cross routes - {team}", routes))
+        return payloads
 
     if table_id in {"build-up-summary", "build-up-sequences"}:
         section = _section(bundle, "build-up")
         data = getattr(section, "data", {}) or {}
         if table_id == "build-up-summary":
-            comparison = data.get("comparison", {}) if isinstance(data, Mapping) else {}
-            if isinstance(comparison, Mapping):
-                return [("Build-up summary", pd.DataFrame(_mapping_rows(comparison)))]
-            return [("Build-up summary", _as_frame(comparison))]
+            return [("Build-up summary", _build_up_summary_rows(bundle))]
         payloads = []
         for team in teams:
-            sequences = _as_frame(
-                (data.get("teams", {}).get(team, {}) or {}).get("sequences")
-            )
-            id_column = next(
-                (
-                    column
-                    for column in (
-                        "sequence_id",
-                        "trigger_sequence_id",
-                        "buildup_sequence_id",
-                        "id",
-                    )
-                    if column in sequences.columns
-                ),
-                None,
-            )
-            if id_column is not None and not sequences.empty:
-                sequences = sequences.drop_duplicates(
-                    subset=[id_column],
-                    keep="last",
+            payload = data.get("teams", {}).get(team, {}) or {}
+            sequences = _as_frame(payload.get("summary"))
+            if sequences.empty:
+                sequences = _sequence_summary_frame(
+                    _as_frame(payload.get("sequences")),
+                    id_aliases=("trigger_sequence_id", "sequence_id", "buildup_sequence_id", "id"),
+                    zone_aliases=("trigger_zone", "start_zone"),
                 )
+            else:
+                id_column = _column_lookup(
+                    sequences,
+                    "sequence_id",
+                    "trigger_sequence_id",
+                    "buildup_sequence_id",
+                    "id",
+                )
+                if id_column is not None:
+                    sequences = sequences.rename(columns={id_column: "sequence_id"})
+            sequences = _top_sequence_rows(sequences, selection_limit or 10)
+            sequences = _explicit_columns(
+                sequences,
+                (
+                    "sequence_id",
+                    ("start_zone", "trigger_zone"),
+                    ("buildup_type", "type_of_initial_trigger"),
+                    ("terminal_outcome", "final_outcome"),
+                    "termination_reason",
+                    ("pass_count", "buildup_pass_count"),
+                    ("duration_seconds", "buildup_active_duration_seconds"),
+                ),
+            )
             payloads.append((f"Build-up sequences - {team}", sequences))
         return payloads
 
@@ -1143,17 +1896,21 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
                     if not isinstance(value, (pd.DataFrame, Mapping, list, tuple))
                 }
                 rows.append({"team_name": team, **simple})
-        return [("Defensive shape summary", pd.DataFrame(rows))]
+        frame = _explicit_columns(
+            pd.DataFrame(rows),
+            (
+                "team_name",
+                "block_height_m",
+                "width_m",
+                "compactness_m",
+                "action_count",
+                "snapshot_count",
+            ),
+        )
+        return [("Defensive shape summary", frame)]
 
     if table_id == "ppda-summary":
-        section = _section(bundle, "ppda")
-        data = getattr(section, "data", {}) or {}
-        rows = []
-        for team in teams:
-            overall = (data.get("teams", {}).get(team, {}) or {}).get("overall", {})
-            if isinstance(overall, Mapping):
-                rows.append({"team_name": team, **overall})
-        return [("PPDA summary", pd.DataFrame(rows))]
+        return [("PPDA summary", _ppda_summary_rows(bundle))]
 
     if table_id in {
         "defensive-transitions-summary",
@@ -1164,15 +1921,12 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
             if table_id.startswith("defensive")
             else "offensive-transitions"
         )
-        section = _section(bundle, section_id)
-        data = getattr(section, "data", {}) or {}
-        rows = []
-        for team in teams:
-            stats = (data.get(team, {}) or {}).get("stats", {})
-            if isinstance(stats, Mapping):
-                for row in _mapping_rows(stats):
-                    rows.append({"team_name": team, **row})
-        return [(table_id.replace("-", " ").title(), pd.DataFrame(rows))]
+        return [
+            (
+                table_id.replace("-", " ").title(),
+                _transition_summary_rows(bundle, section_id),
+            )
+        ]
 
     if table_id in {
         "defensive-transitions-sequences",
@@ -1188,56 +1942,56 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
         payloads = []
         for team in teams:
             combined = _as_frame((data.get(team, {}) or {}).get("combined"))
-            id_column = next(
-                (
-                    column
-                    for column in ("loss_sequence_id", "sequence_id", "id")
-                    if column in combined.columns
-                ),
-                None,
+            summary = _sequence_summary_frame(
+                combined,
+                id_aliases=("loss_sequence_id", "sequence_id", "id"),
+                zone_aliases=("loss_zone", "recovery_zone"),
             )
-            if id_column is not None and not combined.empty:
-                combined = combined.drop_duplicates(subset=[id_column], keep="last")
-            payloads.append((f"Transition sequences - {team}", combined))
+            summary = _top_sequence_rows(summary, selection_limit or 10)
+            summary = _explicit_columns(
+                summary,
+                (
+                    "sequence_id",
+                    "minute",
+                    "player_name",
+                    "start_zone",
+                    "sequence_outcome",
+                    "terminal_outcome",
+                    "event_count",
+                    "duration_seconds",
+                ),
+            )
+            payloads.append((f"Transition sequences - {team}", summary))
         return payloads
 
     if table_id in {"restart-summary", "restart-takers"}:
         section = _section(bundle, "restarts")
         data = getattr(section, "data", {}) or {}
         if table_id == "restart-summary":
-            rows = []
-            for team in teams:
-                summary = (data.get(team, {}) or {}).get("summary", {})
-                if isinstance(summary, Mapping):
-                    for row in _mapping_rows(summary):
-                        rows.append({"team_name": team, **row})
-            return [("Restart summary", pd.DataFrame(rows))]
+            return [("Restart summary", _restart_summary_rows(bundle))]
         return [
             (
                 f"Restart takers - {team}",
-                _as_frame((data.get(team, {}) or {}).get("records")),
+                _restart_takers(
+                    (data.get(team, {}) or {}).get("records"),
+                    selection_limit or 6,
+                ),
             )
             for team in teams
         ]
 
     if table_id == "player-highlights-table":
-        section = _section(bundle, "player-highlights")
-        data = getattr(section, "data", {}) or {}
-        payloads = []
-        for label, key in (
-            ("Passing", "player_stats"),
-            ("Shooting", "shot_sequence_ranking"),
-            ("Defending", "defensive_ranking"),
-        ):
-            frame = _as_frame(data.get(key))
-            if not frame.empty:
-                payloads.append((f"Player highlights - {label}", frame.head(6)))
-        return payloads
+        return _player_highlight_payloads(bundle, selection_limit or 3)
 
     if table_id == "methodology-notes":
         section = _section(bundle, "methodology-appendix")
         data = getattr(section, "data", {}) or {}
-        return [("Methodology notes", pd.DataFrame(_mapping_rows(data)))]
+        frame = pd.DataFrame(_mapping_rows(data))
+        frame = _metric_rows(
+            frame,
+            exact=("scope",),
+        )
+        return [("Methodology notes", frame)]
 
     if table_id == "metric-definitions":
         definitions = [
@@ -1247,7 +2001,7 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
             },
             {
                 "Term": "Progressive pass",
-                "Definition": "Classified by the canonical project progressive-pass metric; REPORT-05 does not reimplement the formula.",
+                "Definition": "Classified by the project's canonical progressive-pass metric.",
             },
             {
                 "Term": "Final third entry",
@@ -1259,11 +2013,11 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
             },
             {
                 "Term": "Representative sequence",
-                "Definition": "Chosen deterministically by REPORT-03 from canonical sequence outcomes and tie-break rules; no weighted score is used.",
+                "Definition": "Chosen deterministically from canonical sequence outcomes and declared tie-break rules; no weighted score is used.",
             },
             {
                 "Term": "Top player",
-                "Definition": "Chosen independently per team and metric family by the deterministic REPORT-03 selectors.",
+                "Definition": "Chosen independently per team and metric family using deterministic ranking rules.",
             },
         ]
         return [("Metric definitions", pd.DataFrame(definitions))]
@@ -1272,13 +2026,76 @@ def _table_payloads(bundle, table_id: str) -> list[tuple[str, pd.DataFrame]]:
         overview = _section(bundle, "overview")
         data = getattr(overview, "data", {}) or {}
         coverage = data.get("data_coverage", {}) if isinstance(data, Mapping) else {}
-        return [("Data quality notes", pd.DataFrame(_mapping_rows(coverage)))]
+        frame = pd.DataFrame(_mapping_rows(coverage))
+        frame = _metric_rows(
+            frame,
+            exact=(
+                "event_rows",
+                "receiver.eligible",
+                "receiver.resolved",
+                "receiver.coverage_pct",
+                "coordinates.coverage_pct",
+                "outcome.known_pct",
+            ),
+            limit=6,
+        )
+        return [("Data quality notes", frame)]
 
     return []
 
 
+def _prepare_pdf_table_frame(table_id: str, frame: pd.DataFrame) -> pd.DataFrame:
+    """Enforce REPORT-12's explicit, scalar-only PDF table contract."""
+
+    prepared = _drop_nested_pdf_columns(_as_frame(frame))
+    policy = _PDF_TABLE_COLUMNS.get(table_id)
+    if policy is not None:
+        prepared = _explicit_columns(prepared, policy)
+    return prepared
+
+
+def _paired_restart_takers_frame(
+    prepared: Sequence[tuple[str, pd.DataFrame]],
+) -> pd.DataFrame | None:
+    """Place two team top-taker lists in one eight-column comparison table."""
+
+    if len(prepared) != 2:
+        return None
+    (left_title, left), (right_title, right) = prepared
+    if left.empty or right.empty:
+        return None
+
+    left_team = left_title.removeprefix("Restart takers - ").strip() or "Home"
+    right_team = right_title.removeprefix("Restart takers - ").strip() or "Away"
+    max_rows = max(len(left), len(right))
+    left = left.reset_index(drop=True).reindex(range(max_rows))
+    right = right.reset_index(drop=True).reindex(range(max_rows))
+
+    def values(frame: pd.DataFrame, column: str) -> list[Any]:
+        if column not in frame.columns:
+            return [None] * max_rows
+        return frame[column].tolist()
+
+    return pd.DataFrame(
+        {
+            f"{left_team} player": values(left, "player_name"),
+            f"{left_team} #": values(left, "restart_count"),
+            f"{left_team} restart": values(left, "primary_restart"),
+            f"{left_team} shots": values(left, "shots"),
+            f"{right_team} player": values(right, "player_name"),
+            f"{right_team} #": values(right, "restart_count"),
+            f"{right_team} restart": values(right, "primary_restart"),
+            f"{right_team} shots": values(right, "shots"),
+        }
+    )
+
+
 def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
-    payloads = _table_payloads(bundle, table_spec.id)
+    payloads = _table_payloads(
+        bundle,
+        table_spec.id,
+        selection_limit=table_spec.selection.limit,
+    )
     if not payloads:
         return [
             _placeholder_box(
@@ -1288,8 +2105,34 @@ def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
             Spacer(1, 3 * mm),
         ]
 
-    story: list[Any] = []
+    prepared: list[tuple[str, pd.DataFrame]] = []
     for title, frame in payloads:
+        frame = _prepare_pdf_table_frame(table_spec.id, frame)
+        if not frame.empty:
+            prepared.append((title, frame))
+
+    if not prepared:
+        return [
+            _placeholder_box(
+                f"No qualifying rows are available for {table_spec.title}.",
+                styles,
+            ),
+            Spacer(1, 3 * mm),
+        ]
+
+    # REPORT-12: restart takers are a comparison, not two full-width tables.
+    # Pair the two team top-six lists horizontally so the restart section stays
+    # within its two-page editorial budget on real matches.
+    if table_spec.id == "restart-takers":
+        comparison = _paired_restart_takers_frame(prepared)
+        if comparison is not None:
+            return [
+                Paragraph("Restart takers", styles["table_subheading"]),
+                _long_table(comparison, styles, max_columns=8),
+            ]
+
+    story: list[Any] = []
+    for index, (title, frame) in enumerate(prepared):
         story.append(Paragraph(escape(title), styles["table_subheading"]))
         story.append(
             _long_table(
@@ -1298,7 +2141,11 @@ def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
                 max_columns=config.max_table_columns,
             )
         )
-        story.append(Spacer(1, 4 * mm))
+        # Never leave a trailing Spacer after the final table. If a table ends
+        # exactly at the bottom of a page, that spacer alone can spill onto a
+        # new page and make the following section break create a blank page.
+        if index < len(prepared) - 1:
+            story.append(Spacer(1, 4 * mm))
     return story
 
 
@@ -1363,16 +2210,11 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
     methodology_data = getattr(methodology, "data", {}) or {}
 
     lines = [
-        "This PDF is composed entirely in memory with ReportLab/Platypus.",
-        "Figures come from the REPORT-04 static Plotly catalog and are converted to PNG bytes in memory via Plotly/Kaleido.",
-        "Tables are native ReportLab tables with repeated headers and row splitting; they are not screenshots.",
-        "A failed or empty report section is rendered as an explicit placeholder and does not abort document generation.",
+        "This PDF is the editorial reading layer of the Match Analysis Pack.",
+        "Detailed analytical rows remain available in the CSV files and report-data.json.",
+        "Figures come from the static Plotly catalog and tables contain only explicitly selected editorial fields.",
+        "Empty or failed sections remain explicit so missing data is never hidden.",
     ]
-
-    if isinstance(methodology_data, Mapping):
-        contract = methodology_data.get("contract")
-        if contract:
-            lines.append(str(contract))
 
     story: list[Any] = [
         Paragraph("Generation manifest", styles["subheading"]),
@@ -1382,29 +2224,23 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
 
     story.extend(
         [
-            Paragraph("Canonical manifest", styles["table_subheading"]),
-            _long_table(
-                _appendix_manifest_table(manifest),
-                styles,
-                max_columns=6,
+            Paragraph(
+                "The full machine-readable manifest, section statuses and plot statuses are stored in report-manifest.json.",
+                styles["small"],
             ),
-            Spacer(1, 4 * mm),
             Paragraph("Generation metadata", styles["table_subheading"]),
             _long_table(
                 pd.DataFrame(
                     [
                         {
-                            "manifest_id": getattr(catalog, "manifest_id", manifest.id),
-                            "manifest_version": getattr(catalog, "manifest_version", manifest.schema_version),
-                            "source_signature": getattr(bundle, "source_signature", ""),
                             "scope": getattr(getattr(bundle, "scope", None), "value", getattr(bundle, "scope", "")),
                             "figure_count": len(getattr(catalog, "figures", ()) or ()),
-                            "image_scale": config.image_scale,
+                            "manifest_version": getattr(catalog, "manifest_version", manifest.schema_version),
                         }
                     ]
                 ),
                 styles,
-                max_columns=6,
+                max_columns=3,
             ),
         ]
     )

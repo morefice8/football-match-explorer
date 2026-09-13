@@ -84,6 +84,7 @@ class MatchReportAuditResult:
     event_count: int = 0
     processed_columns: int = 0
     pack_bytes: int = 0
+    pdf_pages: int = 0
 
     @property
     def failed(self) -> bool:
@@ -214,6 +215,12 @@ def searchable_pdf_text(pdf_bytes: bytes) -> str:
         if decoded:
             chunks.append(decoded)
     return "\n".join(chunk.decode("latin-1", errors="ignore") for chunk in chunks)
+
+
+def pdf_page_count(pdf_bytes: bytes) -> int:
+    """Count page objects in our generated PDF without adding a PDF dependency."""
+
+    return len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
 
 
 def validate_pdf_bytes(pdf_bytes: bytes) -> list[AuditIssue]:
@@ -577,6 +584,15 @@ def run_match_report_audit(
         issues, sizes, final_sections, plot_statuses = validate_pack_file(pack_path)
         result.issues.extend(issues)
         result.artifact_sizes = sizes
+        try:
+            with zipfile.ZipFile(pack_path, "r") as archive:
+                pdf_names = [
+                    name for name in archive.namelist() if name.lower().endswith(".pdf")
+                ]
+                if len(pdf_names) == 1:
+                    result.pdf_pages = pdf_page_count(archive.read(pdf_names[0]))
+        except zipfile.BadZipFile:
+            pass
         if final_sections:
             result.section_statuses = final_sections
         result.plot_statuses = plot_statuses
@@ -632,6 +648,8 @@ def print_audit_result(result: MatchReportAuditResult) -> None:
         print("\nArtifacts")
         for name, size in sorted(result.artifact_sizes.items()):
             print(f"  {_format_bytes(size):>10}  {name}")
+        if result.pdf_pages:
+            print(f"\nPDF pages: {result.pdf_pages}")
 
     if result.issues:
         print("\nIssues")

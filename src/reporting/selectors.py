@@ -1013,3 +1013,71 @@ def select_representative_restart(
         criteria=criteria,
     )
 
+
+
+def rank_sequences_by_outcome_priority(
+    candidates: Any,
+    *,
+    limit: int,
+    team_name: str | None = None,
+) -> pd.DataFrame:
+    """Return the TOP_SEQUENCES ordering used by the canonical selector.
+
+    This is the multi-row counterpart of :func:`select_representative_sequence`.
+    It deliberately reuses the same deterministic sort key so the PDF table and
+    the TOP_SEQUENCE figure cannot disagree about which sequences are strongest.
+    """
+
+    if limit <= 0:
+        return pd.DataFrame()
+    frame = _to_frame(candidates)
+    if team_name is not None:
+        frame = _scope_to_team(frame, team_name)
+    if frame.empty:
+        return frame.copy()
+
+    ranked = [
+        (position, row)
+        for position, (_, row) in enumerate(frame.iterrows())
+        if _stable_id(row, frame)
+    ]
+    ranked.sort(key=lambda item: _sequence_sort_key(item[1], frame))
+    positions = [position for position, _ in ranked[:limit]]
+    return frame.iloc[positions].copy() if positions else frame.iloc[0:0].copy()
+
+
+def rank_players_by_metric_family(
+    candidates: Any,
+    team_name: str,
+    *,
+    category: str,
+    limit: int,
+) -> pd.DataFrame:
+    """Return the top N players using the same family criteria as TOP_PLAYER."""
+
+    if limit <= 0:
+        return pd.DataFrame()
+    criteria_by_category = {
+        "passing": _PASSER_CRITERIA,
+        "shooting": _SHOOTING_CRITERIA,
+        "defending": _DEFENDER_CRITERIA,
+    }
+    try:
+        criteria = criteria_by_category[category]
+    except KeyError as exc:
+        raise ValueError(
+            "category must be one of: " + ", ".join(sorted(criteria_by_category))
+        ) from exc
+
+    frame = _scope_to_team(_to_frame(candidates), team_name)
+    if frame.empty:
+        return frame.copy()
+
+    ranked = [
+        (position, row)
+        for position, (_, row) in enumerate(frame.iterrows())
+        if _player_name(row, frame)
+    ]
+    ranked.sort(key=lambda item: _player_sort_key(item[1], frame, criteria))
+    positions = [position for position, _ in ranked[:limit]]
+    return frame.iloc[positions].copy() if positions else frame.iloc[0:0].copy()
