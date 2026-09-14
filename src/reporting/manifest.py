@@ -58,6 +58,24 @@ TOP_SEQUENCES = ReportSelectionSpec(
     limit=10,
 )
 
+
+TRANSITION_PROFILE = ReportSelectionSpec(
+    rule="canonical-transition-profile",
+    limit=10,
+    notes=(
+        "Use stats.transition_profile_table, align Home/Away on the same "
+        "start-zone/channel taxonomy, and never substitute combined event rows."
+    ),
+)
+
+TRANSITION_TAXONOMY = ReportSelectionSpec(
+    rule="aligned-transition-taxonomy",
+    notes=(
+        "Align outcome, terminal-outcome and channel categories in one "
+        "deterministically ordered Home/Away comparison."
+    ),
+)
+
 TOP_TAKERS = ReportSelectionSpec(
     rule="top-takers-by-restart-count",
     limit=6,
@@ -388,12 +406,17 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
         tables=(
             table(
                 "defensive-transitions-summary",
-                "Defensive transitions summary",
+                "Defensive transitions overview",
             ),
             table(
                 "defensive-transitions-sequences",
-                "Defensive transition sequences",
-                TOP_SEQUENCES,
+                "Defensive transition profile",
+                TRANSITION_PROFILE,
+            ),
+            table(
+                "defensive-transitions-taxonomy",
+                "Outcome, terminal outcome and channel",
+                TRANSITION_TAXONOMY,
             ),
         ),
     ),
@@ -411,12 +434,17 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
         tables=(
             table(
                 "offensive-transitions-summary",
-                "Offensive transitions summary",
+                "Offensive transitions overview",
             ),
             table(
                 "offensive-transitions-sequences",
-                "Offensive transition sequences",
-                TOP_SEQUENCES,
+                "Offensive transition profile",
+                TRANSITION_PROFILE,
+            ),
+            table(
+                "offensive-transitions-taxonomy",
+                "Outcome, terminal outcome and channel",
+                TRANSITION_TAXONOMY,
             ),
         ),
     ),

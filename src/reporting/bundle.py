@@ -1134,7 +1134,7 @@ def _split_transition_sequences(
 
 
 def _defensive_transitions(ctx: _BundleContext) -> _Produced:
-    from src.metrics import transition_metrics
+    from src.metrics import transition_heatmap_metrics, transition_metrics
 
     data = {}
     non_empty = False
@@ -1155,6 +1155,12 @@ def _defensive_transitions(ctx: _BundleContext) -> _Produced:
             "combined": combined,
             "sequences": sequences,
             "stats": stats,
+            "kpis": transition_heatmap_metrics.transition_kpis(
+                sequences,
+                transition_team_is_away=(
+                    ctx.other_team(team) == ctx.away_team
+                ),
+            ),
         }
         non_empty |= bool(sequences)
 
@@ -1162,7 +1168,7 @@ def _defensive_transitions(ctx: _BundleContext) -> _Produced:
 
 
 def _offensive_transitions(ctx: _BundleContext) -> _Produced:
-    from src.metrics import transition_metrics
+    from src.metrics import transition_heatmap_metrics, transition_metrics
 
     data = {}
     non_empty = False
@@ -1186,6 +1192,10 @@ def _offensive_transitions(ctx: _BundleContext) -> _Produced:
             "combined": combined,
             "sequences": sequences,
             "stats": stats,
+            "kpis": transition_heatmap_metrics.transition_kpis(
+                sequences,
+                transition_team_is_away=(team == ctx.away_team),
+            ),
         }
         non_empty |= bool(sequences)
 

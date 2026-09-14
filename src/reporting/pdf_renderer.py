@@ -1308,30 +1308,35 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "defensive_actions",
     ),
     "defensive-transitions-summary": (
-        "team_name", "transitions", "goals", "shots", "consolidated", "regained", "dominant_channel",
+        "Side", "Team", "Transitions", "Median duration (s)",
+        "Final third %", "Penalty area %", "Shot %",
     ),
     "offensive-transitions-summary": (
-        "team_name", "transitions", "goals", "shots", "consolidated", "regained", "dominant_channel",
+        "Side", "Team", "Transitions", "Median duration (s)",
+        "Final third %", "Penalty area %", "Shot %",
     ),
+    "defensive-transitions-selection": (
+        "Side", "Team", "Sequence", "Selection reason",
+    ),
+    "offensive-transitions-selection": (
+        "Side", "Team", "Sequence", "Selection reason",
+    ),
+    # REPORT-16 keeps this legacy table id for manifest/backward compatibility,
+    # but the PDF payload is now the canonical transition_profile_table rather
+    # than event rows from combined.
     "defensive-transitions-sequences": (
-        "sequence_id",
-        "minute",
-        "player_name",
-        "start_zone",
-        "sequence_outcome",
-        "terminal_outcome",
-        "event_count",
-        "duration_seconds",
+        "Start zone", "Channel", "Home transitions", "Away transitions",
+        "Home avg duration (s)", "Away avg duration (s)",
     ),
     "offensive-transitions-sequences": (
-        "sequence_id",
-        "minute",
-        "player_name",
-        "start_zone",
-        "sequence_outcome",
-        "terminal_outcome",
-        "event_count",
-        "duration_seconds",
+        "Start zone", "Channel", "Home transitions", "Away transitions",
+        "Home avg duration (s)", "Away avg duration (s)",
+    ),
+    "defensive-transitions-taxonomy": (
+        "Dimension", "Category", "Home", "Away",
+    ),
+    "offensive-transitions-taxonomy": (
+        "Dimension", "Category", "Home", "Away",
     ),
     "restart-summary": (
         "team_name",
@@ -1589,38 +1594,401 @@ def _final_third_summary_rows(bundle) -> pd.DataFrame:
 
 
 def _transition_summary_rows(bundle, section_id: str) -> pd.DataFrame:
+    """Compact Home/Away transition KPIs prepared by the neutral bundle."""
+
     section = _section(bundle, section_id)
     data = getattr(section, "data", {}) or {}
     teams = tuple(getattr(bundle, "teams", ()) or ())
     rows = []
-    for team in teams:
-        stats = (data.get(team, {}) or {}).get("stats", {}) if isinstance(data, Mapping) else {}
-        if not isinstance(stats, Mapping):
-            continue
-        outcomes = stats.get("outcomes", {}) or {}
-        flanks = stats.get("flanks", {}) or {}
 
-        def summed(token: str) -> int:
-            if not isinstance(outcomes, Mapping):
-                return 0
-            return int(sum(float(v or 0) for k, v in outcomes.items() if token in str(k).casefold()))
+    for index, team in enumerate(teams[:2]):
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        kpis = (payload or {}).get("kpis", {})
+        if not isinstance(kpis, Mapping):
+            kpis = {}
 
-        dominant = "-"
-        if isinstance(flanks, Mapping) and flanks:
-            dominant = str(max(flanks.items(), key=lambda item: float(item[1] or 0))[0])
+        def number(key: str, *, digits: int = 1):
+            value = kpis.get(key)
+            if value is None:
+                return None
+            try:
+                return round(float(value), digits)
+            except (TypeError, ValueError):
+                return None
+
         rows.append(
             {
-                "team_name": team,
-                "transitions": stats.get("total", 0),
-                "goals": summed("goal"),
-                "shots": summed("shot"),
-                "consolidated": summed("consolid"),
-                "regained": summed("regain"),
-                "dominant_channel": dominant,
+                "Side": "Home" if index == 0 else "Away",
+                "Team": team,
+                "Transitions": int(kpis.get("transition_count", 0) or 0),
+                "Median duration (s)": number("median_duration_seconds"),
+                "Final third %": number("final_third_pct"),
+                "Penalty area %": number("penalty_area_pct"),
+                "Shot %": number("shot_pct"),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+def _transition_zone(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    folded = text.casefold()
+    if "defensive" in folded:
+        return "Defensive Third"
+    if "middle" in folded:
+        return "Middle Third"
+    if "attacking" in folded:
+        return "Attacking Third"
+    return "Unknown"
+
+
+def _transition_channel(value: Any) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    folded = text.casefold()
+    if folded == "left":
+        return "Left"
+    if folded in {"center", "central", "centre"}:
+        return "Center"
+    if folded == "right":
+        return "Right"
+    return "Unknown"
+
+
+_TRANSITION_ZONE_ORDER = {
+    "Defensive Third": 0,
+    "Middle Third": 1,
+    "Attacking Third": 2,
+    "Unknown": 3,
+}
+_TRANSITION_CHANNEL_ORDER = {
+    "Left": 0,
+    "Center": 1,
+    "Right": 2,
+    "Unknown": 3,
+}
+
+
+def _canonical_transition_profile_map(
+    stats: Mapping[str, Any],
+) -> dict[tuple[str, str], dict[str, float]]:
+    """Normalize the canonical stats.transition_profile_table without combined."""
+
+    frame = _as_frame(stats.get("transition_profile_table"))
+    if frame.empty:
+        return {}
+
+    zone_col = _column_lookup(frame, "Loss Zone", "Recovery Zone", "Start zone")
+    channel_col = _column_lookup(
+        frame,
+        "Counterattack Side",
+        "Attack Side",
+        "Channel",
+    )
+    count_col = _column_lookup(frame, "Num_Sequences", "Sequences", "transitions")
+    duration_col = _column_lookup(frame, "Avg Duration (s)", "Avg duration (s)")
+    if zone_col is None or channel_col is None:
+        return {}
+
+    buckets: dict[tuple[str, str], dict[str, float]] = {}
+    for _, row in frame.iterrows():
+        key = (
+            _transition_zone(row.get(zone_col)),
+            _transition_channel(row.get(channel_col)),
+        )
+        try:
+            count = float(row.get(count_col, 0) or 0) if count_col else 0.0
+        except (TypeError, ValueError):
+            count = 0.0
+        try:
+            duration = (
+                float(row.get(duration_col))
+                if duration_col is not None and pd.notna(row.get(duration_col))
+                else None
+            )
+        except (TypeError, ValueError):
+            duration = None
+
+        bucket = buckets.setdefault(
+            key,
+            {"count": 0.0, "duration_weighted": 0.0, "duration_n": 0.0},
+        )
+        bucket["count"] += count
+        if duration is not None and count > 0:
+            bucket["duration_weighted"] += duration * count
+            bucket["duration_n"] += count
+
+    return buckets
+
+
+def _transition_profile_rows(
+    bundle,
+    section_id: str,
+    *,
+    limit: int | None = None,
+) -> pd.DataFrame:
+    """Home/Away comparison built from each team's canonical profile table."""
+
+    section = _section(bundle, section_id)
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    if len(teams) < 2:
+        return pd.DataFrame()
+
+    maps = []
+    for team in teams[:2]:
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        stats = (payload or {}).get("stats", {})
+        maps.append(
+            _canonical_transition_profile_map(stats)
+            if isinstance(stats, Mapping)
+            else {}
+        )
+
+    keys = sorted(
+        set(maps[0]) | set(maps[1]),
+        key=lambda item: (
+            _TRANSITION_ZONE_ORDER.get(item[0], 99),
+            _TRANSITION_CHANNEL_ORDER.get(item[1], 99),
+            item[0],
+            item[1],
+        ),
+    )
+    if limit is not None:
+        keys = keys[: int(limit)]
+
+    def avg(bucket: Mapping[str, float]) -> float | None:
+        denominator = float(bucket.get("duration_n", 0.0) or 0.0)
+        if denominator <= 0:
+            return None
+        return round(float(bucket.get("duration_weighted", 0.0)) / denominator, 1)
+
+    rows = []
+    for key in keys:
+        home = maps[0].get(key, {})
+        away = maps[1].get(key, {})
+        rows.append(
+            {
+                "Start zone": key[0],
+                "Channel": key[1],
+                "Home transitions": int(home.get("count", 0) or 0),
+                "Away transitions": int(away.get("count", 0) or 0),
+                "Home avg duration (s)": avg(home),
+                "Away avg duration (s)": avg(away),
             }
         )
     return pd.DataFrame(rows)
 
+
+def _taxonomy_priority(dimension: str, category: str) -> tuple[int, str]:
+    folded = str(category or "").casefold()
+    if dimension == "Channel":
+        return (_TRANSITION_CHANNEL_ORDER.get(_transition_channel(category), 99), folded)
+
+    tokens = (
+        ("goal", 0),
+        ("shot", 1),
+        ("consolid", 2),
+        ("regain", 3),
+        ("recover", 3),
+        ("turnover", 4),
+        ("lost", 4),
+        ("unsuccess", 5),
+        ("out", 6),
+        ("foul", 7),
+        ("period", 8),
+        ("unknown", 99),
+    )
+    for token, order in tokens:
+        if token in folded:
+            return (order, folded)
+    return (50, folded)
+
+
+def _transition_taxonomy_rows(bundle, section_id: str) -> pd.DataFrame:
+    """Align outcome, terminal-outcome and channel taxonomies Home vs Away."""
+
+    section = _section(bundle, section_id)
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    if len(teams) < 2:
+        return pd.DataFrame()
+
+    stats_by_team: list[Mapping[str, Any]] = []
+    for team in teams[:2]:
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        stats = (payload or {}).get("stats", {})
+        stats_by_team.append(stats if isinstance(stats, Mapping) else {})
+
+    rows: list[dict[str, Any]] = []
+    for dimension, key in (
+        ("Outcome", "outcomes"),
+        ("Terminal outcome", "terminal_outcomes"),
+        ("Channel", "flanks"),
+    ):
+        raw_maps = []
+        for stats in stats_by_team:
+            raw = stats.get(key, {}) or {}
+            normalized: dict[str, float] = {}
+            if isinstance(raw, Mapping):
+                for category, value in raw.items():
+                    label = (
+                        _transition_channel(category)
+                        if dimension == "Channel"
+                        else " ".join(str(category).split()) or "Unknown"
+                    )
+                    try:
+                        numeric = float(value or 0)
+                    except (TypeError, ValueError):
+                        numeric = 0.0
+                    normalized[label] = normalized.get(label, 0.0) + numeric
+            raw_maps.append(normalized)
+
+        categories = sorted(
+            set(raw_maps[0]) | set(raw_maps[1]),
+            key=lambda category: _taxonomy_priority(dimension, category),
+        )
+        totals = [sum(mapping.values()) for mapping in raw_maps]
+
+        for category in categories:
+            values = []
+            for index, mapping in enumerate(raw_maps):
+                count = int(mapping.get(category, 0) or 0)
+                total = totals[index]
+                share = count / total * 100.0 if total else 0.0
+                values.append(f"{count} ({share:.0f}%)")
+            rows.append(
+                {
+                    "Dimension": dimension,
+                    "Category": category,
+                    "Home": values[0],
+                    "Away": values[1],
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def _transition_taxonomy_compact_table(frame: pd.DataFrame, styles) -> Table:
+    """Render REPORT-16 taxonomy densely enough to stay on profile page.
+
+    The taxonomy is intentionally complete and aligned Home/Away; the compact
+    padding only removes vertical whitespace. It does not drop categories,
+    reorder rows, or abbreviate scalar values.
+    """
+
+    frame = _trim_columns(frame.copy(), 4)
+    if frame.empty:
+        return _placeholder_box("No taxonomy rows available.", styles)
+
+    headers = [str(column) for column in frame.columns]
+    data: list[list[Any]] = [
+        [Paragraph(escape(header), styles["table_header"]) for header in headers]
+    ]
+    for _, row in frame.iterrows():
+        data.append(
+            [
+                Paragraph(
+                    escape(_format_table_cell(row[column])),
+                    styles["table"],
+                )
+                for column in frame.columns
+            ]
+        )
+
+    table = Table(
+        data,
+        colWidths=[44 * mm, 96 * mm, 64 * mm, 64 * mm],
+        repeatRows=1,
+        splitByRow=1,
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+                ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
+                ("GRID", (0, 0), (-1, -1), 0.25, BORDER),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, LIGHT]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                # REPORT-16 real-match profile tables can contain 15 taxonomy
+                # rows. Two-point vertical padding keeps the full taxonomy on
+                # page 2 while preserving the normal 7.4pt table type size.
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]
+        )
+    )
+    return table
+
+
+def _transition_selection_reason(artifact: Any) -> str:
+    """Turn selector metadata into a short editorial explanation."""
+
+    selection = getattr(artifact, "selection", None) or {}
+    criteria_rows = selection.get("criteria", []) if isinstance(selection, Mapping) else []
+    criteria = {
+        str(item.get("criterion")): item.get("value")
+        for item in criteria_rows
+        if isinstance(item, Mapping) and item.get("criterion")
+    }
+    milestone = criteria.get("milestone")
+    progression = criteria.get("territorial_progression")
+    action_count = criteria.get("action_count")
+    duration = criteria.get("duration")
+
+    pieces = []
+    if milestone not in (None, ""):
+        pieces.append(f"highest-priority outcome: {milestone}")
+    tie_breaks = []
+    if progression not in (None, ""):
+        tie_breaks.append(f"progression {progression}")
+    if action_count not in (None, ""):
+        tie_breaks.append(f"{action_count} actions")
+    if duration not in (None, ""):
+        tie_breaks.append(f"{duration}s duration")
+    if tie_breaks:
+        pieces.append("tie-breaks: " + ", ".join(tie_breaks))
+
+    if pieces:
+        return "; ".join(pieces) + "."
+
+    reason = getattr(artifact, "selection_reason", None)
+    return str(reason or "Deterministic representative-sequence selector.")
+
+
+def _transition_selection_rows(
+    catalog,
+    figure_id: str,
+    teams: Sequence[str],
+) -> pd.DataFrame:
+    artifacts = _artifacts_for(catalog, figure_id)
+    by_team = {
+        str(getattr(artifact, "team_name", "")): artifact
+        for artifact in artifacts
+        if getattr(artifact, "team_name", None)
+    }
+    rows = []
+    for index, team in enumerate(tuple(teams)[:2]):
+        artifact = by_team.get(str(team))
+        if artifact is None:
+            continue
+        selection = getattr(artifact, "selection", None) or {}
+        selected_id = (
+            selection.get("selected_id")
+            if isinstance(selection, Mapping)
+            else None
+        )
+        rows.append(
+            {
+                "Side": "Home" if index == 0 else "Away",
+                "Team": team,
+                "Sequence": selected_id if selected_id is not None else "-",
+                "Selection reason": _transition_selection_reason(artifact),
+            }
+        )
+    return pd.DataFrame(rows)
 
 def _ppda_summary_rows(bundle) -> pd.DataFrame:
     section = _section(bundle, "ppda")
@@ -2242,7 +2610,7 @@ def _table_payloads(
         )
         return [
             (
-                table_id.replace("-", " ").title(),
+                "Transition overview",
                 _transition_summary_rows(bundle, section_id),
             )
         ]
@@ -2256,32 +2624,34 @@ def _table_payloads(
             if table_id.startswith("defensive")
             else "offensive-transitions"
         )
-        section = _section(bundle, section_id)
-        data = getattr(section, "data", {}) or {}
-        payloads = []
-        for team in teams:
-            combined = _as_frame((data.get(team, {}) or {}).get("combined"))
-            summary = _sequence_summary_frame(
-                combined,
-                id_aliases=("loss_sequence_id", "sequence_id", "id"),
-                zone_aliases=("loss_zone", "recovery_zone"),
-            )
-            summary = _top_sequence_rows(summary, selection_limit or 10)
-            summary = _explicit_columns(
-                summary,
-                (
-                    "sequence_id",
-                    "minute",
-                    "player_name",
-                    "start_zone",
-                    "sequence_outcome",
-                    "terminal_outcome",
-                    "event_count",
-                    "duration_seconds",
+        # REPORT-16: this legacy id now represents the canonical profile table.
+        # Never use combined event rows as the editorial PDF table.
+        return [
+            (
+                "Transition profile · Home vs Away",
+                _transition_profile_rows(
+                    bundle,
+                    section_id,
+                    limit=selection_limit or 10,
                 ),
             )
-            payloads.append((f"Transition sequences - {team}", summary))
-        return payloads
+        ]
+
+    if table_id in {
+        "defensive-transitions-taxonomy",
+        "offensive-transitions-taxonomy",
+    }:
+        section_id = (
+            "defensive-transitions"
+            if table_id.startswith("defensive")
+            else "offensive-transitions"
+        )
+        return [
+            (
+                "Outcome, terminal outcome and channel",
+                _transition_taxonomy_rows(bundle, section_id),
+            )
+        ]
 
     if table_id in {"restart-summary", "restart-takers"}:
         section = _section(bundle, "restarts")
@@ -2652,6 +3022,115 @@ def _defensive_shape_section_story(
     return story
 
 
+def _transition_section_story(
+    bundle,
+    catalog,
+    section_spec,
+    styles,
+    config,
+) -> list[Any]:
+    """Two-page editorial transition profile for REPORT-16."""
+
+    section_id = section_spec.id
+    defensive = section_id == "defensive-transitions"
+    prefix = "defensive" if defensive else "offensive"
+    figure_id = f"{prefix}-transitions-top-sequence"
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+
+    story: list[Any] = []
+    story.append(Paragraph("Representative sequence", styles["subheading"]))
+    figure_spec = next(
+        (item for item in section_spec.figures if item.id == figure_id),
+        None,
+    )
+    if figure_spec is not None:
+        story.extend(
+            _figure_story_for_spec(
+                catalog,
+                figure_spec,
+                styles,
+                config,
+            )
+        )
+
+    selection = _transition_selection_rows(catalog, figure_id, teams)
+    story.append(Paragraph("Selection reason", styles["table_subheading"]))
+    story.append(
+        _long_table(
+            selection,
+            styles,
+            max_columns=4,
+            column_widths=[18 * mm, 34 * mm, 24 * mm, 192 * mm],
+        )
+    )
+    story.append(Spacer(1, 2 * mm))
+
+    story.append(Paragraph("Home–Away overview", styles["table_subheading"]))
+    overview = _transition_summary_rows(bundle, section_id)
+    story.append(
+        _long_table(
+            overview,
+            styles,
+            max_columns=7,
+        )
+    )
+
+    # Page 2 is intentionally profile-first.  The full event rows stay in the
+    # Match Analysis Pack CSVs; the PDF shows only aligned, scalar summaries.
+    story.append(PageBreak())
+    matchup = (
+        f"Home: {teams[0]} · Away: {teams[1]}"
+        if len(teams) >= 2
+        else "Home–Away comparison"
+    )
+    story.append(Paragraph(escape(matchup), styles["small"]))
+    story.append(Spacer(1, 1.5 * mm))
+
+    story.append(Paragraph("Transition profile", styles["subheading"]))
+    profile_spec = next(
+        (
+            item
+            for item in section_spec.tables
+            if item.id == f"{prefix}-transitions-sequences"
+        ),
+        None,
+    )
+    profile_limit = (
+        getattr(getattr(profile_spec, "selection", None), "limit", None)
+        if profile_spec is not None
+        else None
+    )
+    profile = _transition_profile_rows(
+        bundle,
+        section_id,
+        limit=profile_limit or 10,
+    )
+    story.append(
+        _long_table(
+            profile,
+            styles,
+            max_columns=6,
+            column_widths=[46 * mm, 30 * mm, 42 * mm, 42 * mm, 54 * mm, 54 * mm],
+        )
+    )
+    story.append(Spacer(1, 3 * mm))
+
+    story.append(
+        Paragraph(
+            "Outcome, terminal outcome and channel",
+            styles["table_subheading"],
+        )
+    )
+    taxonomy = _transition_taxonomy_rows(bundle, section_id)
+    story.append(
+        _transition_taxonomy_compact_table(
+            taxonomy,
+            styles,
+        )
+    )
+    return story
+
+
 def _section_story(
     bundle,
     catalog,
@@ -2699,6 +3178,21 @@ def _section_story(
     if section_spec.id == "defensive-shape":
         story.extend(
             _defensive_shape_section_story(
+                bundle,
+                catalog,
+                section_spec,
+                styles,
+                config,
+            )
+        )
+        return story
+
+    if section_spec.id in {
+        "defensive-transitions",
+        "offensive-transitions",
+    }:
+        story.extend(
+            _transition_section_story(
                 bundle,
                 catalog,
                 section_spec,

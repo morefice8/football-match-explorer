@@ -8,6 +8,9 @@ import pandas as pd
 from src.visualization.coordinate_contract import orient_point
 
 FINAL_THIRD_X = 66.67
+PENALTY_AREA_X = 83.5
+PENALTY_AREA_Y_MIN = 21.1
+PENALTY_AREA_Y_MAX = 78.9
 SHOT_EVENT_NAMES = frozenset({
     "goal",
     "miss",
@@ -128,6 +131,33 @@ def sequence_reaches_final_third(sequence, *, is_away=False):
     return False
 
 
+def sequence_reaches_penalty_area(sequence, *, is_away=False):
+    if sequence is None or sequence.empty:
+        return False
+
+    for _, row in sequence.iterrows():
+        for x_key, y_key in (("x", "y"), ("end_x", "end_y")):
+            x = _number(row.get(x_key))
+            y = _number(row.get(y_key))
+            if x is None or y is None:
+                continue
+
+            oriented_x, oriented_y = orient_point(
+                x,
+                y,
+                is_away=is_away,
+            )
+            if (
+                float(oriented_x) >= PENALTY_AREA_X
+                and PENALTY_AREA_Y_MIN
+                <= float(oriented_y)
+                <= PENALTY_AREA_Y_MAX
+            ):
+                return True
+
+    return False
+
+
 def transition_kpis(sequences, *, transition_team_is_away=False):
     clean = [
         sequence
@@ -152,6 +182,27 @@ def transition_kpis(sequences, *, transition_team_is_away=False):
         else None
     )
 
+    reached_final_third = sum(
+        1
+        for sequence in clean
+        if sequence_reaches_final_third(
+            sequence,
+            is_away=transition_team_is_away,
+        )
+    )
+    reached_penalty_area = sum(
+        1
+        for sequence in clean
+        if sequence_reaches_penalty_area(
+            sequence,
+            is_away=transition_team_is_away,
+        )
+    )
+    ended_in_shot = sum(
+        1
+        for sequence in clean
+        if sequence_ends_in_shot(sequence)
+    )
     reached_or_shot = sum(
         1
         for sequence in clean
@@ -164,14 +215,17 @@ def transition_kpis(sequences, *, transition_team_is_away=False):
         )
     )
 
+    def percentage(count):
+        return count / total * 100.0 if total else 0.0
+
     return {
         "transition_count": total,
         "median_duration_seconds": median_duration,
-        "final_third_or_shot_pct": (
-            reached_or_shot / total * 100.0
-            if total
-            else 0.0
-        ),
+        "final_third_pct": percentage(reached_final_third),
+        "penalty_area_pct": percentage(reached_penalty_area),
+        "shot_pct": percentage(ended_in_shot),
+        # Backward-compatible KPI used by the interactive transition panel.
+        "final_third_or_shot_pct": percentage(reached_or_shot),
     }
 
 
