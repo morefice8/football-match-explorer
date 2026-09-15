@@ -781,6 +781,25 @@ def _overview(ctx: _BundleContext) -> _Produced:
             "ball_recoveries": recoveries,
         }
 
+    unmapped_qualifier_ids = []
+    for column in ctx.df.columns:
+        label = str(column)
+        if not label.startswith("qualifier_"):
+            continue
+        raw_id = label[len("qualifier_"):].strip()
+        if not raw_id:
+            continue
+        try:
+            value = int(raw_id)
+        except ValueError:
+            value = raw_id
+        unmapped_qualifier_ids.append(value)
+
+    unmapped_qualifier_ids = sorted(
+        set(unmapped_qualifier_ids),
+        key=lambda value: (0, int(value)) if isinstance(value, int) else (1, str(value)),
+    )
+
     coverage = {
         "event_rows": int(len(ctx.df)),
         "receiver": data_quality.receiver_coverage(passes),
@@ -789,6 +808,10 @@ def _overview(ctx: _BundleContext) -> _Produced:
             columns=("x", "y"),
         ),
         "outcome": data_quality.outcome_coverage(ctx.df),
+        "qualifiers": {
+            "unmapped_count": len(unmapped_qualifier_ids),
+            "unmapped_ids": tuple(unmapped_qualifier_ids),
+        },
         "final_third_carries": {
             team: data_quality.carry_candidate_coverage_from_stats(
                 ctx.final_third(team)[1]

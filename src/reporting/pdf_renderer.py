@@ -1228,6 +1228,16 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "final_third_entries",
         "crosses",
     ),
+    "goal-context": (
+        "Goal",
+        "Possession origin",
+        "Attack type",
+        "Decisive mechanism",
+        "Creator",
+        "Possession",
+        "Passes",
+        "Analysis / linked sequence",
+    ),
     "data-coverage": ("Metric", "Value"),
     "formation-spells": (
         "start",
@@ -2386,6 +2396,470 @@ def _defensive_shape_table_payloads(bundle) -> list[tuple[str, pd.DataFrame]]:
     ]
 
 
+
+def _overview_metadata_rows(bundle) -> pd.DataFrame:
+    context = _cover_context(bundle)
+    return pd.DataFrame(
+        [
+            {
+                "Home": context.get("home", "Home"),
+                "Score": context.get("score", "-"),
+                "Away": context.get("away", "Away"),
+                "Competition": context.get("competition", "-"),
+                "Date": context.get("date", "-"),
+            }
+        ]
+    )
+
+
+def _overview_game_profile_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "overview")
+    data = getattr(section, "data", {}) or {}
+    game_profile = data.get("game_profile", {}) if isinstance(data, Mapping) else {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+    for index, team in enumerate(teams[:2]):
+        profile = game_profile.get(team, {}) if isinstance(game_profile, Mapping) else {}
+        rows.append(
+            {
+                "Side": "Home" if index == 0 else "Away",
+                "Team": team,
+                "Passes": profile.get("passes"),
+                "Pass completion %": (
+                    round(float(profile.get("pass_completion_pct")), 1)
+                    if profile.get("pass_completion_pct") is not None
+                    else None
+                ),
+                "Shots": profile.get("shots"),
+                "On target": profile.get("shots_on_target"),
+                "Progressive passes": profile.get("progressive_passes"),
+                "Final third entries": profile.get("final_third_entries"),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _overview_goal_clock(item: Mapping[str, Any]) -> str:
+    minute = item.get("minute")
+    second = item.get("second")
+    if minute in (None, ""):
+        return "-"
+    try:
+        minute_text = str(int(float(minute)))
+    except (TypeError, ValueError):
+        minute_text = str(minute)
+    clock = f"{minute_text}'"
+    if second not in (None, "", 0, "0", 0.0):
+        try:
+            seconds = float(second)
+            second_text = str(int(seconds)) if seconds.is_integer() else f"{seconds:.1f}"
+        except (TypeError, ValueError):
+            second_text = str(second)
+        clock += f"{second_text}s"
+    return clock
+
+
+def _goal_event_id_set(frame: pd.DataFrame) -> set[str]:
+    frame = _as_frame(frame)
+    if frame.empty:
+        return set()
+    values: set[str] = set()
+    for alias in ("eventId", "event_id", "id", "optaEventId"):
+        column = _column_lookup(frame, alias)
+        if column is None:
+            continue
+        for value in frame[column].dropna().tolist():
+            values.add(str(value))
+    return values
+
+
+def _goal_sequence_reference(bundle, goal: Mapping[str, Any]) -> str:
+    """Return one readable analytical sequence reference for a goal.
+
+    Prefer a canonical module sequence when it can be matched by event id.
+    Otherwise keep the reconstructed goal-possession chain explicit instead of
+    fabricating a sequence id that the underlying module does not expose.
+    """
+
+    team = str(goal.get("team_name") or "")
+    module = str(goal.get("analysis_module") or "Possession development")
+    event_ids = {
+        str(value)
+        for value in (goal.get("sequence_event_ids") or [])
+        if value not in (None, "")
+    }
+    goal_event_id = goal.get("goal_event_id")
+    if goal_event_id not in (None, ""):
+        event_ids.add(str(goal_event_id))
+
+    if module == "Offensive Transition":
+        section = _section(bundle, "offensive-transitions")
+        data = getattr(section, "data", {}) or {}
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        sequences = payload.get("sequences", []) if isinstance(payload, Mapping) else []
+        for index, sequence in enumerate(sequences or []):
+            frame = _as_frame(sequence)
+            if not (_goal_event_id_set(frame) & event_ids):
+                continue
+            sequence_column = _column_lookup(
+                frame,
+                "loss_sequence_id",
+                "sequence_id",
+                "transition_sequence_id",
+            )
+            sequence_id = None
+            if sequence_column is not None:
+                values = frame[sequence_column].dropna()
+                if not values.empty:
+                    sequence_id = values.iloc[0]
+            if sequence_id is None:
+                sequence_id = index + 1
+            return f"{module} · sequence {sequence_id}"
+
+    if module == "Set Pieces":
+        section = _section(bundle, "restarts")
+        data = getattr(section, "data", {}) or {}
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        sequences = payload.get("sequences", []) if isinstance(payload, Mapping) else []
+        for index, sequence in enumerate(sequences or []):
+            frame = _as_frame(sequence)
+            if _goal_event_id_set(frame) & event_ids:
+                return f"Set Pieces · restart sequence {index + 1}"
+
+    if module == "Build-up":
+        section = _section(bundle, "build-up")
+        data = getattr(section, "data", {}) or {}
+        payload = (
+            (data.get("teams", {}) or {}).get(team, {})
+            if isinstance(data, Mapping)
+            else {}
+        )
+        frame = _as_frame(payload.get("sequences")) if isinstance(payload, Mapping) else pd.DataFrame()
+        if not frame.empty and (_goal_event_id_set(frame) & event_ids):
+            sequence_column = _column_lookup(
+                frame,
+                "trigger_sequence_id",
+                "sequence_id",
+                "buildup_sequence_id",
+            )
+            if sequence_column is not None:
+                matched = frame[
+                    frame.apply(
+                        lambda row: bool(
+                            {
+                                str(row.get(column))
+                                for column in frame.columns
+                                if str(column) in {"eventId", "event_id", "id", "optaEventId"}
+                                and pd.notna(row.get(column))
+                            }
+                            & event_ids
+                        ),
+                        axis=1,
+                    )
+                ]
+                values = matched[sequence_column].dropna() if not matched.empty else pd.Series(dtype=object)
+                if not values.empty:
+                    return f"Build-up · sequence {values.iloc[0]}"
+
+    ordered = [
+        str(value)
+        for value in (goal.get("sequence_event_ids") or [])
+        if value not in (None, "")
+    ]
+    if ordered:
+        # REPORT-17: raw Opta event ids are useful machine-readable anchors,
+        # but they are opaque in the editorial PDF and can be mistaken for a
+        # canonical module sequence id.  Keep them in report-data.json and
+        # describe the reconstructed chain honestly here.
+        event_word = "event" if len(ordered) == 1 else "events"
+        return f"{module} · reconstructed goal chain ({len(ordered)} {event_word})"
+    if goal_event_id not in (None, ""):
+        return f"{module} · goal event"
+    return module
+
+
+def _goal_context_rows(bundle) -> pd.DataFrame:
+    section = _section(bundle, "overview")
+    data = getattr(section, "data", {}) or {}
+    if not isinstance(data, Mapping):
+        return pd.DataFrame()
+
+    origins = [
+        dict(item)
+        for item in (data.get("goal_origins", []) or [])
+        if isinstance(item, Mapping)
+    ]
+    scorers = [
+        dict(item)
+        for item in (data.get("scorers", []) or [])
+        if isinstance(item, Mapping)
+    ]
+
+    scorer_by_event = {
+        str(item.get("goal_event_id")): item
+        for item in scorers
+        if item.get("goal_event_id") not in (None, "")
+    }
+    scorer_by_clock = {
+        (
+            str(item.get("team_name") or ""),
+            str(item.get("minute") or ""),
+            str(item.get("second") or ""),
+        ): item
+        for item in scorers
+    }
+
+    source = origins if origins else scorers
+    rows: list[dict[str, Any]] = []
+    for raw in source:
+        item = dict(raw)
+        event_key = str(item.get("goal_event_id")) if item.get("goal_event_id") not in (None, "") else None
+        official = scorer_by_event.get(event_key) if event_key is not None else None
+        if official is None:
+            official = scorer_by_clock.get(
+                (
+                    str(item.get("team_name") or ""),
+                    str(item.get("minute") or ""),
+                    str(item.get("second") or ""),
+                )
+            )
+        official = official or {}
+
+        scorer = official.get("scorer") or item.get("scorer") or "Unknown"
+        team = official.get("team_name") or item.get("team_name") or "-"
+        clock_source = {**item, **{k: v for k, v in official.items() if v not in (None, "")}}
+        goal_label = f"{_overview_goal_clock(clock_source)} · {team} · {scorer}"
+
+        origin = str(item.get("possession_origin") or "-")
+        origin_detail = item.get("origin_detail")
+        if origin_detail not in (None, ""):
+            origin += f" · {origin_detail}"
+
+        mechanism = str(item.get("decisive_mechanism") or "-")
+        decisive_player = item.get("decisive_player")
+        if decisive_player not in (None, ""):
+            mechanism += f" · {decisive_player}"
+
+        if item.get("official_assist") not in (None, ""):
+            creator = f"Assist · {item.get('official_assist')}"
+        elif item.get("shot_creating_pass") not in (None, ""):
+            creator = f"Shot-creating pass · {item.get('shot_creating_pass')}"
+        else:
+            creator = "-"
+
+        duration = item.get("possession_duration_seconds")
+        try:
+            possession = f"{float(duration):.1f}s" if duration is not None and pd.notna(duration) else "-"
+        except (TypeError, ValueError):
+            possession = str(duration) if duration not in (None, "") else "-"
+
+        passes = item.get("pass_count")
+        try:
+            passes = int(passes) if passes is not None and pd.notna(passes) else None
+        except (TypeError, ValueError):
+            pass
+
+        rows.append(
+            {
+                "Goal": goal_label,
+                "Possession origin": origin,
+                "Attack type": item.get("attack_type") or "-",
+                "Decisive mechanism": mechanism,
+                "Creator": creator,
+                "Possession": possession,
+                "Passes": passes,
+                "Analysis / linked sequence": _goal_sequence_reference(bundle, item),
+            }
+        )
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "Goal",
+            "Possession origin",
+            "Attack type",
+            "Decisive mechanism",
+            "Creator",
+            "Possession",
+            "Passes",
+            "Analysis / linked sequence",
+        ],
+    )
+
+
+def _quality_strip_values(bundle, catalog) -> list[dict[str, str]]:
+    section = _section(bundle, "overview")
+    data = getattr(section, "data", {}) or {}
+    coverage = data.get("data_coverage", {}) if isinstance(data, Mapping) else {}
+    coverage = coverage if isinstance(coverage, Mapping) else {}
+
+    receiver = coverage.get("receiver", {}) or {}
+    coordinates = coverage.get("coordinates", {}) or {}
+    outcome = coverage.get("outcome", {}) or {}
+    qualifiers = coverage.get("qualifiers", {}) or {}
+    carries = coverage.get("final_third_carries", {}) or {}
+
+    carry_included = 0
+    carry_excluded = 0
+    if isinstance(carries, Mapping):
+        for payload in carries.values():
+            if not isinstance(payload, Mapping):
+                continue
+            carry_included += int(payload.get("included", 0) or 0)
+            carry_excluded += int(payload.get("excluded", 0) or 0)
+
+    failed_sections = [
+        section_item
+        for section_item in (getattr(bundle, "sections", ()) or ())
+        if _section_status(section_item) == "error"
+    ]
+    failed_plots = []
+    for artifact in (getattr(catalog, "figures", ()) or ()):
+        status = getattr(getattr(artifact, "status", None), "value", getattr(artifact, "status", None))
+        if str(status).casefold() == "error":
+            failed_plots.append(artifact)
+
+    qualifier_ids = list(qualifiers.get("unmapped_ids", ()) or ()) if isinstance(qualifiers, Mapping) else []
+    qualifier_detail = ", ".join(str(value) for value in qualifier_ids[:5])
+    if len(qualifier_ids) > 5:
+        qualifier_detail += f" +{len(qualifier_ids) - 5}"
+    if not qualifier_detail:
+        qualifier_detail = "none"
+
+    def pct(payload: Mapping[str, Any], key: str) -> str:
+        try:
+            return f"{float(payload.get(key, 0.0) or 0.0):.1f}%"
+        except (TypeError, ValueError):
+            return "-"
+
+    receiver_resolved = int(receiver.get("resolved", 0) or 0) if isinstance(receiver, Mapping) else 0
+    receiver_eligible = int(receiver.get("eligible", 0) or 0) if isinstance(receiver, Mapping) else 0
+    coordinate_valid = int(coordinates.get("valid", 0) or 0) if isinstance(coordinates, Mapping) else 0
+    coordinate_total = int(coordinates.get("total", 0) or 0) if isinstance(coordinates, Mapping) else 0
+    outcome_unknown = int(outcome.get("unknown", 0) or 0) if isinstance(outcome, Mapping) else 0
+    qualifier_count = int(qualifiers.get("unmapped_count", len(qualifier_ids)) or 0) if isinstance(qualifiers, Mapping) else len(qualifier_ids)
+
+    return [
+        {
+            "label": "Receiver coverage",
+            "value": pct(receiver, "coverage_pct"),
+            "detail": f"{receiver_resolved}/{receiver_eligible} resolved",
+        },
+        {
+            "label": "Coordinate coverage",
+            "value": pct(coordinates, "coverage_pct"),
+            "detail": f"{coordinate_valid}/{coordinate_total} valid",
+        },
+        {
+            "label": "Carry inference",
+            "value": f"{carry_included} in / {carry_excluded} out",
+            "detail": "final-third candidates",
+        },
+        {
+            "label": "Outcome unknown",
+            "value": str(outcome_unknown),
+            "detail": pct(outcome, "unknown_pct"),
+        },
+        {
+            "label": "Unmapped qualifiers",
+            "value": str(qualifier_count),
+            "detail": qualifier_detail,
+        },
+        {
+            "label": "Failures",
+            "value": (
+                f"{len(failed_sections)} "
+                f"{'section' if len(failed_sections) == 1 else 'sections'} / "
+                f"{len(failed_plots)} "
+                f"{'plot' if len(failed_plots) == 1 else 'plots'}"
+            ),
+            "detail": "bundle / figure catalog",
+        },
+    ]
+
+
+def _quality_strip_table(bundle, catalog, styles) -> Table:
+    values = _quality_strip_values(bundle, catalog)
+    cells = []
+    for item in values:
+        cells.append(
+            [
+                Paragraph(escape(str(item["label"])), styles["small"]),
+                Paragraph(f"<b>{escape(str(item['value']))}</b>", styles["body"]),
+                Paragraph(escape(str(item["detail"])), styles["small"]),
+            ]
+        )
+
+    table = Table(
+        [cells],
+        colWidths=[268 * mm / len(cells)] * len(cells),
+        hAlign="LEFT",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
+                ("BOX", (0, 0), (-1, -1), 0.35, BORDER),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, BORDER),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
+
+
+def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
+    """Editorial match-first Overview constrained to at most two pages."""
+
+    story: list[Any] = []
+
+    story.append(Paragraph("Match snapshot", styles["subheading"]))
+    story.append(
+        _long_table(
+            _overview_metadata_rows(bundle),
+            styles,
+            max_columns=5,
+            column_widths=[52 * mm, 24 * mm, 52 * mm, 82 * mm, 58 * mm],
+        )
+    )
+    story.append(Spacer(1, 2.5 * mm))
+
+    story.append(Paragraph("Game profile · Home vs Away", styles["table_subheading"]))
+    story.append(
+        _long_table(
+            _overview_game_profile_rows(bundle),
+            styles,
+            max_columns=8,
+            column_widths=[18 * mm, 42 * mm, 28 * mm, 38 * mm, 24 * mm, 28 * mm, 42 * mm, 48 * mm],
+        )
+    )
+    story.append(Spacer(1, 2.5 * mm))
+
+    goals = _goal_context_rows(bundle)
+    story.append(Paragraph("Goals · origin and creation", styles["table_subheading"]))
+    if goals.empty:
+        story.append(_placeholder_box("No goals recorded in the match data.", styles, height=16 * mm))
+    else:
+        story.append(
+            _long_table(
+                goals,
+                styles,
+                max_columns=8,
+                column_widths=[42 * mm, 35 * mm, 32 * mm, 42 * mm, 39 * mm, 24 * mm, 15 * mm, 39 * mm],
+            )
+        )
+    story.append(Spacer(1, 2.5 * mm))
+
+    story.append(Paragraph("Quality strip", styles["table_subheading"]))
+    story.append(_quality_strip_table(bundle, catalog, styles))
+
+    return story
+
+
 def _table_payloads(
     bundle,
     table_id: str,
@@ -2394,7 +2868,7 @@ def _table_payloads(
 ) -> list[tuple[str, pd.DataFrame]]:
     teams = tuple(getattr(bundle, "teams", ()) or ())
 
-    if table_id in {"match-overview", "data-coverage"}:
+    if table_id in {"match-overview", "goal-context", "data-coverage"}:
         section = _section(bundle, "overview")
         data = getattr(section, "data", {}) or {}
         if table_id == "match-overview":
@@ -2416,7 +2890,9 @@ def _table_payloads(
                     "crosses",
                 ),
             )
-            return [("Match overview", frame)]
+            return [("Game profile", frame)]
+        if table_id == "goal-context":
+            return [("Goal origins and creation", _goal_context_rows(bundle))]
         coverage = data.get("data_coverage", {}) if isinstance(data, Mapping) else {}
         frame = pd.DataFrame(_mapping_rows(coverage))
         frame = _metric_rows(
@@ -3173,7 +3649,15 @@ def _section_story(
         )
 
     if section_spec.id == "overview":
-        story.extend(_overview_notes(bundle, styles))
+        story.extend(
+            _overview_section_story(
+                bundle,
+                catalog,
+                styles,
+                config,
+            )
+        )
+        return story
 
     if section_spec.id == "defensive-shape":
         story.extend(

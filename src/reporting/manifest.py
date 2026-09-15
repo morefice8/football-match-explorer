@@ -187,12 +187,17 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
         tables=(
             table(
                 "match-overview",
-                "Match overview",
+                "Game profile",
+                export=PORTRAIT_PAGE,
+            ),
+            table(
+                "goal-context",
+                "Goal origins and creation",
                 export=PORTRAIT_PAGE,
             ),
             table(
                 "data-coverage",
-                "Data coverage",
+                "Quality strip",
                 export=PORTRAIT_PAGE,
             ),
         ),
