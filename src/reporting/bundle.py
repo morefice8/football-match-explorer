@@ -522,6 +522,28 @@ def _team_frame(frame: pd.DataFrame, team_name: str) -> pd.DataFrame:
     return frame[frame["team_name"].eq(team_name)].copy()
 
 
+def _player_jersey_label(frame: pd.DataFrame) -> str:
+    """Return one stable printable jersey number from player event rows."""
+
+    if (
+        frame is None
+        or frame.empty
+        or "Mapped Jersey Number" not in frame.columns
+    ):
+        return "?"
+
+    values = frame["Mapped Jersey Number"].dropna()
+    for raw in reversed(values.tolist()):
+        try:
+            return str(int(float(raw)))
+        except (TypeError, ValueError):
+            text = str(raw).strip()
+            if text:
+                return text
+
+    return "?"
+
+
 def _successful_pass_mask(frame: pd.DataFrame) -> pd.Series:
     if frame is None or frame.empty:
         return pd.Series(dtype=bool)
@@ -1353,6 +1375,9 @@ def _player_highlights(ctx: _BundleContext) -> _Produced:
                 "profile": player_pass_map_metrics.player_pass_profile(
                     player_passes
                 ),
+                "jersey": _player_jersey_label(
+                    player_passes
+                ),
             }
 
         shooting_options = threat_reception_metrics.team_player_options(
@@ -1375,6 +1400,10 @@ def _player_highlights(ctx: _BundleContext) -> _Produced:
                 "receptions": receptions,
                 "summary": threat_reception_metrics.reception_summary(
                     receptions
+                ),
+                "jersey": str(
+                    option.get("jersey")
+                    or "?"
                 ),
             }
 
@@ -1405,6 +1434,10 @@ def _player_highlights(ctx: _BundleContext) -> _Produced:
                     "profile": (
                         defensive_contribution_metrics
                         .player_defensive_profile(events)
+                    ),
+                    "jersey": str(
+                        option.get("jersey")
+                        or _player_jersey_label(events)
                     ),
                 }
 

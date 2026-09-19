@@ -1456,7 +1456,10 @@ def _render_player_highlight(
             _as_frame(payload.get("events")),
             selection.selected_name,
             _team_color(bundle, plan, config),
-            player_jersey="?",
+            player_jersey=str(
+                payload.get("jersey")
+                or "?"
+            ),
             is_away_team=plan.is_away,
         )
         return _Rendered(
@@ -1493,7 +1496,10 @@ def _render_player_highlight(
         figure = registry.resolve("player-reception-map")(
             _as_frame(payload.get("receptions")),
             selected_player=selection.selected_name,
-            jersey="?",
+            jersey=str(
+                payload.get("jersey")
+                or "?"
+            ),
             team_color=_team_color(bundle, plan, config),
             summary=payload.get("summary", {}),
             is_away=plan.is_away,
@@ -1528,7 +1534,10 @@ def _render_player_highlight(
     figure = registry.resolve("player-defensive-map")(
         _as_frame(payload.get("events")),
         selected_player=selection.selected_name,
-        jersey="?",
+        jersey=str(
+                payload.get("jersey")
+                or "?"
+            ),
         team_color=_team_color(bundle, plan, config),
         is_away=plan.is_away,
     )
