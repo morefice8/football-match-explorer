@@ -48,6 +48,9 @@ from src.reporting.pack_builder import (
     match_analysis_pack_filename,
 )
 from src.reporting.pdf_renderer import MatchReportPdfConfig
+from src.reporting.pdf_visual_regression import (
+    run_pdf_visual_regression,
+)
 from src.utils import mapping_loader
 
 
@@ -89,6 +92,7 @@ class MatchReportAuditResult:
     processed_columns: int = 0
     pack_bytes: int = 0
     pdf_pages: int = 0
+    visual_snapshots: dict[str, str] = field(default_factory=dict)
 
     @property
     def failed(self) -> bool:
@@ -704,6 +708,103 @@ def run_match_report_audit(
                 f"{len(sizes)} ZIP entries validated",
             )
         )
+
+        # REPORT-21: validate the final PDF independently with Poppler.
+        started = time.perf_counter()
+        visual_errors = []
+        visual_warnings = []
+        visual_page_count = 0
+        visual_snapshot_count = 0
+
+        try:
+            with zipfile.ZipFile(pack_path, "r") as archive:
+                pdf_names = [
+                    name
+                    for name in archive.namelist()
+                    if name.lower().endswith(".pdf")
+                ]
+                if len(pdf_names) != 1:
+                    result.add_issue(
+                        "error",
+                        "visual-pdf-count",
+                        (
+                            "REPORT-21 requires exactly one PDF "
+                            "for visual regression."
+                        ),
+                    )
+                    visual_errors.append("visual-pdf-count")
+                else:
+                    pdf_bytes = archive.read(pdf_names[0])
+                    summary_payload = None
+                    if ANALYSIS_SUMMARY_PATH in archive.namelist():
+                        summary_payload = _strict_json_loads(
+                            archive.read(
+                                ANALYSIS_SUMMARY_PATH
+                            ).decode("utf-8"),
+                            label=ANALYSIS_SUMMARY_PATH,
+                        )
+
+                    visual = run_pdf_visual_regression(
+                        pdf_bytes,
+                        analysis_summary=(
+                            summary_payload
+                            if isinstance(
+                                summary_payload,
+                                Mapping,
+                            )
+                            else None
+                        ),
+                        snapshot_dir=(
+                            destination
+                            / "visual-snapshots"
+                        ),
+                    )
+                    visual_page_count = visual.page_count
+                    visual_snapshot_count = len(
+                        visual.snapshots
+                    )
+                    result.visual_snapshots = dict(
+                        visual.snapshots
+                    )
+                    if visual.page_count:
+                        result.pdf_pages = visual.page_count
+
+                    for issue in visual.issues:
+                        result.add_issue(
+                            issue.severity,
+                            issue.code,
+                            issue.message,
+                        )
+                        if issue.severity == "error":
+                            visual_errors.append(issue.code)
+                        else:
+                            visual_warnings.append(issue.code)
+        except Exception as exc:
+            result.add_issue(
+                "error",
+                "visual-regression-failed",
+                str(exc),
+            )
+            visual_errors.append("visual-regression-failed")
+
+        visual_status = (
+            "FAIL"
+            if visual_errors
+            else "WARN"
+            if visual_warnings
+            else "OK"
+        )
+        result.stages.append(
+            AuditStage(
+                "visual-pdf",
+                time.perf_counter() - started,
+                visual_status,
+                (
+                    f"{visual_page_count} pages rendered with Poppler; "
+                    f"{visual_snapshot_count} snapshots kept"
+                ),
+            )
+        )
         return result
     finally:
         if managed_tmp and result.pack_path is None:
@@ -750,6 +851,13 @@ def print_audit_result(result: MatchReportAuditResult) -> None:
             print(f"  {_format_bytes(size):>10}  {name}")
         if result.pdf_pages:
             print(f"\nPDF pages: {result.pdf_pages}")
+
+    if result.visual_snapshots:
+        print("\nVisual snapshots")
+        for label, path in sorted(
+            result.visual_snapshots.items()
+        ):
+            print(f"  {label:<20} {path}")
 
     if result.issues:
         print("\nIssues")

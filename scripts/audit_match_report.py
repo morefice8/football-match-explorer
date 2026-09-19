@@ -23,8 +23,8 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Process a raw Opta JSON, build the neutral bundle, generate/export "
-            "all report plots, create the Match Analysis Pack, then reopen and "
-            "validate ZIP/PDF/JSON/CSV artifacts."
+            "all report plots, create the Match Analysis Pack, then reopen, "
+            "validate ZIP/PDF/JSON/CSV artifacts and run Poppler visual regression."
         )
     )
     parser.add_argument(
