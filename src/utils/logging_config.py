@@ -14,7 +14,11 @@ from typing import Optional
 
 DEFAULT_LOG_LEVEL = "WARNING"
 LOG_LEVEL_ENV = "MATCH_ANALYSIS_LOG_LEVEL"
+DEFAULT_PERFORMANCE_LOG_LEVEL = "INFO"
+PERFORMANCE_LOG_LEVEL_ENV = "MATCH_ANALYSIS_PERF_LOG_LEVEL"
+PERFORMANCE_LOGGER_NAME = "src.reporting.performance"
 _HANDLER_MARKER = "_match_analysis_handler"
+_PERFORMANCE_HANDLER_MARKER = "_match_analysis_performance_handler"
 
 
 def _resolve_level(level: Optional[str | int]) -> int:
@@ -95,5 +99,51 @@ def configure_logging(
         handler.setFormatter(
             formatter
         )
+
+    performance_level = _resolve_level(
+        os.getenv(
+            PERFORMANCE_LOG_LEVEL_ENV,
+            DEFAULT_PERFORMANCE_LOG_LEVEL,
+        )
+    )
+    performance_logger = logging.getLogger(
+        PERFORMANCE_LOGGER_NAME
+    )
+    performance_logger.setLevel(
+        performance_level
+    )
+    performance_logger.propagate = False
+
+    performance_handler = next(
+        (
+            existing
+            for existing
+            in performance_logger.handlers
+            if getattr(
+                existing,
+                _PERFORMANCE_HANDLER_MARKER,
+                False,
+            )
+        ),
+        None,
+    )
+
+    if performance_handler is None:
+        performance_handler = logging.StreamHandler()
+        setattr(
+            performance_handler,
+            _PERFORMANCE_HANDLER_MARKER,
+            True,
+        )
+        performance_logger.addHandler(
+            performance_handler
+        )
+
+    performance_handler.setLevel(
+        performance_level
+    )
+    performance_handler.setFormatter(
+        formatter
+    )
 
     return resolved_level

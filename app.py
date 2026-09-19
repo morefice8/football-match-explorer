@@ -1788,8 +1788,14 @@ def populate_main_store(pathname, uploaded_data):
         ),
         (
             Output("generate-report-button", "children"),
-            "Generating…",
-            "Generate Report",
+            [
+                dash_html.I(className="fas fa-spinner fa-spin me-2"),
+                "Generating the complete report. This may take 30–60 seconds.",
+            ],
+            [
+                dash_html.I(className="fas fa-download me-2"),
+                "Download Analysis Pack",
+            ],
         ),
     ],
 )

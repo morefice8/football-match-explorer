@@ -36,7 +36,7 @@ def layout(match_id):
         ),
         html.Div([
             dbc.Button(
-                [html.I(className="fas fa-file-alt me-2"), "Generate Report"],
+                [html.I(className="fas fa-download me-2"), "Download Analysis Pack"],
                 id="generate-report-button",
                 className="match-analysis-report-btn",
             ),

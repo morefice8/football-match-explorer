@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import time
 import unicodedata
 from io import BytesIO
 import json
@@ -79,6 +80,11 @@ class MatchReportPdfConfig:
     brand_font_path: str | Path | None = None
     enable_brand_font: bool = True
     render_audit: dict | None = field(default=None, compare=False, repr=False)
+    timing_sink: dict[str, float] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
     # Selection reasons remain in the machine-readable catalog/manifest.
     # The editorial PDF hides implementation-level ranking traces by default.
     include_selection_reasons: bool = False
@@ -968,13 +974,28 @@ def _image_flowable(
     record = audit.get(artifact_key(artifact)) if audit is not None else None
 
     try:
-        png = pio.to_image(
-            artifact.figure,
-            format="png",
-            width=int(artifact.width_px),
-            height=int(artifact.height_px),
-            scale=config.image_scale,
-        )
+        png_started = time.perf_counter()
+        try:
+            png = pio.to_image(
+                artifact.figure,
+                format="png",
+                width=int(artifact.width_px),
+                height=int(artifact.height_px),
+                scale=config.image_scale,
+            )
+        finally:
+            if config.timing_sink is not None:
+                config.timing_sink["png_export"] = (
+                    float(
+                        config.timing_sink.get(
+                            "png_export",
+                            0.0,
+                        )
+                        or 0.0
+                    )
+                    + time.perf_counter()
+                    - png_started
+                )
         image_buffer = BytesIO(png)
         image = Image(image_buffer)
         image._report_buffer = image_buffer  # keep it alive through multiBuild

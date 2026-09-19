@@ -398,8 +398,11 @@ class MatchAnalysisDashIntegrationTests(unittest.TestCase):
             'Output("generate-report-button", "children")',
             block,
         )
-        self.assertIn('"Generating…"', block)
-        self.assertIn('"Generate Report"', block)
+        self.assertIn(
+            "Generating the complete report. This may take 30–60 seconds.",
+            block,
+        )
+        self.assertIn("Download Analysis Pack", block)
 
     def test_successful_callback_uses_send_bytes(self):
         block = self.callback_source

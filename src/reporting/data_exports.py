@@ -255,10 +255,36 @@ def _truthy(series: pd.Series) -> pd.Series:
     return (numeric | text).astype(bool)
 
 
+def _core_source_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a source frame safe for the fixed events-core projection.
+
+    REPORT-20's events-core export consumes only an explicit canonical subset
+    of columns. Legacy/synthetic inputs may nevertheless contain duplicate
+    qualifier columns. Pandas cannot concatenate frames with non-unique column
+    labels, so for this internal canonical-event source only we keep the first
+    occurrence of each label.
+
+    This deliberately does *not* relax CSV schema validation. The debug
+    event-explorer still goes through pack_builder._normalize_csv_columns(),
+    where known legacy collisions are renamed explicitly and unknown
+    collisions raise CsvColumnCollisionError.
+    """
+
+    if frame.empty or frame.columns.is_unique:
+        return frame
+
+    return frame.loc[
+        :,
+        ~frame.columns.duplicated(keep="first"),
+    ].copy()
+
+
 def _source_events(bundle) -> pd.DataFrame:
     progressive = _section_data(bundle, "progressive-passes")
     if isinstance(progressive, Mapping):
-        classified = _as_frame(progressive.get("classified_passes"))
+        classified = _core_source_frame(
+            _as_frame(progressive.get("classified_passes"))
+        )
         if not classified.empty:
             return classified
 
@@ -267,13 +293,17 @@ def _source_events(bundle) -> pd.DataFrame:
 
     passes = _section_data(bundle, "pass-locations")
     if isinstance(passes, Mapping):
-        frame = _as_frame(passes.get("passes"))
+        frame = _core_source_frame(
+            _as_frame(passes.get("passes"))
+        )
         if not frame.empty:
             frames.append(frame)
 
     overview = _section_data(bundle, "overview")
     if isinstance(overview, Mapping):
-        frame = _as_frame(overview.get("shots"))
+        frame = _core_source_frame(
+            _as_frame(overview.get("shots"))
+        )
         if not frame.empty:
             frames.append(frame)
 
@@ -286,7 +316,9 @@ def _source_events(bundle) -> pd.DataFrame:
                 profile = team_payload.get(half, {})
                 if not isinstance(profile, Mapping):
                     continue
-                frame = _as_frame(profile.get("actions"))
+                frame = _core_source_frame(
+                    _as_frame(profile.get("actions"))
+                )
                 if not frame.empty:
                     frames.append(frame)
 

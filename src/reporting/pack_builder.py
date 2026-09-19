@@ -10,7 +10,9 @@ from __future__ import annotations
 from io import BytesIO, StringIO
 from dataclasses import replace
 import json
+import logging
 import re
+import time
 import unicodedata
 import zipfile
 from typing import Any, Mapping, Sequence
@@ -44,6 +46,9 @@ from src.reporting.pdf_renderer import (
     MatchReportPdfConfig,
     render_match_report_pdf,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 PACK_SCHEMA_VERSION = "1.3"
@@ -812,30 +817,47 @@ def build_match_analysis_pack(
 ) -> bytes:
     """Return the complete Match Analysis Pack as compressed ZIP bytes.
 
-    The standard REPORT-20 pack contains the editorial PDF,
-    ``analysis-summary.json``, the machine-readable manifest and lean CSV
-    exports. Complete ``report-data.json`` and the legacy wide
-    ``event-explorer.csv`` are included only when ``debug=True``.
+    REPORT-22 records independent generation timings without changing any
+    analytical content. PNG conversion time is accumulated inside the PDF
+    renderer and subtracted from the PDF/layout phase.
     """
 
+    timings: dict[str, float] = {}
     pdf_filename = match_report_pdf_filename(bundle)
 
+    phase_started = time.perf_counter()
     catalog = build_report_figure_catalog(
         bundle,
         manifest,
         config=figure_config,
     )
     audit = prepare_render_audit(catalog, manifest)
+    timings["figure_catalog"] = time.perf_counter() - phase_started
+
+    pdf_timing_sink: dict[str, float] = {}
     pdf_config = replace(
         pdf_config or MatchReportPdfConfig(),
         render_audit=audit,
+        timing_sink=pdf_timing_sink,
     )
+
+    phase_started = time.perf_counter()
     pdf_bytes = render_match_report_pdf(
         bundle,
         catalog,
         manifest,
         config=pdf_config,
     )
+    pdf_wall_seconds = time.perf_counter() - phase_started
+    png_seconds = float(
+        pdf_timing_sink.get("png_export", 0.0) or 0.0
+    )
+    timings["png_export"] = png_seconds
+    timings["pdf"] = max(
+        pdf_wall_seconds - png_seconds,
+        0.0,
+    )
+
     if not isinstance(pdf_bytes, (bytes, bytearray)):
         raise TypeError("REPORT-05 renderer must return PDF bytes.")
     pdf_bytes = bytes(pdf_bytes)
@@ -843,6 +865,8 @@ def build_match_analysis_pack(
         raise ValueError(
             "REPORT-05 renderer did not return a valid PDF."
         )
+
+    phase_started = time.perf_counter()
 
     generation_manifest = _generation_manifest(
         bundle,
@@ -971,6 +995,23 @@ def build_match_analysis_pack(
         ),
     }
 
+    serialized_tables: dict[str, bytes] = {}
+    for path in csv_paths:
+        frame = tables.get(
+            path,
+            pd.DataFrame(
+                columns=list(required_columns[path])
+            ),
+        )
+        serialized_tables[path] = _csv_bytes(
+            frame,
+            required_columns=required_columns[path],
+            context=path,
+        )
+
+    timings["csv_json"] = time.perf_counter() - phase_started
+
+    phase_started = time.perf_counter()
     buffer = BytesIO()
     with zipfile.ZipFile(
         buffer,
@@ -1008,25 +1049,32 @@ def build_match_analysis_pack(
             )
 
         for path in csv_paths:
-            frame = tables.get(
-                path,
-                pd.DataFrame(
-                    columns=list(required_columns[path])
-                ),
-            )
             _write_zip_entry(
                 archive,
                 path,
-                _csv_bytes(
-                    frame,
-                    required_columns=required_columns[path],
-                    context=path,
-                ),
+                serialized_tables[path],
             )
+
+    timings["zip"] = time.perf_counter() - phase_started
+
+    logger.info(
+        (
+            "REPORT-22 pack timing source_signature=%s "
+            "figure_catalog=%.3fs png_export=%.3fs "
+            "pdf=%.3fs csv_json=%.3fs zip=%.3fs"
+        ),
+        getattr(bundle, "source_signature", ""),
+        timings["figure_catalog"],
+        timings["png_export"],
+        timings["pdf"],
+        timings["csv_json"],
+        timings["zip"],
+    )
 
     return MatchAnalysisPackBytes(
         buffer.getvalue(),
         summary,
+        timings=timings,
     )
 
 
