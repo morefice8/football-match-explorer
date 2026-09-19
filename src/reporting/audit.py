@@ -24,6 +24,7 @@ import zipfile
 import zlib
 
 import pandas as pd
+from jsonschema import Draft202012Validator
 
 from src import config
 from src.data_processing import preprocess
@@ -39,6 +40,8 @@ from src.reporting.figure_export import (
 )
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.pack_builder import (
+    ANALYSIS_SUMMARY_PATH,
+    ANALYSIS_SUMMARY_SCHEMA_ENTRY,
     TABLE_PATHS,
     build_match_analysis_pack,
     match_analysis_pack_filename,
@@ -313,12 +316,19 @@ def validate_pack_file(pack_path: Path) -> tuple[
             for info in archive.infolist():
                 sizes[info.filename] = info.file_size
 
-            for json_name in ("report-data.json", "report-manifest.json"):
+            parsed_json: dict[str, Any] = {}
+            for json_name in (
+                ANALYSIS_SUMMARY_PATH,
+                ANALYSIS_SUMMARY_SCHEMA_ENTRY,
+                "report-data.json",
+                "report-manifest.json",
+            ):
                 if json_name not in names:
                     continue
                 text = archive.read(json_name).decode("utf-8")
                 try:
                     parsed = _strict_json_loads(text, label=json_name)
+                    parsed_json[json_name] = parsed
                 except Exception as exc:
                     issues.append(
                         AuditIssue(
@@ -353,6 +363,44 @@ def validate_pack_file(pack_path: Path) -> tuple[
                                 "report-manifest.json marks generation as error.",
                             )
                         )
+
+            if (
+                ANALYSIS_SUMMARY_PATH in parsed_json
+                and ANALYSIS_SUMMARY_SCHEMA_ENTRY in parsed_json
+            ):
+                try:
+                    schema = parsed_json[ANALYSIS_SUMMARY_SCHEMA_ENTRY]
+                    summary_payload = parsed_json[ANALYSIS_SUMMARY_PATH]
+                    Draft202012Validator.check_schema(schema)
+                    errors = sorted(
+                        Draft202012Validator(schema).iter_errors(
+                            summary_payload
+                        ),
+                        key=lambda error: list(error.path),
+                    )
+                    if errors:
+                        first = errors[0]
+                        location = ".".join(
+                            str(item) for item in first.path
+                        ) or "<root>"
+                        issues.append(
+                            AuditIssue(
+                                "error",
+                                "analysis-summary-schema-invalid",
+                                (
+                                    "analysis-summary.json does not validate "
+                                    f"at {location}: {first.message}"
+                                ),
+                            )
+                        )
+                except Exception as exc:
+                    issues.append(
+                        AuditIssue(
+                            "error",
+                            "analysis-summary-schema-error",
+                            f"REPORT-19 schema validation failed: {exc}",
+                        )
+                    )
 
             for csv_name in TABLE_PATHS:
                 if csv_name not in names:

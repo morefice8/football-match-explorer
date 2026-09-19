@@ -1,0 +1,531 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://illabdell8.local/schemas/analysis-summary.schema.json",
+  "title": "Match Analysis AI Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "match",
+    "score_and_goals",
+    "data_quality",
+    "team_comparison",
+    "formations",
+    "passing",
+    "progression",
+    "final_third_entries",
+    "crosses",
+    "buildup",
+    "defensive_shape",
+    "ppda",
+    "defensive_transitions",
+    "offensive_transitions",
+    "restarts",
+    "top_players",
+    "representative_sequences",
+    "generation_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "match": {
+      "type": "object",
+      "required": [
+        "home_team",
+        "away_team",
+        "scope",
+        "source_signature"
+      ],
+      "properties": {
+        "home_team": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "away_team": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "competition": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "date": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "match_id": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "venue": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_signature": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "score_and_goals": {
+      "type": "object",
+      "required": [
+        "home_score",
+        "away_score",
+        "goals"
+      ],
+      "properties": {
+        "home_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "away_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 30
+        }
+      },
+      "additionalProperties": false
+    },
+    "data_quality": {
+      "type": "object"
+    },
+    "team_comparison": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "maxItems": 2
+    },
+    "formations": {
+      "type": "object",
+      "required": [
+        "starting",
+        "final",
+        "timeline"
+      ],
+      "properties": {
+        "starting": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "final": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 30
+        }
+      },
+      "additionalProperties": false
+    },
+    "passing": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "progression": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "final_third_entries": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "crosses": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "buildup": {
+      "type": "object",
+      "required": [
+        "teams",
+        "comparison"
+      ],
+      "properties": {
+        "teams": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 2
+        },
+        "comparison": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "defensive_shape": {
+      "type": "object",
+      "required": [
+        "first_half",
+        "second_half"
+      ],
+      "properties": {
+        "first_half": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 2
+        },
+        "second_half": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "ppda": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "defensive_transitions": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "offensive_transitions": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "restarts": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "top_players": {
+      "type": "object",
+      "required": [
+        "passing",
+        "shooting",
+        "defending"
+      ],
+      "properties": {
+        "passing": {
+          "$ref": "#/$defs/teamRankings"
+        },
+        "shooting": {
+          "$ref": "#/$defs/teamRankings"
+        },
+        "defending": {
+          "$ref": "#/$defs/teamRankings"
+        }
+      },
+      "additionalProperties": false
+    },
+    "representative_sequences": {
+      "type": "object",
+      "required": [
+        "sequences",
+        "events"
+      ],
+      "properties": {
+        "sequences": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": [
+              "module",
+              "team",
+              "sequence_id",
+              "event_count",
+              "events_included",
+              "truncated",
+              "event_ids"
+            ],
+            "properties": {
+              "module": {
+                "type": "string"
+              },
+              "team": {
+                "type": "string"
+              },
+              "sequence_id": {
+                "type": "string"
+              },
+              "selection_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "criteria": {
+                "type": "array"
+              },
+              "event_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "events_included": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "event_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 120
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "required": [
+              "event_key"
+            ],
+            "properties": {
+              "event_key": {
+                "type": "string"
+              },
+              "event_id": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              },
+              "period": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "minute": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "second": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "team": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              },
+              "player": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              },
+              "event_type": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              },
+              "x": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "y": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "end_x": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "end_y": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "receiver": {
+                "type": [
+                  "string",
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "generation_status": {
+      "type": "object",
+      "required": [
+        "status",
+        "pack_schema_version",
+        "analysis_summary_schema_version",
+        "section_statuses"
+      ],
+      "properties": {
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pack_schema_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "analysis_summary_schema_version": {
+          "const": "1.0"
+        },
+        "figures_expected": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "figures_generated": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "figures_empty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "figures_skipped": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "figures_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required_figures_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "section_statuses": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "teamContainer": {
+      "type": "object",
+      "required": [
+        "teams"
+      ],
+      "properties": {
+        "teams": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "maxItems": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "teamRankings": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "team",
+          "ranking"
+        ],
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "ranking": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

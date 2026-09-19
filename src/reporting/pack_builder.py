@@ -18,6 +18,11 @@ from typing import Any, Mapping, Sequence
 import pandas as pd
 
 from src.reporting.bundle import normalize_for_json
+from src.reporting.analysis_summary import (
+    ANALYSIS_SUMMARY_MAX_BYTES,
+    ANALYSIS_SUMMARY_SCHEMA_FILE,
+    build_analysis_summary,
+)
 from src.reporting.figure_catalog import (
     FigureCatalogConfig,
     build_report_figure_catalog,
@@ -33,8 +38,11 @@ from src.reporting.pdf_renderer import (
 )
 
 
-PACK_SCHEMA_VERSION = "1.1"
+PACK_SCHEMA_VERSION = "1.2"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
+
+ANALYSIS_SUMMARY_PATH = "analysis-summary.json"
+ANALYSIS_SUMMARY_SCHEMA_ENTRY = "analysis-summary.schema.json"
 
 TABLE_PATHS: tuple[str, ...] = (
     "tables/match-comparison.csv",
@@ -808,6 +816,21 @@ def build_match_analysis_pack(
     )
     manifest_data = _json_bytes(generation_manifest)
 
+    analysis_summary = build_analysis_summary(
+        bundle,
+        catalog,
+        generation_manifest,
+    )
+    analysis_summary_data = _json_bytes(analysis_summary)
+    if len(analysis_summary_data) >= ANALYSIS_SUMMARY_MAX_BYTES:
+        raise ValueError(
+            "analysis-summary.json exceeds REPORT-19's 1 MiB limit: "
+            f"{len(analysis_summary_data)} bytes."
+        )
+    analysis_summary_schema_data = (
+        ANALYSIS_SUMMARY_SCHEMA_FILE.read_bytes()
+    )
+
     tables = build_pack_tables(bundle)
 
     buffer = BytesIO()
@@ -822,6 +845,16 @@ def build_match_analysis_pack(
             archive,
             pdf_filename,
             pdf_bytes,
+        )
+        _write_zip_entry(
+            archive,
+            ANALYSIS_SUMMARY_PATH,
+            analysis_summary_data,
+        )
+        _write_zip_entry(
+            archive,
+            ANALYSIS_SUMMARY_SCHEMA_ENTRY,
+            analysis_summary_schema_data,
         )
         _write_zip_entry(
             archive,

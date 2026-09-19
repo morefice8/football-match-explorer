@@ -418,6 +418,8 @@ class MatchAnalysisPackTests(unittest.TestCase):
         with zipfile.ZipFile(BytesIO(payload)) as archive:
             expected = [
                 match_report_pdf_filename(bundle),
+                "analysis-summary.json",
+                "analysis-summary.schema.json",
                 "report-data.json",
                 "report-manifest.json",
                 *TABLE_PATHS,
