@@ -456,9 +456,11 @@ class _BundleContext:
                 self.df,
                 team_name,
             )
+            # REPORT-18: preserve every route in the neutral bundle.
+            # The editorial PDF applies TOP_ROUTES=8 independently.
             summary, routes = cross_metrics.build_cross_flow_profile(
                 analyzed,
-                limit=8,
+                limit=None,
             )
             return analyzed, summary, routes
 

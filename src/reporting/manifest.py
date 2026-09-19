@@ -311,6 +311,9 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
             ),
         ),
     ),
+    # REPORT-18: the static report keeps one origin-to-destination flow
+    # per team. Separate origin/destination heatmaps remain available through
+    # the interactive analysis and the underlying detailed cross data.
     section(
         "cross-flow",
         "Cross Flow",
@@ -321,16 +324,12 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
                 "Cross Flow",
                 TOP_ROUTES,
             ),
-            figure(
-                "cross-origin-map",
-                "Cross origin map",
-            ),
-            figure(
-                "cross-destination-map",
-                "Cross destination map",
-            ),
         ),
         tables=(
+            table(
+                "cross-summary",
+                "Cross summary",
+            ),
             table(
                 "cross-top-routes",
                 "Top cross routes",

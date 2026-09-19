@@ -1276,6 +1276,16 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
     ),
     "final-third-entry-breakdown": ("team_name", "entries", "passes", "carries", "left", "central", "right", "zone14"),
     "pass-location-breakdown": ("team_name", "pass_attempts"),
+    # REPORT-18: compact comparison before the route detail.
+    "cross-summary": (
+        "Side",
+        "Team",
+        "Crosses",
+        "Completion %",
+        "Retention %",
+        "Shot rate %",
+        "Top crosser",
+    ),
     "cross-top-routes": (
         "Origin Zone",
         "Destination Zone",
@@ -2860,6 +2870,86 @@ def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
     return story
 
 
+def _cross_summary_rows(bundle) -> pd.DataFrame:
+    """REPORT-18 compact Home/Away cross comparison."""
+
+    section = _section(bundle, "cross-flow")
+    data = getattr(section, "data", {}) or {}
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    rows = []
+
+    for index, team in enumerate(teams[:2]):
+        payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+        if not isinstance(payload, Mapping):
+            payload = {}
+
+        summary = payload.get("summary", {}) or {}
+        if not isinstance(summary, Mapping):
+            summary = {}
+
+        crosses = _as_frame(payload.get("crosses"))
+        total = int(summary.get("total_crosses", len(crosses)) or 0)
+
+        if "Outcome" in crosses.columns:
+            completed = int(
+                crosses["Outcome"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.casefold()
+                .eq("completed")
+                .sum()
+            )
+        else:
+            completed = 0
+
+        completion = completed / total * 100.0 if total else 0.0
+
+        try:
+            retention = float(summary.get("retention_pct", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            retention = 0.0
+
+        try:
+            shot_rate = float(summary.get("shot_rate_pct", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            shot_rate = 0.0
+
+        top_crosser = str(summary.get("top_crosser") or "N/A")
+        try:
+            top_count = int(summary.get("top_crosser_count", 0) or 0)
+        except (TypeError, ValueError):
+            top_count = 0
+
+        if top_crosser not in {"", "N/A", "None"} and top_count > 0:
+            top_crosser = f"{top_crosser} ({top_count})"
+
+        rows.append(
+            {
+                "Side": "Home" if index == 0 else "Away",
+                "Team": team,
+                "Crosses": total,
+                "Completion %": round(completion, 1),
+                "Retention %": round(retention, 1),
+                "Shot rate %": round(shot_rate, 1),
+                "Top crosser": top_crosser,
+            }
+        )
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "Side",
+            "Team",
+            "Crosses",
+            "Completion %",
+            "Retention %",
+            "Shot rate %",
+            "Top crosser",
+        ],
+    )
+
+
 def _table_payloads(
     bundle,
     table_id: str,
@@ -3001,6 +3091,9 @@ def _table_payloads(
             passes = _as_frame((data.get("teams", {}) or {}).get(team))
             rows.append({"team_name": team, "pass_attempts": int(len(passes))})
         return [("Pass location breakdown", pd.DataFrame(rows))]
+
+    if table_id == "cross-summary":
+        return [("Cross summary", _cross_summary_rows(bundle))]
 
     if table_id == "cross-top-routes":
         section = _section(bundle, "cross-flow")
@@ -3441,6 +3534,170 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
     return story
 
 
+def _cross_flow_section_story(
+    bundle,
+    catalog,
+    section_spec,
+    styles,
+    config,
+) -> list[Any]:
+    """REPORT-18 two-page editorial Cross Flow."""
+
+    story = []
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+
+    story.append(Paragraph("Origin to destination flow", styles["subheading"]))
+
+    artifacts = _artifacts_for(catalog, "cross-flow-figure")
+    by_team = {
+        str(getattr(item, "team_name", "")): item
+        for item in artifacts
+        if getattr(item, "team_name", None)
+    }
+
+    left_artifact = by_team.get(str(teams[0])) if len(teams) >= 1 else None
+    right_artifact = by_team.get(str(teams[1])) if len(teams) >= 2 else None
+
+    if left_artifact is not None and right_artifact is not None:
+        left = _image_flowable(
+            left_artifact,
+            styles,
+            config,
+            max_width=125 * mm,
+            max_height=74 * mm,
+        )
+        right = _image_flowable(
+            right_artifact,
+            styles,
+            config,
+            max_width=125 * mm,
+            max_height=74 * mm,
+        )
+
+        pair = Table(
+            [[list(left.flowables), list(right.flowables)]],
+            colWidths=[133 * mm, 133 * mm],
+            hAlign="LEFT",
+        )
+        pair.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 1),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
+        story.extend([pair, Spacer(1, 2 * mm)])
+    else:
+        figure_spec = next(
+            (item for item in section_spec.figures if item.id == "cross-flow-figure"),
+            None,
+        )
+        if figure_spec is not None:
+            story.extend(
+                _figure_story_for_spec(
+                    catalog,
+                    figure_spec,
+                    styles,
+                    config,
+                )
+            )
+
+    story.append(Paragraph("Home-Away summary", styles["table_subheading"]))
+    story.append(
+        _long_table(
+            _cross_summary_rows(bundle),
+            styles,
+            max_columns=7,
+            column_widths=[
+                18 * mm,
+                42 * mm,
+                27 * mm,
+                38 * mm,
+                38 * mm,
+                34 * mm,
+                71 * mm,
+            ],
+        )
+    )
+    story.append(
+        Paragraph(
+            "Separate origin/destination heatmaps are omitted from the static PDF. "
+            "Detailed cross coordinates remain available in report-data.json.",
+            styles["small"],
+        )
+    )
+
+    story.append(PageBreak())
+
+    matchup = (
+        f"Home: {teams[0]} · Away: {teams[1]}"
+        if len(teams) >= 2
+        else "Home-Away comparison"
+    )
+    story.append(Paragraph(escape(matchup), styles["small"]))
+    story.append(Spacer(1, 1.5 * mm))
+    story.append(Paragraph("Top cross routes - max 8 per team", styles["subheading"]))
+
+    route_spec = next(
+        (item for item in section_spec.tables if item.id == "cross-top-routes"),
+        None,
+    )
+    limit = (
+        getattr(getattr(route_spec, "selection", None), "limit", None)
+        if route_spec is not None
+        else None
+    )
+
+    payloads = _table_payloads(
+        bundle,
+        "cross-top-routes",
+        selection_limit=limit or 8,
+    )
+
+    rendered = 0
+    for index, (title, frame) in enumerate(payloads):
+        prepared = _prepare_pdf_table_frame("cross-top-routes", frame)
+        if prepared.empty:
+            continue
+
+        rendered += 1
+        story.append(Paragraph(escape(title), styles["table_subheading"]))
+        story.append(
+            _long_table(
+                prepared,
+                styles,
+                max_columns=8,
+                column_widths=[
+                    45 * mm,
+                    45 * mm,
+                    24 * mm,
+                    27 * mm,
+                    32 * mm,
+                    32 * mm,
+                    24 * mm,
+                    39 * mm,
+                ],
+            )
+        )
+        if index < len(payloads) - 1:
+            story.append(Spacer(1, 2 * mm))
+
+    if not rendered:
+        story.append(
+            _placeholder_box(
+                "No qualifying cross routes are available.",
+                styles,
+                height=20 * mm,
+            )
+        )
+
+    return story
+
+
 def _defensive_shape_section_story(
     bundle,
     catalog,
@@ -3653,6 +3910,18 @@ def _section_story(
             _overview_section_story(
                 bundle,
                 catalog,
+                styles,
+                config,
+            )
+        )
+        return story
+
+    if section_spec.id == "cross-flow":
+        story.extend(
+            _cross_flow_section_story(
+                bundle,
+                catalog,
+                section_spec,
                 styles,
                 config,
             )

@@ -758,12 +758,18 @@ def build_cross_flow_profile(
             ),
     }
 
+    # REPORT-18: route truncation is a presentation concern. Reporting
+    # callers can request the complete route table with limit=None so CSV/JSON
+    # keep analytical detail while the PDF independently applies TOP_ROUTES.
+    selected_routes = routes[columns].copy()
+
+    if limit is not None:
+        selected_routes = selected_routes.head(
+            max(int(limit), 0)
+        )
+
     return (
         summary,
-        routes
-        .head(
-            limit
-        )[columns]
-        .copy(),
+        selected_routes,
     )
 
