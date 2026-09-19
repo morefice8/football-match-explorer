@@ -18,6 +18,14 @@ from typing import Any, Mapping, Sequence
 import pandas as pd
 
 from src.reporting.bundle import normalize_for_json
+from src.reporting.data_exports import (
+    EVENTS_CORE_COLUMNS,
+    EVENTS_CORE_PATH,
+    build_events_core,
+    build_final_third_summary,
+    build_transition_summary,
+    csv_export_documentation,
+)
 from src.reporting.analysis_summary import (
     ANALYSIS_SUMMARY_MAX_BYTES,
     ANALYSIS_SUMMARY_SCHEMA_FILE,
@@ -38,11 +46,12 @@ from src.reporting.pdf_renderer import (
 )
 
 
-PACK_SCHEMA_VERSION = "1.2"
+PACK_SCHEMA_VERSION = "1.3"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 ANALYSIS_SUMMARY_PATH = "analysis-summary.json"
 ANALYSIS_SUMMARY_SCHEMA_ENTRY = "analysis-summary.schema.json"
+DEBUG_REPORT_DATA_PATH = "report-data.json"
 
 TABLE_PATHS: tuple[str, ...] = (
     "tables/match-comparison.csv",
@@ -56,6 +65,10 @@ TABLE_PATHS: tuple[str, ...] = (
     "tables/offensive-transitions.csv",
     "tables/restarts.csv",
     "tables/player-rankings.csv",
+    EVENTS_CORE_PATH,
+)
+
+DEBUG_TABLE_PATHS: tuple[str, ...] = (
     "tables/event-explorer.csv",
 )
 
@@ -658,29 +671,45 @@ def _event_explorer_table(bundle) -> pd.DataFrame:
     )
 
 
-def build_pack_tables(bundle) -> dict[str, pd.DataFrame]:
-    """Build all CSV views from an existing REPORT-02 bundle only."""
+def build_pack_tables(
+    bundle,
+    *,
+    debug: bool = False,
+) -> dict[str, pd.DataFrame]:
+    """Build lean standard CSV views from an existing REPORT-02 bundle.
 
-    return {
+    REPORT-20 keeps raw/canonical event rows in exactly one standard export:
+    ``tables/events-core.csv``. The legacy wide event explorer is available
+    only when ``debug=True``.
+    """
+
+    tables = {
         "tables/match-comparison.csv": _match_comparison_table(bundle),
         "tables/data-coverage.csv": _data_coverage_table(bundle),
         "tables/pass-network-connections.csv": _pass_network_table(bundle),
         "tables/progressive-passers.csv": _progressive_passers_table(bundle),
-        "tables/final-third-entries.csv": _final_third_entries_table(bundle),
+        "tables/final-third-entries.csv": build_final_third_summary(bundle),
         "tables/cross-routes.csv": _cross_routes_table(bundle),
         "tables/buildup-summary.csv": _buildup_summary_table(bundle),
-        "tables/defensive-transitions.csv": _transition_table(
+        "tables/defensive-transitions.csv": build_transition_summary(
             bundle,
             "defensive-transitions",
         ),
-        "tables/offensive-transitions.csv": _transition_table(
+        "tables/offensive-transitions.csv": build_transition_summary(
             bundle,
             "offensive-transitions",
         ),
         "tables/restarts.csv": _restarts_table(bundle),
         "tables/player-rankings.csv": _player_rankings_table(bundle),
-        "tables/event-explorer.csv": _event_explorer_table(bundle),
+        EVENTS_CORE_PATH: build_events_core(bundle),
     }
+
+    if debug:
+        tables["tables/event-explorer.csv"] = _event_explorer_table(
+            bundle
+        )
+
+    return tables
 
 
 def _generation_manifest(
@@ -688,6 +717,7 @@ def _generation_manifest(
     manifest: ReportManifest,
     *,
     pdf_filename: str,
+    debug: bool = False,
 ) -> dict[str, Any]:
     payload = manifest.to_dict()
     section_lookup = {
@@ -720,6 +750,12 @@ def _generation_manifest(
             "error_message": error_message,
         }
 
+    csv_paths = (
+        TABLE_PATHS + DEBUG_TABLE_PATHS
+        if debug
+        else TABLE_PATHS
+    )
+
     payload["generation"] = {
         "pack_schema_version": PACK_SCHEMA_VERSION,
         "source_signature": getattr(bundle, "source_signature", None),
@@ -727,6 +763,17 @@ def _generation_manifest(
         "teams": tuple(getattr(bundle, "teams", ()) or ()),
         "pdf_filename": pdf_filename,
         "section_statuses": statuses,
+        "data_exports": {
+            "entry_point": ANALYSIS_SUMMARY_PATH,
+            "canonical_events": EVENTS_CORE_PATH,
+            "debug_enabled": bool(debug),
+            "full_report_data": {
+                "path": DEBUG_REPORT_DATA_PATH,
+                "included": bool(debug),
+                "debug_only": True,
+            },
+        },
+        "csv_exports": csv_export_documentation(csv_paths),
     }
 
     return normalize_for_json(payload)
@@ -761,11 +808,14 @@ def build_match_analysis_pack(
     *,
     pdf_config: MatchReportPdfConfig | None = None,
     figure_config: FigureCatalogConfig | None = None,
+    debug: bool = False,
 ) -> bytes:
     """Return the complete Match Analysis Pack as compressed ZIP bytes.
 
-    All exported content is derived from the supplied REPORT-02 bundle.
-    No raw source JSON is included and no file is written to disk.
+    The standard REPORT-20 pack contains the editorial PDF,
+    ``analysis-summary.json``, the machine-readable manifest and lean CSV
+    exports. Complete ``report-data.json`` and the legacy wide
+    ``event-explorer.csv`` are included only when ``debug=True``.
     """
 
     pdf_filename = match_report_pdf_filename(bundle)
@@ -776,7 +826,10 @@ def build_match_analysis_pack(
         config=figure_config,
     )
     audit = prepare_render_audit(catalog, manifest)
-    pdf_config = replace(pdf_config or MatchReportPdfConfig(), render_audit=audit)
+    pdf_config = replace(
+        pdf_config or MatchReportPdfConfig(),
+        render_audit=audit,
+    )
     pdf_bytes = render_match_report_pdf(
         bundle,
         catalog,
@@ -787,32 +840,56 @@ def build_match_analysis_pack(
         raise TypeError("REPORT-05 renderer must return PDF bytes.")
     pdf_bytes = bytes(pdf_bytes)
     if not pdf_bytes.startswith(b"%PDF"):
-        raise ValueError("REPORT-05 renderer did not return a valid PDF.")
-
-    report_data = (
-        bundle.to_json(indent=2).encode("utf-8")
-        if hasattr(bundle, "to_json")
-        else _json_bytes(bundle)
-    )
-    generation_manifest = _generation_manifest(
-            bundle,
-            manifest,
-            pdf_filename=pdf_filename,
+        raise ValueError(
+            "REPORT-05 renderer did not return a valid PDF."
         )
+
+    generation_manifest = _generation_manifest(
+        bundle,
+        manifest,
+        pdf_filename=pdf_filename,
+        debug=debug,
+    )
     summary = summarize_render_audit(audit.values())
-    generation_manifest["generation"]["artifacts"] = list(audit.values())
+    generation_manifest["generation"]["artifacts"] = list(
+        audit.values()
+    )
     for section in generation_manifest["sections"]:
-        rows = [r for r in audit.values() if r["section_id"] == section["id"]]
-        section["generation"]["data_status"] = section["generation"]["status"]
+        rows = [
+            row
+            for row in audit.values()
+            if row["section_id"] == section["id"]
+        ]
+        section["generation"]["data_status"] = (
+            section["generation"]["status"]
+        )
         if rows:
-            states = {r["render_status"] for r in rows}
-            state = next(s for s in ("error", "generated", "empty", "skipped") if s in states)
+            states = {
+                row["render_status"]
+                for row in rows
+            }
+            state = next(
+                value
+                for value in (
+                    "error",
+                    "generated",
+                    "empty",
+                    "skipped",
+                )
+                if value in states
+            )
             section["generation"]["status"] = state
-            generation_manifest["generation"]["section_statuses"][section["id"]] = state
+            generation_manifest["generation"][
+                "section_statuses"
+            ][section["id"]] = state
+
     generation_manifest["generation"].update(summary)
     generation_manifest["generation"]["status"] = (
-        "error" if summary["required_figures_failed"] else
-        "warning" if summary["figures_failed"] else "generated"
+        "error"
+        if summary["required_figures_failed"]
+        else "warning"
+        if summary["figures_failed"]
+        else "generated"
     )
     manifest_data = _json_bytes(generation_manifest)
 
@@ -827,11 +904,72 @@ def build_match_analysis_pack(
             "analysis-summary.json exceeds REPORT-19's 1 MiB limit: "
             f"{len(analysis_summary_data)} bytes."
         )
+
     analysis_summary_schema_data = (
         ANALYSIS_SUMMARY_SCHEMA_FILE.read_bytes()
     )
+    tables = build_pack_tables(
+        bundle,
+        debug=debug,
+    )
 
-    tables = build_pack_tables(bundle)
+    report_data: bytes | None = None
+    if debug:
+        report_data = (
+            bundle.to_json(indent=2).encode("utf-8")
+            if hasattr(bundle, "to_json")
+            else _json_bytes(bundle)
+        )
+
+    csv_paths = (
+        TABLE_PATHS + DEBUG_TABLE_PATHS
+        if debug
+        else TABLE_PATHS
+    )
+
+    required_columns = {
+        "tables/match-comparison.csv": ("team_name",),
+        "tables/data-coverage.csv": ("metric", "value"),
+        "tables/pass-network-connections.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/progressive-passers.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/final-third-entries.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/cross-routes.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/buildup-summary.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/defensive-transitions.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/offensive-transitions.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/restarts.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/player-rankings.csv": (
+            "ranking_family",
+        ),
+        EVENTS_CORE_PATH: EVENTS_CORE_COLUMNS,
+        "tables/event-explorer.csv": (
+            "source_dataset",
+        ),
+    }
 
     buffer = BytesIO()
     with zipfile.ZipFile(
@@ -858,66 +996,38 @@ def build_match_analysis_pack(
         )
         _write_zip_entry(
             archive,
-            "report-data.json",
-            report_data,
-        )
-        _write_zip_entry(
-            archive,
             "report-manifest.json",
             manifest_data,
         )
 
-        for path in TABLE_PATHS:
-            frame = tables.get(path, pd.DataFrame())
-            required = {
-                "tables/match-comparison.csv": ("team_name",),
-                "tables/data-coverage.csv": ("metric", "value"),
-                "tables/pass-network-connections.csv": (
-                    "report_team",
-                    "team_name",
+        if report_data is not None:
+            _write_zip_entry(
+                archive,
+                DEBUG_REPORT_DATA_PATH,
+                report_data,
+            )
+
+        for path in csv_paths:
+            frame = tables.get(
+                path,
+                pd.DataFrame(
+                    columns=list(required_columns[path])
                 ),
-                "tables/progressive-passers.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/final-third-entries.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/cross-routes.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/buildup-summary.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/defensive-transitions.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/offensive-transitions.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/restarts.csv": (
-                    "report_team",
-                    "team_name",
-                ),
-                "tables/player-rankings.csv": ("ranking_family",),
-                "tables/event-explorer.csv": ("source_dataset",),
-            }[path]
+            )
             _write_zip_entry(
                 archive,
                 path,
                 _csv_bytes(
                     frame,
-                    required_columns=required,
+                    required_columns=required_columns[path],
                     context=path,
                 ),
             )
 
-    return MatchAnalysisPackBytes(buffer.getvalue(), summary)
+    return MatchAnalysisPackBytes(
+        buffer.getvalue(),
+        summary,
+    )
 
 
 def build_match_analysis_pack_buffer(
@@ -926,6 +1036,7 @@ def build_match_analysis_pack_buffer(
     *,
     pdf_config: MatchReportPdfConfig | None = None,
     figure_config: FigureCatalogConfig | None = None,
+    debug: bool = False,
 ) -> BytesIO:
     """Return a rewound BytesIO containing the complete Match Analysis Pack."""
 
@@ -935,6 +1046,7 @@ def build_match_analysis_pack_buffer(
             manifest,
             pdf_config=pdf_config,
             figure_config=figure_config,
+            debug=debug,
         )
     )
     buffer.seek(0)

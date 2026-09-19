@@ -3498,8 +3498,9 @@ def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
 
     lines = [
         "This PDF is the editorial reading layer of the Match Analysis Pack.",
-        "Detailed analytical rows remain available in the CSV files and report-data.json.",
-        "Figures come from the static Plotly catalog and tables contain only explicitly selected editorial fields.",
+        "analysis-summary.json is the machine-readable entry point; canonical event rows are stored once in tables/events-core.csv.",
+        "Compact CSV exports contain aggregates, rankings and sequence summaries rather than duplicate event tables.",
+        "Full report-data.json and the wide event explorer are available only in debug exports.",
         "Empty or failed sections remain explicit so missing data is never hidden.",
     ]
 
@@ -3626,7 +3627,8 @@ def _cross_flow_section_story(
     story.append(
         Paragraph(
             "Separate origin/destination heatmaps are omitted from the static PDF. "
-            "Detailed cross coordinates remain available in report-data.json.",
+            "Cross events remain available in tables/events-core.csv and route "
+            "aggregates in tables/cross-routes.csv.",
             styles["small"],
         )
     )

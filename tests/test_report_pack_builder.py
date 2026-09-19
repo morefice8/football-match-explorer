@@ -385,7 +385,7 @@ def _bundle(
     )
 
 
-def _build(bundle):
+def _build(bundle, *, debug=False):
     with patch(
         "src.reporting.pack_builder.build_report_figure_catalog",
         return_value=SimpleNamespace(figures=()),
@@ -394,7 +394,10 @@ def _build(bundle):
             "src.reporting.pack_builder.render_match_report_pdf",
             return_value=PDF_BYTES,
         ) as pdf:
-            pack = build_match_analysis_pack(bundle)
+            pack = build_match_analysis_pack(
+                bundle,
+                debug=debug,
+            )
     return pack, catalog, pdf
 
 
@@ -420,7 +423,6 @@ class MatchAnalysisPackTests(unittest.TestCase):
                 match_report_pdf_filename(bundle),
                 "analysis-summary.json",
                 "analysis-summary.schema.json",
-                "report-data.json",
                 "report-manifest.json",
                 *TABLE_PATHS,
             ]
@@ -431,7 +433,7 @@ class MatchAnalysisPackTests(unittest.TestCase):
 
     def test_report_data_json_is_strict_and_has_no_invalid_nan(self):
         bundle = _bundle()
-        payload, _, _ = _build(bundle)
+        payload, _, _ = _build(bundle, debug=True)
 
         with zipfile.ZipFile(BytesIO(payload)) as archive:
             text = archive.read(
@@ -544,9 +546,10 @@ class MatchAnalysisPackTests(unittest.TestCase):
         )
         bundle = _replace_section_data(bundle, "overview", overview)
 
-        event_explorer = build_pack_tables(bundle)[
-            "tables/event-explorer.csv"
-        ]
+        event_explorer = build_pack_tables(
+            bundle,
+            debug=True,
+        )["tables/event-explorer.csv"]
         self.assertTrue(event_explorer.columns.is_unique)
 
         shot = event_explorer.loc[
@@ -579,7 +582,7 @@ class MatchAnalysisPackTests(unittest.TestCase):
         )
         bundle = _replace_section_data(bundle, "overview", overview)
 
-        payload, _, _ = _build(bundle)
+        payload, _, _ = _build(bundle, debug=True)
         with zipfile.ZipFile(BytesIO(payload)) as archive:
             exported = pd.read_csv(
                 BytesIO(archive.read("tables/event-explorer.csv"))
@@ -613,7 +616,7 @@ class MatchAnalysisPackTests(unittest.TestCase):
             CsvColumnCollisionError,
             r"event-explorer\.csv.*Unexpected field.*2 occurrences",
         ):
-            build_pack_tables(bundle)
+            build_pack_tables(bundle, debug=True)
 
     def test_special_team_names_have_sanitized_deterministic_pdf_name(self):
         bundle = _bundle(
@@ -647,10 +650,11 @@ class MatchAnalysisPackTests(unittest.TestCase):
                 "home-fc-vs-away-fc-report.pdf",
                 archive.namelist(),
             )
-            report_data = json.loads(
-                archive.read("report-data.json")
+            summary = json.loads(
+                archive.read("analysis-summary.json")
             )
-        self.assertEqual(report_data["match_info"], {})
+        self.assertEqual(summary["match"]["home_team"], "Home FC")
+        self.assertEqual(summary["match"]["away_team"], "Away FC")
 
     def test_same_bundle_drives_catalog_pdf_json_and_tables_without_metrics(self):
         bundle = _bundle()
@@ -663,11 +667,11 @@ class MatchAnalysisPackTests(unittest.TestCase):
         self.assertIs(pdf_args[1], catalog.return_value)
 
         with zipfile.ZipFile(BytesIO(payload)) as archive:
-            report_data = json.loads(
-                archive.read("report-data.json")
+            analysis_summary = json.loads(
+                archive.read("analysis-summary.json")
             )
         self.assertEqual(
-            report_data["source_signature"],
+            analysis_summary["match"]["source_signature"],
             bundle.source_signature,
         )
 

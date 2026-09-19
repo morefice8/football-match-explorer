@@ -42,6 +42,14 @@ def _parser() -> argparse.ArgumentParser:
             "If omitted, a temporary directory is used."
         ),
     )
+    parser.add_argument(
+        "--debug-pack",
+        action="store_true",
+        help=(
+            "Include report-data.json and the legacy wide "
+            "event-explorer.csv. Disabled by default."
+        ),
+    )
     return parser
 
 
@@ -53,7 +61,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REPORT-11 input error: {exc}", file=sys.stderr)
         return 2
 
-    result = run_match_report_audit(source, output_dir=args.output_dir)
+    result = run_match_report_audit(
+        source,
+        output_dir=args.output_dir,
+        debug_pack=args.debug_pack,
+    )
     print_audit_result(result)
     return result.exit_code
 

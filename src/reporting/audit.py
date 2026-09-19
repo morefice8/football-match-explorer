@@ -42,6 +42,7 @@ from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.pack_builder import (
     ANALYSIS_SUMMARY_PATH,
     ANALYSIS_SUMMARY_SCHEMA_ENTRY,
+    DEBUG_TABLE_PATHS,
     TABLE_PATHS,
     build_match_analysis_pack,
     match_analysis_pack_filename,
@@ -291,7 +292,8 @@ def validate_pack_file(pack_path: Path) -> tuple[
             names = archive.namelist()
             pdf_names = [name for name in names if name.lower().endswith(".pdf")]
             required_entries = {
-                "report-data.json",
+                ANALYSIS_SUMMARY_PATH,
+                ANALYSIS_SUMMARY_SCHEMA_ENTRY,
                 "report-manifest.json",
                 *TABLE_PATHS,
             }
@@ -317,12 +319,15 @@ def validate_pack_file(pack_path: Path) -> tuple[
                 sizes[info.filename] = info.file_size
 
             parsed_json: dict[str, Any] = {}
-            for json_name in (
+            json_names = [
                 ANALYSIS_SUMMARY_PATH,
                 ANALYSIS_SUMMARY_SCHEMA_ENTRY,
-                "report-data.json",
                 "report-manifest.json",
-            ):
+            ]
+            if "report-data.json" in names:
+                json_names.append("report-data.json")
+
+            for json_name in json_names:
                 if json_name not in names:
                     continue
                 text = archive.read(json_name).decode("utf-8")
@@ -364,6 +369,40 @@ def validate_pack_file(pack_path: Path) -> tuple[
                             )
                         )
 
+            manifest_payload = parsed_json.get(
+                "report-manifest.json"
+            )
+            if isinstance(manifest_payload, dict):
+                generation = manifest_payload.get(
+                    "generation",
+                    {},
+                ) or {}
+                documented_csvs = {
+                    str(row.get("path"))
+                    for row in (
+                        generation.get("csv_exports", [])
+                        or []
+                    )
+                    if isinstance(row, Mapping)
+                    and row.get("path")
+                }
+                actual_csvs = {
+                    name
+                    for name in names
+                    if name.casefold().endswith(".csv")
+                }
+                if documented_csvs != actual_csvs:
+                    issues.append(
+                        AuditIssue(
+                            "error",
+                            "manifest-csv-documentation-mismatch",
+                            (
+                                "report-manifest.json CSV documentation "
+                                "does not match ZIP CSV entries."
+                            ),
+                        )
+                    )
+
             if (
                 ANALYSIS_SUMMARY_PATH in parsed_json
                 and ANALYSIS_SUMMARY_SCHEMA_ENTRY in parsed_json
@@ -402,7 +441,12 @@ def validate_pack_file(pack_path: Path) -> tuple[
                         )
                     )
 
-            for csv_name in TABLE_PATHS:
+            csv_names = list(TABLE_PATHS) + [
+                path
+                for path in DEBUG_TABLE_PATHS
+                if path in names
+            ]
+            for csv_name in csv_names:
                 if csv_name not in names:
                     continue
                 try:
@@ -458,6 +502,7 @@ def run_match_report_audit(
     match_json: str | Path,
     *,
     output_dir: str | Path | None = None,
+    debug_pack: bool = False,
 ) -> MatchReportAuditResult:
     source = Path(match_json).expanduser().resolve()
     result = MatchReportAuditResult(source_path=str(source))
@@ -611,7 +656,11 @@ def run_match_report_audit(
 
         started = time.perf_counter()
         try:
-            pack = build_match_analysis_pack(bundle, pdf_config=pdf_config)
+            pack = build_match_analysis_pack(
+                bundle,
+                pdf_config=pdf_config,
+                debug=debug_pack,
+            )
         except Exception as exc:
             result.stages.append(
                 AuditStage("build-pack", time.perf_counter() - started, "FAIL", str(exc))
