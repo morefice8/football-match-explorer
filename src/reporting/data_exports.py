@@ -44,6 +44,14 @@ EVENTS_CORE_COLUMNS: tuple[str, ...] = (
     "is_into_box",
     "is_cross",
     "is_shot",
+    "shot_outcome",
+    "shot_on_target",
+    "shot_blocked",
+    "shot_blocked_qualifier",
+    "shot_keeper_saved_off_target",
+    "shot_hit_woodwork",
+    "shot_own_goal_qualifier",
+    "shot_classification_issue",
     "is_defensive_action",
     "is_restart",
 )
@@ -106,7 +114,8 @@ CSV_EXPORT_DOCUMENTATION: dict[str, dict[str, Any]] = {
     },
     EVENTS_CORE_PATH: {
         "granularity": "one row per canonical Opta event",
-        "description": "Lean canonical event table with coordinates, receiver resolution, sequence ids and principal analytical flags.",
+        "description": "Lean canonical event table with coordinates, receiver resolution, sequence ids, principal analytical flags and auditable shot classification fields.",
+        "schema_change": "Pack schema 1.4 adds canonical shot outcome, nullable target/block flags, the semantic Opta qualifier evidence used by the classifier, and an optional classification issue. Blank means not applicable/unknown; false remains an explicit false.",
         "debug_only": False,
     },
     "tables/event-explorer.csv": {
@@ -520,6 +529,29 @@ def _restart_event_ids(bundle) -> set[str]:
     return ids
 
 
+def _shot_classification_lookups(bundle) -> dict[str, dict[str, Any]]:
+    overview = _section_data(bundle, "overview")
+    shots = (
+        _as_frame(overview.get("shots"))
+        if isinstance(overview, Mapping)
+        else pd.DataFrame()
+    )
+    fields = (
+        "shot_outcome",
+        "shot_on_target",
+        "shot_blocked",
+        "shot_blocked_qualifier",
+        "shot_keeper_saved_off_target",
+        "shot_hit_woodwork",
+        "shot_own_goal_qualifier",
+        "shot_classification_issue",
+    )
+    return {
+        field: _lookup_by_event(shots, _column(shots, field))
+        for field in fields
+    }
+
+
 def build_events_core(bundle) -> pd.DataFrame:
     """Return one lean canonical row per Opta event.
 
@@ -582,6 +614,7 @@ def build_events_core(bundle) -> pd.DataFrame:
         if isinstance(overview, Mapping)
         else set()
     )
+    shot_classification_lookups = _shot_classification_lookups(bundle)
     defensive_action_ids = _defensive_action_ids(bundle)
     restart_ids = _restart_event_ids(bundle)
 
@@ -686,6 +719,25 @@ def build_events_core(bundle) -> pd.DataFrame:
         _series(source, "cross", "is_cross")
     )
     result["is_shot"] = event_keys.isin(shot_ids)
+    result["shot_outcome"] = event_keys.map(
+        shot_classification_lookups["shot_outcome"]
+    )
+    for field in (
+        "shot_on_target",
+        "shot_blocked",
+        "shot_blocked_qualifier",
+        "shot_keeper_saved_off_target",
+        "shot_hit_woodwork",
+        "shot_own_goal_qualifier",
+    ):
+        result[field] = pd.Series(
+            event_keys.map(shot_classification_lookups[field]),
+            index=source.index,
+            dtype="boolean",
+        )
+    result["shot_classification_issue"] = event_keys.map(
+        shot_classification_lookups["shot_classification_issue"]
+    )
     result["is_defensive_action"] = event_keys.isin(
         defensive_action_ids
     )

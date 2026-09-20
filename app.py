@@ -94,6 +94,7 @@ from src.metrics import (
     league_metrics,
     defensive_metrics,
     data_quality,
+    shot_metrics,
 )
 
 # Define colors
@@ -2501,29 +2502,55 @@ def render_match_tab_content(search_query, stored_data_json):
                 ),
             )
 
-            shot_names = [
-                'Goal',
-                'Miss',
-                'Attempt Saved',
-                'Post',
-            ]
-
-            home_shots = int(
-                (
-                    (teams == home_team)
-                    & event_names.isin(
-                        shot_names
-                    )
-                ).sum()
+            # Shared Opta shot classification. ``Attempt Saved`` with the
+            # Blocked qualifier is a blocked shot, not a shot on target.
+            _, home_shot_stats, away_shot_stats = (
+                shot_metrics.calculate_shot_stats(
+                    df,
+                    home_team,
+                    away_team,
+                    match_info.get('hxG'),
+                    match_info.get('axG'),
+                    match_info.get('hxGOT'),
+                    match_info.get('axGOT'),
+                )
             )
 
+            home_shots = int(
+                home_shot_stats.get(
+                    'total_shots',
+                    0,
+                ) or 0
+            )
             away_shots = int(
-                (
-                    (teams == away_team)
-                    & event_names.isin(
-                        shot_names
-                    )
-                ).sum()
+                away_shot_stats.get(
+                    'total_shots',
+                    0,
+                ) or 0
+            )
+            home_shots_on_target = int(
+                home_shot_stats.get(
+                    'shots_on_target',
+                    0,
+                ) or 0
+            )
+            away_shots_on_target = int(
+                away_shot_stats.get(
+                    'shots_on_target',
+                    0,
+                ) or 0
+            )
+            home_blocked_shots = int(
+                home_shot_stats.get(
+                    'blocked_shots',
+                    0,
+                ) or 0
+            )
+            away_blocked_shots = int(
+                away_shot_stats.get(
+                    'blocked_shots',
+                    0,
+                ) or 0
             )
 
             home_recoveries = int(
@@ -3289,6 +3316,21 @@ def render_match_tab_content(search_query, stored_data_json):
                         "Shots",
                         home_shots,
                         away_shots,
+                    ),
+
+                    comparison_row(
+                        "Shots on target",
+                        home_shots_on_target,
+                        away_shots_on_target,
+                        description=(
+                            "Goals + goalkeeper saves; blocked shots excluded"
+                        ),
+                    ),
+
+                    comparison_row(
+                        "Blocked shots",
+                        home_blocked_shots,
+                        away_blocked_shots,
                     ),
 
                     comparison_row(

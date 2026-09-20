@@ -43,11 +43,11 @@ class Report20LightweightPackTests(unittest.TestCase):
         cls.frame = frame
         cls.bundle = build_match_report_data_bundle(frame, match_info)
 
-    def test_events_core_is_one_row_per_event_and_bounded_to_30_columns(self):
+    def test_events_core_is_one_row_per_event_and_bounded_to_38_columns(self):
         core = build_events_core(self.bundle)
 
         self.assertEqual(list(core.columns), list(EVENTS_CORE_COLUMNS))
-        self.assertLessEqual(len(core.columns), 30)
+        self.assertLessEqual(len(core.columns), 38)
         self.assertEqual(len(core), len(self.frame))
         self.assertEqual(core["id"].nunique(), len(core))
 
@@ -60,6 +60,14 @@ class Report20LightweightPackTests(unittest.TestCase):
             "restart_sequence_id",
             "is_progressive",
             "is_shot",
+            "shot_outcome",
+            "shot_on_target",
+            "shot_blocked",
+            "shot_blocked_qualifier",
+            "shot_keeper_saved_off_target",
+            "shot_hit_woodwork",
+            "shot_own_goal_qualifier",
+            "shot_classification_issue",
             "is_defensive_action",
             "is_restart",
         ):
@@ -154,7 +162,7 @@ class Report20LightweightPackTests(unittest.TestCase):
                 BytesIO(archive.read(EVENTS_CORE_PATH))
             )
 
-        self.assertLessEqual(len(core.columns), 30)
+        self.assertLessEqual(len(core.columns), 38)
         self.assertEqual(list(core.columns), list(EVENTS_CORE_COLUMNS))
         self.assertEqual(core["id"].nunique(), len(core))
 

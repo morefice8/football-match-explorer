@@ -51,7 +51,7 @@ from src.reporting.pdf_renderer import (
 logger = logging.getLogger(__name__)
 
 
-PACK_SCHEMA_VERSION = "1.3"
+PACK_SCHEMA_VERSION = "1.4"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 ANALYSIS_SUMMARY_PATH = "analysis-summary.json"

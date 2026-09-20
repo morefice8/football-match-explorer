@@ -792,6 +792,24 @@ def _overview(ctx: _BundleContext) -> _Produced:
             "shots_on_target": int(
                 shot_stats.get("shots_on_target", 0) or 0
             ),
+            "saved_shots": int(
+                shot_stats.get("saved_shots", 0) or 0
+            ),
+            "blocked_shots": int(
+                shot_stats.get("blocked_shots", 0) or 0
+            ),
+            "off_target_shots": int(
+                shot_stats.get("off_target_shots", 0) or 0
+            ),
+            "woodwork_shots": int(
+                shot_stats.get("woodwork_shots", 0) or 0
+            ),
+            "unknown_shots": int(
+                shot_stats.get("unknown_shots", 0) or 0
+            ),
+            "own_goals": int(
+                shot_stats.get("own_goals", 0) or 0
+            ),
             "progressive_passes": int(
                 progressive_summary.get("successful", 0) or 0
             ),

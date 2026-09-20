@@ -833,10 +833,24 @@ class ReportBundleTests(unittest.TestCase):
             add_mock(
                 stack,
                 defensive_metrics,
-                "build_defensive_shape_profile",
+                "build_defensive_density_profile",
                 {
+                    "team_name": "Registry Home",
+                    "period": "full",
                     "action_count": 1,
-                    "actions": pd.DataFrame([{"x": 50.0}]),
+                    "actions": pd.DataFrame([
+                        {
+                            "team_name": "Registry Home",
+                            "x": 50.0,
+                            "y": 50.0,
+                        }
+                    ]),
+                    "block_height_m": 52.5,
+                    "width_m": 0.0,
+                    "compactness_m": 0.0,
+                    "density_bin_size": 10.0,
+                    "density_peak_pct": 100.0,
+                    "density_scale_max_pct": 100.0,
                 },
             )
             add_mock(

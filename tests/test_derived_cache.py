@@ -166,6 +166,29 @@ class DerivedCacheTests(unittest.TestCase):
             dataframe_signature(out_of_play),
         )
 
+    def test_shot_semantic_qualifiers_change_dataframe_signature(self):
+        base = match_events()
+        base["Blocked"] = 0
+        base["Keeper Saved"] = 0
+
+        blocked = base.copy()
+        blocked.loc[blocked.index[2], "Blocked"] = 1
+
+        off_target_save = base.copy()
+        off_target_save.loc[
+            off_target_save.index[2],
+            "Keeper Saved",
+        ] = 1
+
+        self.assertNotEqual(
+            dataframe_signature(base),
+            dataframe_signature(blocked),
+        )
+        self.assertNotEqual(
+            dataframe_signature(base),
+            dataframe_signature(off_target_save),
+        )
+
     def test_transition_semantic_qualifiers_do_not_share_cache_entries(self):
         calls = {"count": 0}
 
