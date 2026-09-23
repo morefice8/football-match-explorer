@@ -356,12 +356,32 @@ def validate_pack_file(pack_path: Path) -> tuple[
                         ).items()
                     }
                     plot_statuses = list(generation.get("artifacts", []) or [])
-                    if int(generation.get("required_figures_failed", 0) or 0) > 0:
+                    required_content_failed = int(
+                        generation.get("required_content_failed", 0) or 0
+                    )
+                    if required_content_failed > 0:
+                        issues.append(
+                            AuditIssue(
+                                "error",
+                                "required-content-failure",
+                                "One or more required report items failed final generation.",
+                            )
+                        )
+                    elif int(generation.get("required_figures_failed", 0) or 0) > 0:
+                        # Backward-compatible check for older packs.
                         issues.append(
                             AuditIssue(
                                 "error",
                                 "required-figure-failure",
                                 "One or more required report figures failed final PDF rendering.",
+                            )
+                        )
+                    if generation.get("complete") is False:
+                        issues.append(
+                            AuditIssue(
+                                "error",
+                                "pack-incomplete",
+                                "report-manifest.json marks the pack as incomplete.",
                             )
                         )
                     if generation.get("status") == "error":

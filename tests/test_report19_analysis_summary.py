@@ -48,7 +48,7 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
 
         cls.generation = {
             "generation": {
-                "pack_schema_version": "1.4",
+                "pack_schema_version": "1.5",
                 "status": "generated",
                 "section_statuses": cls.bundle.status_by_section(),
                 "figures_expected": len(cls.catalog.figures),

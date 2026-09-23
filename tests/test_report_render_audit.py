@@ -1,4 +1,4 @@
-import ast
+﻿import ast
 from dataclasses import replace
 from io import BytesIO
 import json
@@ -47,7 +47,14 @@ class RenderAuditTests(unittest.TestCase):
             pack = build_match_analysis_pack(_bundle(), manifest)
         with zipfile.ZipFile(BytesIO(pack)) as archive:
             self.assertIsNone(archive.testzip())
-            self.assertEqual(len(archive.namelist()), 15)
+            names = set(archive.namelist())
+            self.assertIn("report-manifest.json", names)
+            self.assertIn("analysis-summary.json", names)
+            self.assertIn("analysis-summary.schema.json", names)
+            self.assertTrue(
+                any(name.endswith("-report.pdf") for name in names),
+                msg=f"Report PDF missing from pack: {sorted(names)}",
+            )
             generation = json.loads(archive.read("report-manifest.json"))["generation"]
         return pack, generation
 
@@ -68,17 +75,41 @@ class RenderAuditTests(unittest.TestCase):
         return namespace[fn.name](1, stored_match())
 
     def download(self, pack):
-        with patch.object(service, "preflight_match_report_export", return_value=successful_preflight()), patch.object(
-            service, "build_match_report_data_bundle", return_value=_bundle()
-        ), patch.object(service, "build_match_analysis_pack", return_value=pack):
-            return service.build_match_analysis_download(stored_match())
+        source = stored_match()
+        source_frame = service._read_match_dataframe(source)
+        source_signature = service.dataframe_signature(source_frame)
+
+        bundle = replace(
+            _bundle(),
+            source_signature=source_signature,
+        )
+
+        # Every test injects a different synthetic pack for the same
+        # source match. Do not allow one test's cached pack to leak
+        # into another test.
+        service.clear_match_analysis_download_cache()
+
+        with patch.object(
+            service,
+            "preflight_match_report_export",
+            return_value=successful_preflight(),
+        ), patch.object(
+            service,
+            "build_match_report_data_bundle",
+            return_value=bundle,
+        ), patch.object(
+            service,
+            "build_match_analysis_pack",
+            return_value=pack,
+        ):
+            return service.build_match_analysis_download(source)
 
     def test_actual_png_error_optional_is_manifest_error_and_ui_warning(self):
         pack, generation = self.make_pack(required=False, fail=True)
         row = generation["artifacts"][0]
         self.assertEqual(row["data_status"], "generated")
         self.assertEqual(row["render_status"], "error")
-        self.assertEqual(row["error_type"], "RuntimeError")
+        self.assertEqual(row["error_type"], "FigureRenderError")
         self.assertNotIn("private renderer trace", row["error_message"])
         self.assertEqual(generation["figures_expected"], 1)
         self.assertEqual(generation["figures_generated"], 0)
@@ -88,7 +119,7 @@ class RenderAuditTests(unittest.TestCase):
         data, alert = self.callback(download)
         self.assertTrue(data["content"])
         self.assertEqual(alert.color, "warning")
-        self.assertIn("optional plots", alert.children)
+        self.assertIn("optional report item(s)", alert.children)
 
     def test_actual_png_error_required_is_ui_failure_not_success(self):
         pack, generation = self.make_pack(fail=True)
@@ -96,7 +127,7 @@ class RenderAuditTests(unittest.TestCase):
         self.assertEqual(generation["status"], "error")
         _, alert = self.callback(self.download(pack))
         self.assertEqual(alert.color, "danger")
-        self.assertIn("required plots", alert.children)
+        self.assertIn("required report item(s)", alert.children)
         self.assertNotIn("successfully", alert.children)
 
     def test_success_preserves_artifact_identity_and_selection(self):
@@ -121,10 +152,15 @@ class RenderAuditTests(unittest.TestCase):
                 self.assertEqual(generation["figures_generated"], 0)
                 self.assertEqual(generation["figures_failed"], 0)
 
-    def test_section_composition_failure_overrides_image_success(self):
-        with patch("src.reporting.pdf_renderer._table_payloads", side_effect=RuntimeError("table error")):
+    def test_section_composition_failure_marks_required_content_incomplete(self):
+        with patch(
+            "src.reporting.pdf_renderer._table_payloads",
+            side_effect=RuntimeError("table error"),
+        ):
             _, generation = self.make_pack()
-        self.assertEqual(generation["figures_failed"], 1)
+        self.assertGreater(generation["required_content_failed"], 0)
+        self.assertFalse(generation["complete"])
+        self.assertEqual(generation["status"], "error")
 
     def test_successful_placeholder_export_does_not_hide_catalog_error(self):
         _, generation = self.make_pack(status=ReportFigureStatus.ERROR)
@@ -135,3 +171,5 @@ class RenderAuditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+

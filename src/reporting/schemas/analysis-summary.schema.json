@@ -27,7 +27,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0"
+      "const": "1.1"
     },
     "match": {
       "type": "object",
@@ -422,7 +422,11 @@
         "status",
         "pack_schema_version",
         "analysis_summary_schema_version",
-        "section_statuses"
+        "section_statuses",
+        "complete",
+        "pack_kind",
+        "section_data_statuses",
+        "section_composition_statuses"
       ],
       "properties": {
         "status": {
@@ -438,7 +442,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.0"
+          "const": "1.1"
         },
         "figures_expected": {
           "type": [
@@ -477,6 +481,120 @@
           ]
         },
         "section_statuses": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pack_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sections_expected": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sections_generated": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sections_empty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sections_skipped": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "sections_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required_sections_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tables_expected": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tables_generated": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tables_empty": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tables_skipped": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tables_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required_tables_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "required_content_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "optional_content_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "content_failed": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "section_data_statuses": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "section_composition_statuses": {
           "type": "object",
           "additionalProperties": {
             "type": "string"

@@ -40,7 +40,10 @@ from src.reporting.figure_catalog import (
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
 from src.reporting.render_audit import (
-    prepare_render_audit, summarize_render_audit, MatchAnalysisPackBytes,
+    MatchAnalysisPackBytes,
+    finalize_render_audit,
+    prepare_render_audit,
+    summarize_render_audit,
 )
 from src.reporting.pdf_renderer import (
     MatchReportPdfConfig,
@@ -51,7 +54,7 @@ from src.reporting.pdf_renderer import (
 logger = logging.getLogger(__name__)
 
 
-PACK_SCHEMA_VERSION = "1.4"
+PACK_SCHEMA_VERSION = "1.5"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 ANALYSIS_SUMMARY_PATH = "analysis-summary.json"
@@ -745,8 +748,12 @@ def _generation_manifest(
             status = getattr(raw_status, "value", str(raw_status))
             if status not in _ALLOWED_SECTION_STATUSES:
                 status = "error"
-            error_type = getattr(section_bundle, "error_type", None)
-            error_message = getattr(section_bundle, "error_message", None)
+            if status == "error":
+                error_type = "DataGenerationError"
+                error_message = "Section data generation failed."
+            else:
+                error_type = None
+                error_message = None
 
         statuses[str(section_id)] = status
         section_spec["generation"] = {
@@ -831,7 +838,7 @@ def build_match_analysis_pack(
         manifest,
         config=figure_config,
     )
-    audit = prepare_render_audit(catalog, manifest)
+    audit = prepare_render_audit(bundle, catalog, manifest)
     timings["figure_catalog"] = time.perf_counter() - phase_started
 
     pdf_timing_sink: dict[str, float] = {}
@@ -874,46 +881,125 @@ def build_match_analysis_pack(
         pdf_filename=pdf_filename,
         debug=debug,
     )
-    summary = summarize_render_audit(audit.values())
-    generation_manifest["generation"]["artifacts"] = list(
-        audit.values()
-    )
-    for section in generation_manifest["sections"]:
-        rows = [
-            row
-            for row in audit.values()
-            if row["section_id"] == section["id"]
-        ]
-        section["generation"]["data_status"] = (
-            section["generation"]["status"]
-        )
-        if rows:
-            states = {
-                row["render_status"]
-                for row in rows
-            }
-            state = next(
-                value
-                for value in (
-                    "error",
-                    "generated",
-                    "empty",
-                    "skipped",
-                )
-                if value in states
-            )
-            section["generation"]["status"] = state
-            generation_manifest["generation"][
-                "section_statuses"
-            ][section["id"]] = state
 
-    generation_manifest["generation"].update(summary)
-    generation_manifest["generation"]["status"] = (
-        "error"
-        if summary["required_figures_failed"]
-        else "warning"
-        if summary["figures_failed"]
-        else "generated"
+    # The PDF renderer normally resolves every record.  Finalising here as
+    # well makes the pack contract defensive: an item silently omitted by a
+    # future renderer change can never remain "pending" and be reported as a
+    # successful pack.
+    finalize_render_audit(audit.values())
+    audit_rows = list(audit.values())
+    summary = summarize_render_audit(audit_rows)
+
+    section_records = {
+        row["section_id"]: row
+        for row in audit_rows
+        if row.get("kind") == "section"
+    }
+    table_records = {
+        (row["section_id"], row.get("table_id") or row.get("content_id")): row
+        for row in audit_rows
+        if row.get("kind") == "table"
+    }
+    figure_records = [
+        row for row in audit_rows if row.get("kind") == "figure"
+    ]
+
+    generation = generation_manifest["generation"]
+    generation["artifacts"] = figure_records
+    generation["content"] = audit_rows
+    generation["section_data_statuses"] = {}
+    generation["section_composition_statuses"] = {}
+
+    for section in generation_manifest["sections"]:
+        section_id = section["id"]
+        record = section_records.get(section_id, {})
+        data_status = str(
+            record.get(
+                "data_status",
+                section["generation"].get("status", "missing"),
+            )
+        )
+        composition_status = str(
+            record.get("composition_status", "error")
+        )
+        final_status = (
+            "error"
+            if data_status == "error" or composition_status == "error"
+            else composition_status
+        )
+
+        section["generation"] = {
+            "status": final_status,
+            "data_status": data_status,
+            "composition_status": composition_status,
+            "error_type": (
+                record.get("error_type")
+                or ("DataGenerationError" if data_status == "error" else None)
+            ),
+            "error_message": (
+                record.get("error_message")
+                or (
+                    "Section data generation failed."
+                    if data_status == "error"
+                    else None
+                )
+            ),
+        }
+        generation["section_statuses"][section_id] = final_status
+        generation["section_data_statuses"][section_id] = data_status
+        generation["section_composition_statuses"][section_id] = (
+            composition_status
+        )
+
+        for table in section.get("tables", []):
+            table_id = table.get("id")
+            table_record = table_records.get(
+                (section_id, table_id),
+                {},
+            )
+            table_data_status = str(
+                table_record.get("data_status", data_status)
+            )
+            table_composition_status = str(
+                table_record.get("composition_status", "error")
+            )
+            table["generation"] = {
+                "status": (
+                    "error"
+                    if table_data_status == "error"
+                    or table_composition_status == "error"
+                    else table_composition_status
+                ),
+                "data_status": table_data_status,
+                "composition_status": table_composition_status,
+                "required": bool(table_record.get("required", False)),
+                "error_type": (
+                    table_record.get("error_type")
+                    or (
+                        "TableDataError"
+                        if table_data_status == "error"
+                        else None
+                    )
+                ),
+                "error_message": (
+                    table_record.get("error_message")
+                    or (
+                        "Table data could not be prepared."
+                        if table_data_status == "error"
+                        else None
+                    )
+                ),
+            }
+
+    generation.update(summary)
+    generation["status"] = summary["status"]
+    generation["complete"] = bool(summary["complete"])
+    generation["pack_kind"] = (
+        "incomplete-diagnostic"
+        if summary["status"] == "error"
+        else "complete-with-warnings"
+        if summary["status"] == "warning"
+        else "complete"
     )
     manifest_data = _json_bytes(generation_manifest)
 

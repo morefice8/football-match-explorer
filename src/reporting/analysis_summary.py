@@ -18,7 +18,7 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.0"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.1"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
@@ -1469,37 +1469,64 @@ def _generation_status(
             )
         }
 
-    return {
+    def status_map(name: str) -> dict[str, str]:
+        value = generation.get(name)
+        if not isinstance(value, Mapping):
+            return {}
+        return {str(key): str(item) for key, item in value.items()}
+
+    numeric_fields = (
+        "sections_expected",
+        "sections_generated",
+        "sections_empty",
+        "sections_skipped",
+        "sections_failed",
+        "required_sections_failed",
+        "tables_expected",
+        "tables_generated",
+        "tables_empty",
+        "tables_skipped",
+        "tables_failed",
+        "required_tables_failed",
+        "figures_expected",
+        "figures_generated",
+        "figures_empty",
+        "figures_skipped",
+        "figures_failed",
+        "required_figures_failed",
+        "required_content_failed",
+        "optional_content_failed",
+        "content_failed",
+    )
+
+    result = {
         "status": _native(generation.get("status")),
+        "complete": (
+            bool(generation.get("complete"))
+            if generation.get("complete") is not None
+            else None
+        ),
+        "pack_kind": _native(generation.get("pack_kind")),
         "pack_schema_version": _native(
             generation.get("pack_schema_version")
         ),
         "analysis_summary_schema_version": (
             ANALYSIS_SUMMARY_SCHEMA_VERSION
         ),
-        "figures_expected": _safe_number(
-            generation.get("figures_expected")
-        ),
-        "figures_generated": _safe_number(
-            generation.get("figures_generated")
-        ),
-        "figures_empty": _safe_number(
-            generation.get("figures_empty")
-        ),
-        "figures_skipped": _safe_number(
-            generation.get("figures_skipped")
-        ),
-        "figures_failed": _safe_number(
-            generation.get("figures_failed")
-        ),
-        "required_figures_failed": _safe_number(
-            generation.get("required_figures_failed")
-        ),
         "section_statuses": {
             str(key): str(value)
             for key, value in section_statuses.items()
         },
+        "section_data_statuses": status_map(
+            "section_data_statuses"
+        ),
+        "section_composition_statuses": status_map(
+            "section_composition_statuses"
+        ),
     }
+    for field in numeric_fields:
+        result[field] = _safe_number(generation.get(field))
+    return result
 
 
 def build_analysis_summary(

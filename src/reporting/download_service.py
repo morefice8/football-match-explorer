@@ -53,7 +53,7 @@ DOWNLOAD_CACHE_MAX_ENTRIES = max(
     1,
 )
 
-_DOWNLOAD_CACHE_VERSION = "REPORT-22-v1"
+_DOWNLOAD_CACHE_VERSION = "final-composition-v2"
 _DOWNLOAD_CACHE: OrderedDict[tuple[str, ...], "MatchAnalysisDownload"] = (
     OrderedDict()
 )
@@ -266,27 +266,54 @@ def _valid_zip_payload(payload: bytes) -> bool:
         return False
 
 
+def _content_failure_counts(
+    summary: Mapping[str, Any],
+) -> tuple[int, int]:
+    required = int(
+        summary.get("required_content_failed", 0) or 0
+    )
+    optional = int(
+        summary.get("optional_content_failed", 0) or 0
+    )
+
+    # Backward-compatible fallback for cached/test payloads produced before
+    # section/table composition accounting existed.
+    if not required:
+        required = sum(
+            int(summary.get(name, 0) or 0)
+            for name in (
+                "required_sections_failed",
+                "required_tables_failed",
+                "required_figures_failed",
+            )
+        )
+    if not optional:
+        total = sum(
+            int(summary.get(name, 0) or 0)
+            for name in (
+                "sections_failed",
+                "tables_failed",
+                "figures_failed",
+            )
+        )
+        optional = max(total - required, 0)
+
+    return required, optional
+
+
 def _warning_messages(
     summary: Mapping[str, Any],
 ) -> tuple[str, ...]:
     messages: list[str] = []
-
-    required_failed = int(
-        summary.get("required_figures_failed", 0) or 0
-    )
-    optional_failed = max(
-        int(summary.get("figures_failed", 0) or 0)
-        - required_failed,
-        0,
-    )
+    required_failed, optional_failed = _content_failure_counts(summary)
 
     if required_failed:
         messages.append(
-            f"{required_failed} required plot(s) failed to render"
+            f"{required_failed} required report item(s) failed final generation"
         )
     if optional_failed:
         messages.append(
-            f"{optional_failed} optional plot(s) failed to render"
+            f"{optional_failed} optional report item(s) failed final generation"
         )
 
     return tuple(messages)
@@ -295,16 +322,18 @@ def _warning_messages(
 def _status_and_base_message(
     summary: Mapping[str, Any],
 ) -> tuple[MatchAnalysisDownloadStatus, str]:
-    if int(summary.get("required_figures_failed", 0) or 0):
+    required_failed, optional_failed = _content_failure_counts(summary)
+
+    if required_failed or summary.get("complete") is False:
         return (
             MatchAnalysisDownloadStatus.FAILURE,
-            "Report incomplete: required plots failed to render.",
+            "Incomplete diagnostic pack: required report content failed.",
         )
 
-    if int(summary.get("figures_failed", 0) or 0):
+    if optional_failed or str(summary.get("status") or "") == "warning":
         return (
             MatchAnalysisDownloadStatus.WARNING,
-            "Pack generated with warnings.",
+            "Pack generated with warnings: optional content failed.",
         )
 
     return (
@@ -322,13 +351,23 @@ def _result_message(
         else "none"
     )
     cache_note = " · cache: reused" if result.cache_hit else ""
+    prefix = {
+        MatchAnalysisDownloadStatus.SUCCESS: "Match Analysis Pack",
+        MatchAnalysisDownloadStatus.WARNING: "Pack generated with warnings",
+        MatchAnalysisDownloadStatus.FAILURE: "Incomplete diagnostic pack",
+    }[result.status]
 
+    issue_label = (
+        "issues"
+        if result.status is MatchAnalysisDownloadStatus.FAILURE
+        else "warnings"
+    )
     return (
-        f"{result.filename} · "
+        f"{prefix} · {result.filename} · "
         f"{result.duration_seconds:.1f}s{cache_note} · "
         f"{result.page_count} pages · "
         f"{result.plots_generated} plots generated · "
-        f"warnings: {warnings} · "
+        f"{issue_label}: {warnings} · "
         f"ZIP: {_format_bytes(result.zip_size_bytes)}"
     )
 

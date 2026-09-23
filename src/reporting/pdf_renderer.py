@@ -49,7 +49,13 @@ from src.reporting.selectors import (
     rank_players_by_metric_family,
     rank_sequences_by_outcome_priority,
 )
-from src.reporting.render_audit import artifact_key
+from src.reporting.render_audit import (
+    artifact_key,
+    finalize_render_audit,
+    section_key,
+    table_key,
+    update_composition_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1012,12 +1018,13 @@ def _image_flowable(
         ]
     except Exception as exc:
         logger.exception("PDF figure export failed: %s", artifact.id)
-        if record is not None:
-            record.update(render_status="error", error_type=type(exc).__name__,
-                          error_message="PNG conversion failed.")
-        message = (
-            f"Figure unavailable: {type(exc).__name__}: {exc}"
+        update_composition_record(
+            record,
+            status="error",
+            error_type="FigureRenderError",
+            error_message="Figure rendering failed.",
         )
+        message = "Figure unavailable in the final report."
         flowables = [
             Paragraph(escape(caption), styles["figure_caption"]),
             _placeholder_box(message, styles, height=50 * mm),
@@ -1027,13 +1034,17 @@ def _image_flowable(
         error = None
         if record is not None:
             status = getattr(artifact.status, "value", artifact.status)
-            record.update(
-                render_status=status,
+            update_composition_record(
+                record,
+                status=str(status),
                 error_type=(
-                    (getattr(artifact, "error_type", None) or "FigureConstructionError")
+                    "FigureConstructionError"
                     if status == "error" else None
                 ),
-                error_message="Figure construction failed." if status == "error" else None,
+                error_message=(
+                    "Figure construction failed."
+                    if status == "error" else None
+                ),
             )
 
     reason = getattr(artifact, "selection_reason", None)
@@ -2868,12 +2879,19 @@ def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
             column_widths=[18 * mm, 42 * mm, 28 * mm, 38 * mm, 24 * mm, 28 * mm, 42 * mm, 48 * mm],
         )
     )
+    _mark_table_composed(config, "overview", "match-overview")
     story.append(Spacer(1, 2.5 * mm))
 
     goals = _goal_context_rows(bundle)
     story.append(Paragraph("Goals · origin and creation", styles["table_subheading"]))
     if goals.empty:
         story.append(_placeholder_box("No goals recorded in the match data.", styles, height=16 * mm))
+        _mark_table_composed(
+            config,
+            "overview",
+            "goal-context",
+            status="empty",
+        )
     else:
         story.append(
             _long_table(
@@ -2883,10 +2901,12 @@ def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
                 column_widths=[42 * mm, 35 * mm, 32 * mm, 42 * mm, 39 * mm, 24 * mm, 15 * mm, 39 * mm],
             )
         )
+        _mark_table_composed(config, "overview", "goal-context")
     story.append(Spacer(1, 2.5 * mm))
 
     story.append(Paragraph("Quality strip", styles["table_subheading"]))
     story.append(_quality_strip_table(bundle, catalog, styles))
+    _mark_table_composed(config, "overview", "data-coverage")
 
     return story
 
@@ -3373,88 +3393,292 @@ def _paired_restart_takers_frame(
     )
 
 
-def _table_story_for_spec(bundle, table_spec, styles, config) -> list[Any]:
-    payloads = _table_payloads(
-        bundle,
-        table_spec.id,
-        selection_limit=table_spec.selection.limit,
+def _audit_table_data_availability(
+    bundle,
+    section_spec,
+    config: MatchReportPdfConfig,
+) -> None:
+    audit = config.render_audit
+    if audit is None:
+        return
+
+    for table_spec in section_spec.tables:
+        record = audit.get(table_key(section_spec.id, table_spec.id))
+        if record is None:
+            continue
+
+        try:
+            payloads = _table_payloads(
+                bundle,
+                table_spec.id,
+                selection_limit=table_spec.selection.limit,
+            )
+            prepared = []
+            for _title, frame in payloads:
+                frame = _prepare_pdf_table_frame(table_spec.id, frame)
+                if not frame.empty:
+                    prepared.append(frame)
+        except Exception:
+            logger.exception(
+                "PDF table data availability check failed: %s/%s",
+                section_spec.id,
+                table_spec.id,
+            )
+            record["data_status"] = "error"
+            record["error_type"] = "TableDataError"
+            record["error_message"] = "Table data could not be prepared."
+            continue
+
+        record["data_status"] = "generated" if prepared else "empty"
+
+
+def _mark_table_composed(
+    config: MatchReportPdfConfig,
+    section_id: str,
+    table_id: str,
+    *,
+    status: str | None = None,
+) -> None:
+    audit = config.render_audit
+    if audit is None:
+        return
+    record = audit.get(table_key(section_id, table_id))
+    if record is None:
+        return
+    resolved = status
+    if resolved is None:
+        resolved = (
+            "empty"
+            if str(record.get("data_status") or "") == "empty"
+            else "generated"
+        )
+    update_composition_record(
+        record,
+        status=resolved,
+        error_type=record.get("error_type"),
+        error_message=record.get("error_message"),
     )
-    if not payloads:
-        return [
-            _placeholder_box(
-                f"No neutral table payload is available for {table_spec.title}.",
-                styles,
-            ),
-            Spacer(1, 3 * mm),
-        ]
 
-    prepared: list[tuple[str, pd.DataFrame]] = []
-    for title, frame in payloads:
-        frame = _prepare_pdf_table_frame(table_spec.id, frame)
-        if not frame.empty:
-            prepared.append((title, frame))
 
-    if not prepared:
-        return [
-            _placeholder_box(
-                f"No qualifying rows are available for {table_spec.title}.",
-                styles,
-            ),
-            Spacer(1, 3 * mm),
-        ]
+def _finalize_section_composition_audit(
+    section_spec,
+    config: MatchReportPdfConfig,
+) -> None:
+    audit = config.render_audit
+    if audit is None:
+        return
 
-    # REPORT-14: the eight-column timeline is intentionally asymmetric.
-    # Clock/score columns stay narrow while change/personnel descriptions get
-    # enough width to remain readable without inflating the section beyond two
-    # pages on A4 landscape.
-    if table_spec.id == "formation-spells" and len(prepared) == 1:
-        title, frame = prepared[0]
-        return [
-            Paragraph(escape(title), styles["table_subheading"]),
-            _long_table(
-                frame,
-                styles,
-                max_columns=8,
-                column_widths=[
-                    15 * mm,
-                    15 * mm,
-                    17 * mm,
-                    18 * mm,
-                    30 * mm,
-                    30 * mm,
-                    42 * mm,
-                    101 * mm,
-                ],
-            ),
-        ]
+    section_record = audit.get(section_key(section_spec.id))
+    data_status = (
+        str(section_record.get("data_status") or "missing")
+        if section_record is not None
+        else "missing"
+    )
+    section_status = (
+        "empty"
+        if data_status == "empty"
+        else "skipped"
+        if data_status == "skipped"
+        else "generated"
+    )
+    update_composition_record(
+        section_record,
+        status=section_status,
+    )
 
-    # REPORT-12: restart takers are a comparison, not two full-width tables.
-    # Pair the two team top-six lists horizontally so the restart section stays
-    # within its two-page editorial budget on real matches.
-    if table_spec.id == "restart-takers":
-        comparison = _paired_restart_takers_frame(prepared)
-        if comparison is not None:
+    # Declared tables must explicitly confirm final composition.  A pending
+    # table with available data is a silent omission and therefore an error.
+    for table_spec in section_spec.tables:
+        record = audit.get(table_key(section_spec.id, table_spec.id))
+        if record is None or record.get("composition_status") != "pending":
+            continue
+        table_data_status = str(record.get("data_status") or "missing")
+        if table_data_status == "empty":
+            update_composition_record(record, status="empty")
+        elif table_data_status == "skipped" and not bool(record.get("required")):
+            update_composition_record(record, status="skipped")
+        else:
+            update_composition_record(
+                record,
+                status="error",
+                error_type="TableNotComposed",
+                error_message="Table was not included in final composition.",
+            )
+
+    for record in audit.values():
+        if (
+            record.get("kind") != "figure"
+            or record.get("section_id") != section_spec.id
+            or record.get("composition_status") != "pending"
+        ):
+            continue
+
+        artifact_status = str(record.get("artifact_status") or "error")
+        if artifact_status in {"empty", "skipped"}:
+            update_composition_record(
+                record,
+                status=artifact_status,
+            )
+        else:
+            update_composition_record(
+                record,
+                status="error",
+                error_type="FigureNotComposed",
+                error_message="Figure was not included in final composition.",
+            )
+
+
+def _mark_section_composition_error(
+    section_spec,
+    config: MatchReportPdfConfig,
+) -> None:
+    audit = config.render_audit
+    if audit is None:
+        return
+
+    update_composition_record(
+        audit.get(section_key(section_spec.id)),
+        status="error",
+        error_type="CompositionError",
+        error_message="Final section composition failed.",
+    )
+
+    for record in audit.values():
+        if record.get("section_id") != section_spec.id:
+            continue
+        if record.get("kind") not in {"table", "figure"}:
+            continue
+        if record.get("composition_status") != "pending":
+            continue
+        update_composition_record(
+            record,
+            status="error",
+            error_type="CompositionError",
+            error_message="Final content composition failed.",
+        )
+
+
+def _table_story_for_spec(
+    bundle,
+    table_spec,
+    styles,
+    config,
+    *,
+    section_id: str | None = None,
+) -> list[Any]:
+    record = None
+    if config.render_audit is not None and section_id is not None:
+        record = config.render_audit.get(
+            table_key(section_id, table_spec.id)
+        )
+
+    try:
+        payloads = _table_payloads(
+            bundle,
+            table_spec.id,
+            selection_limit=table_spec.selection.limit,
+        )
+        if not payloads:
+            update_composition_record(
+                record,
+                status="empty",
+                data_status="empty",
+            )
             return [
-                Paragraph("Restart takers", styles["table_subheading"]),
-                _long_table(comparison, styles, max_columns=8),
+                _placeholder_box(
+                    f"No neutral table payload is available for {table_spec.title}.",
+                    styles,
+                ),
+                Spacer(1, 3 * mm),
             ]
 
-    story: list[Any] = []
-    for index, (title, frame) in enumerate(prepared):
-        story.append(Paragraph(escape(title), styles["table_subheading"]))
-        story.append(
-            _long_table(
-                frame,
-                styles,
-                max_columns=config.max_table_columns,
+        prepared: list[tuple[str, pd.DataFrame]] = []
+        for title, frame in payloads:
+            frame = _prepare_pdf_table_frame(table_spec.id, frame)
+            if not frame.empty:
+                prepared.append((title, frame))
+
+        if not prepared:
+            update_composition_record(
+                record,
+                status="empty",
+                data_status="empty",
             )
+            return [
+                _placeholder_box(
+                    f"No qualifying rows are available for {table_spec.title}.",
+                    styles,
+                ),
+                Spacer(1, 3 * mm),
+            ]
+
+        if record is not None:
+            record["data_status"] = "generated"
+
+        # The eight-column timeline is intentionally asymmetric. Clock/score
+        # columns stay narrow while change/personnel descriptions get enough
+        # width to remain readable without inflating the section.
+        if table_spec.id == "formation-spells" and len(prepared) == 1:
+            title, frame = prepared[0]
+            story = [
+                Paragraph(escape(title), styles["table_subheading"]),
+                _long_table(
+                    frame,
+                    styles,
+                    max_columns=8,
+                    column_widths=[
+                        15 * mm,
+                        15 * mm,
+                        17 * mm,
+                        18 * mm,
+                        30 * mm,
+                        30 * mm,
+                        42 * mm,
+                        101 * mm,
+                    ],
+                ),
+            ]
+            update_composition_record(record, status="generated")
+            return story
+
+        if table_spec.id == "restart-takers":
+            comparison = _paired_restart_takers_frame(prepared)
+            if comparison is not None:
+                story = [
+                    Paragraph("Restart takers", styles["table_subheading"]),
+                    _long_table(comparison, styles, max_columns=8),
+                ]
+                update_composition_record(record, status="generated")
+                return story
+
+        story: list[Any] = []
+        for index, (title, frame) in enumerate(prepared):
+            story.append(Paragraph(escape(title), styles["table_subheading"]))
+            story.append(
+                _long_table(
+                    frame,
+                    styles,
+                    max_columns=config.max_table_columns,
+                )
+            )
+            if index < len(prepared) - 1:
+                story.append(Spacer(1, 4 * mm))
+
+        update_composition_record(record, status="generated")
+        return story
+    except Exception:
+        logger.exception(
+            "PDF table composition failed: %s/%s",
+            section_id or "unknown-section",
+            table_spec.id,
         )
-        # Never leave a trailing Spacer after the final table. If a table ends
-        # exactly at the bottom of a page, that spacer alone can spill onto a
-        # new page and make the following section break create a blank page.
-        if index < len(prepared) - 1:
-            story.append(Spacer(1, 4 * mm))
-    return story
+        update_composition_record(
+            record,
+            status="error",
+            error_type="TableCompositionError",
+            error_message="Final table composition failed.",
+        )
+        raise
 
 
 def _overview_notes(bundle, styles) -> list[Any]:
@@ -3645,6 +3869,7 @@ def _cross_flow_section_story(
             ],
         )
     )
+    _mark_table_composed(config, section_spec.id, "cross-summary")
     story.append(
         Paragraph(
             "Separate origin/destination heatmaps are omitted from the static PDF. "
@@ -3717,6 +3942,18 @@ def _cross_flow_section_story(
                 height=20 * mm,
             )
         )
+        _mark_table_composed(
+            config,
+            section_spec.id,
+            "cross-top-routes",
+            status="empty",
+        )
+    else:
+        _mark_table_composed(
+            config,
+            section_spec.id,
+            "cross-top-routes",
+        )
 
     return story
 
@@ -3775,6 +4012,11 @@ def _defensive_shape_section_story(
             )
         )
 
+    _mark_table_composed(
+        config,
+        section_spec.id,
+        "defensive-shape-summary",
+    )
     return story
 
 
@@ -3830,6 +4072,11 @@ def _transition_section_story(
             max_columns=7,
         )
     )
+    _mark_table_composed(
+        config,
+        section_id,
+        f"{prefix}-transitions-summary",
+    )
 
     # Page 2 is intentionally profile-first.  The full event rows stay in the
     # Match Analysis Pack CSVs; the PDF shows only aligned, scalar summaries.
@@ -3869,6 +4116,11 @@ def _transition_section_story(
             column_widths=[46 * mm, 30 * mm, 42 * mm, 42 * mm, 54 * mm, 54 * mm],
         )
     )
+    _mark_table_composed(
+        config,
+        section_id,
+        f"{prefix}-transitions-sequences",
+    )
     story.append(Spacer(1, 3 * mm))
 
     story.append(
@@ -3883,6 +4135,11 @@ def _transition_section_story(
             taxonomy,
             styles,
         )
+    )
+    _mark_table_composed(
+        config,
+        section_id,
+        f"{prefix}-transitions-taxonomy",
     )
     return story
 
@@ -3902,11 +4159,15 @@ def _section_story(
     story.extend(_section_heading(section_spec, styles))
 
     if status == "error":
-        message = (
-            "This section failed during neutral data generation. "
-            f"{getattr(section, 'error_type', '')}: {getattr(section, 'error_message', '')}"
+        story.extend(
+            [
+                _placeholder_box(
+                    "This section could not be generated from the available data.",
+                    styles,
+                ),
+                Spacer(1, 4 * mm),
+            ]
         )
-        story.extend([_placeholder_box(message, styles), Spacer(1, 4 * mm)])
     elif status == "skipped":
         story.extend(
             [
@@ -3996,6 +4257,7 @@ def _section_story(
                 table_spec,
                 styles,
                 config,
+                section_id=section_spec.id,
             )
         )
 
@@ -4050,6 +4312,11 @@ def render_match_report_pdf(
 
     for section_spec in manifest.sections:
         story.append(PageBreakIfNotEmpty())
+        _audit_table_data_availability(
+            bundle,
+            section_spec,
+            config,
+        )
         try:
             story.extend(
                 _section_story(
@@ -4061,24 +4328,33 @@ def render_match_report_pdf(
                     manifest,
                 )
             )
-        except Exception as exc:
-            logger.exception("PDF section composition failed: %s", section_spec.id)
-            for record in (config.render_audit or {}).values():
-                if record["section_id"] == section_spec.id:
-                    record.update(render_status="error", error_type=type(exc).__name__,
-                                  error_message="Section composition failed.")
-            # Last-resort section isolation: a ReportLab composition problem in
-            # one section must not prevent the remaining document from building.
+        except Exception:
+            logger.exception(
+                "PDF section composition failed: %s",
+                section_spec.id,
+            )
+            _mark_section_composition_error(
+                section_spec,
+                config,
+            )
+            # Last-resort isolation keeps the diagnostic PDF readable without
+            # exposing exception details to the reader.
             story.extend(_section_heading(section_spec, styles))
             story.append(
                 _placeholder_box(
-                    "Section composition failed: "
-                    f"{type(exc).__name__}: {exc}",
+                    "This section could not be composed in the final report.",
                     styles,
                 )
             )
+        else:
+            _finalize_section_composition_audit(
+                section_spec,
+                config,
+            )
 
     doc.multiBuild(story)
+    if config.render_audit is not None:
+        finalize_render_audit(config.render_audit.values())
     return buffer.getvalue()
 
 

@@ -386,13 +386,29 @@ def _bundle(
 
 
 def _build(bundle, *, debug=False):
+    def composed_pdf(*args, **kwargs):
+        config = kwargs.get("config")
+        audit = getattr(config, "render_audit", None) or {}
+        for record in audit.values():
+            data_status = str(record.get("data_status") or "generated")
+            status = (
+                "empty"
+                if data_status == "empty"
+                else "skipped"
+                if data_status == "skipped"
+                else "generated"
+            )
+            record["composition_status"] = status
+            record["render_status"] = status
+        return PDF_BYTES
+
     with patch(
         "src.reporting.pack_builder.build_report_figure_catalog",
         return_value=SimpleNamespace(figures=()),
     ) as catalog:
         with patch(
             "src.reporting.pack_builder.render_match_report_pdf",
-            return_value=PDF_BYTES,
+            side_effect=composed_pdf,
         ) as pdf:
             pack = build_match_analysis_pack(
                 bundle,
@@ -479,7 +495,7 @@ class MatchAnalysisPackTests(unittest.TestCase):
         }
         self.assertEqual(
             section_map["pass-network"]["generation"]["error_message"],
-            "synthetic failure",
+            "Section data generation failed.",
         )
 
     def test_every_csv_is_utf8_and_parseable(self):

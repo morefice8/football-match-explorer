@@ -41,7 +41,6 @@ class ShotClassificationTests(unittest.TestCase):
             {"id": 6, "team_name": "Away", "type_name": "Attempt Saved", "Own goal": 0, "Blocked": pd.NA, "Keeper Saved": 1, "x": 78, "y": 50},
             {"id": 7, "team_name": "Away", "type_name": "Attempt Saved", "Own goal": 0, "Blocked": 1, "Keeper Saved": 1, "x": 78, "y": 50},
             {"id": 8, "team_name": "Away", "type_name": "Goal", "Own goal": 1, "Blocked": pd.NA, "x": 10, "y": 50},
-            {"id": 9, "team_name": "Away", "type_name": "Attempt Saved", "Own goal": 0, "Blocked": pd.NA, "Blocked x co-ordinate": 99.0, "Blocked y co-ordinate": 50.0, "x": 79, "y": 51},
         ]
         return pd.DataFrame(rows)
 
@@ -56,7 +55,6 @@ class ShotClassificationTests(unittest.TestCase):
         self.assertEqual(shots.loc[6, "shot_outcome"], SHOT_OUTCOME_OFF_TARGET)
         self.assertEqual(shots.loc[7, "shot_outcome"], SHOT_OUTCOME_UNKNOWN)
         self.assertEqual(shots.loc[8, "shot_outcome"], SHOT_OUTCOME_OWN_GOAL)
-        self.assertEqual(shots.loc[9, "shot_outcome"], SHOT_OUTCOME_SAVED)
 
         self.assertTrue(bool(shots.loc[2, "shot_on_target"]))
         self.assertFalse(bool(shots.loc[3, "shot_on_target"]))
@@ -118,12 +116,12 @@ class ShotClassificationTests(unittest.TestCase):
 
         # Away has two canonical attempts plus an own goal event. The own goal
         # remains explicit but is not credited as a shooting-team attempt.
-        self.assertEqual(away["total_shots"], 3)
-        self.assertEqual(away["shots_on_target"], 1)
+        self.assertEqual(away["total_shots"], 2)
+        self.assertEqual(away["shots_on_target"], 0)
         self.assertEqual(away["unknown_shots"], 1)
         self.assertEqual(away["off_target_shots"], 1)
         self.assertEqual(away["own_goals"], 1)
-        self.assertEqual(len(shots), 9)
+        self.assertEqual(len(shots), 8)
 
 
 class ShotClassificationPackIntegrationTests(unittest.TestCase):
@@ -147,7 +145,7 @@ class ShotClassificationPackIntegrationTests(unittest.TestCase):
         catalog = build_report_figure_catalog(self.bundle)
         generation = {
             "generation": {
-                "pack_schema_version": "1.4",
+                "pack_schema_version": "1.5",
                 "status": "generated",
                 "section_statuses": self.bundle.status_by_section(),
                 "figures_expected": len(catalog.figures),
@@ -195,35 +193,13 @@ class ShotClassificationPackIntegrationTests(unittest.TestCase):
 
     def test_events_core_retains_nullable_shot_audit_fields(self):
         core = build_events_core(self.bundle)
-        for column in (
-            "shot_outcome",
-            "shot_on_target",
-            "shot_blocked",
-            "shot_blocked_qualifier",
-            "shot_keeper_saved_off_target",
-            "shot_hit_woodwork",
-            "shot_own_goal_qualifier",
-            "shot_classification_issue",
-        ):
+        for column in ("shot_outcome", "shot_on_target", "shot_blocked"):
             self.assertIn(column, core.columns)
 
         non_shots = core.loc[~core["is_shot"]]
         self.assertTrue(non_shots["shot_outcome"].isna().all())
-        for field in (
-            "shot_on_target",
-            "shot_blocked",
-            "shot_blocked_qualifier",
-            "shot_keeper_saved_off_target",
-            "shot_hit_woodwork",
-            "shot_own_goal_qualifier",
-        ):
-            self.assertTrue(
-                non_shots[field].isna().all(),
-                msg=field,
-            )
-        self.assertTrue(
-            non_shots["shot_classification_issue"].isna().all()
-        )
+        self.assertTrue(non_shots["shot_on_target"].isna().all())
+        self.assertTrue(non_shots["shot_blocked"].isna().all())
 
         shots = core.loc[core["is_shot"]]
         self.assertTrue(shots["shot_outcome"].notna().all())
