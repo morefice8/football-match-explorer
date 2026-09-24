@@ -1,5 +1,20 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.6
+
+This is an additive schema update for shot-level narrative in the AI-oriented
+summary.
+
+`analysis-summary.json` moves from schema 1.1 to 1.2, adding a top-level
+`shots` array: one compact, chronologically-ordered entry per classified shot
+event (goal, miss, attempt saved, post), each with `event_id`, `period`,
+`minute`, `second`, `team`, `player`, `x`, `y`, `outcome`
+(the canonical `shot_outcome` value), `on_target`, `blocked`, `own_goal`, and
+`distance_m`. The list is a direct projection of the existing
+`shot_classification.classify_shots` output already used for
+`tables/events-core.csv` and `tables/match-comparison.csv` — no new football
+semantics are introduced, only surfaced. The array is capped at 60 entries.
+
 ## Pack schema 1.5
 
 This release adds final-composition accounting. Data availability and final PDF

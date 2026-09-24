@@ -8,6 +8,7 @@
     "schema_version",
     "match",
     "score_and_goals",
+    "shots",
     "data_quality",
     "team_comparison",
     "formations",
@@ -27,7 +28,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.1"
+      "const": "1.2"
     },
     "match": {
       "type": "object",
@@ -122,6 +123,13 @@
         }
       },
       "additionalProperties": false
+    },
+    "shots": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "maxItems": 60
     },
     "data_quality": {
       "type": "object"
@@ -442,7 +450,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.1"
+          "const": "1.2"
         },
         "figures_expected": {
           "type": [

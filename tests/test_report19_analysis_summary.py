@@ -77,6 +77,7 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             "schema_version",
             "match",
             "score_and_goals",
+            "shots",
             "data_quality",
             "team_comparison",
             "formations",
@@ -115,6 +116,33 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
 
         for team_payload in self.summary["crosses"]["teams"]:
             self.assertLessEqual(len(team_payload["top_routes"]), 8)
+
+    def test_shots_are_chronological_capped_and_located(self):
+        shots = self.summary["shots"]
+        self.assertTrue(shots)
+        self.assertLessEqual(len(shots), 60)
+
+        for shot in shots:
+            for field in (
+                "event_id",
+                "minute",
+                "team",
+                "player",
+                "x",
+                "y",
+                "outcome",
+            ):
+                self.assertIn(field, shot)
+
+        order_keys = [
+            (shot["minute"] or 0, shot["second"] or 0) for shot in shots
+        ]
+        self.assertEqual(order_keys, sorted(order_keys))
+
+        team_total_shots = sum(
+            row.get("shots") or 0 for row in self.summary["team_comparison"]
+        )
+        self.assertGreaterEqual(len(shots), team_total_shots)
 
     def test_representative_events_are_globally_deduplicated(self):
         representative = self.summary["representative_sequences"]
