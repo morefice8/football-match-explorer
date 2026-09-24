@@ -1,5 +1,21 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.8
+
+This is an additive schema update for game-state (leading/drawing/trailing)
+narrative in the AI-oriented summary. It is deliberately scoped to shots
+only — it does not split every metric in the pack by game state.
+
+`analysis-summary.json` moves from schema 1.3 to 1.4: each entry in `shots`
+gains a `game_state` field (`leading`, `drawing` or `trailing`, from the
+shooting team's own perspective, evaluated the instant *before* that shot —
+a scoring shot itself reflects the state it was taken in, not the state its
+own goal just created).
+
+The running scoreline is derived entirely from `score_and_goals.goals`
+(which already attributes own goals to the correct beneficiary team) — no
+new football semantics, no external data source.
+
 ## Pack schema 1.7
 
 This is an additive schema update for discipline (cards) narrative in the

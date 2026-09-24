@@ -18,7 +18,7 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.3"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.4"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
@@ -435,6 +435,70 @@ def _data_quality(bundle) -> dict[str, Any]:
     }
 
 
+def _goal_score_events(
+    goals: Sequence[Mapping[str, Any]] | None,
+) -> list[tuple[int, int, Any]]:
+    """Chronological ``(minute, second, beneficiary_team)`` goal timeline.
+
+    ``goal["team"]`` already reflects the team whose score increased (own
+    goals are attributed to the conceding team's opponent upstream in
+    ``goal_origin_metrics``), so this can be used directly as a running
+    scoreline without re-deriving own-goal semantics here.
+    """
+
+    events: list[tuple[int, int, Any]] = []
+    for goal in goals or ():
+        if not isinstance(goal, Mapping):
+            continue
+        minute = goal.get("minute")
+        team = goal.get("team")
+        if minute is None or team in (None, ""):
+            continue
+        second = goal.get("second") or 0
+        events.append((int(minute), int(second), team))
+    events.sort(key=lambda item: (item[0], item[1]))
+    return events
+
+
+def _game_state_at(
+    minute: Any,
+    second: Any,
+    team: Any,
+    home_team: Any,
+    away_team: Any,
+    goal_events: Sequence[tuple[int, int, Any]],
+) -> str | None:
+    """Game state for ``team`` the instant *before* the given clock time.
+
+    A goal at the exact same (minute, second) as the event being classified
+    is excluded, so a scoring shot reflects the state the team was in when
+    it took the shot, not the state its own goal just created.
+    """
+
+    if minute is None or team not in (home_team, away_team):
+        return None
+    clock = (int(minute), int(second or 0))
+
+    home_score = 0
+    away_score = 0
+    for g_minute, g_second, g_team in goal_events:
+        if (g_minute, g_second) >= clock:
+            break
+        if g_team == home_team:
+            home_score += 1
+        elif g_team == away_team:
+            away_score += 1
+
+    team_score, opponent_score = (
+        (home_score, away_score) if team == home_team else (away_score, home_score)
+    )
+    if team_score > opponent_score:
+        return "leading"
+    if team_score < opponent_score:
+        return "trailing"
+    return "drawing"
+
+
 def _shots(bundle) -> list[dict[str, Any]]:
     """Compact, chronologically-ordered shot-by-shot list with location.
 
@@ -442,6 +506,9 @@ def _shots(bundle) -> list[dict[str, Any]]:
     ``shot_classification.classify_shots``) so this stays a projection of an
     existing classification rather than a second source of truth.
     """
+
+    home_team, away_team = (tuple(_teams(bundle)) + (None, None))[:2]
+    goal_events = _goal_score_events(_goal_rows(bundle))
 
     data = _section_data(bundle, "overview")
     frame = (
@@ -468,15 +535,18 @@ def _shots(bundle) -> list[dict[str, Any]]:
 
     rows = []
     for _, row in ordered.iterrows():
+        minute = _safe_number(_row_value(row, frame, "timeMin", "minute"))
+        second = _safe_number(_row_value(row, frame, "timeSec", "second"))
+        team = _row_value(row, frame, "team_name", "teamName", "team")
         rows.append(
             {
                 "event_id": _row_value(row, frame, *_EVENT_ID_ALIASES),
                 "period": _safe_number(
                     _row_value(row, frame, "periodId", "period_id", "period")
                 ),
-                "minute": _safe_number(_row_value(row, frame, "timeMin", "minute")),
-                "second": _safe_number(_row_value(row, frame, "timeSec", "second")),
-                "team": _row_value(row, frame, "team_name", "teamName", "team"),
+                "minute": minute,
+                "second": second,
+                "team": team,
                 "player": _row_value(
                     row, frame, "playerName", "player_name", "player"
                 ),
@@ -488,6 +558,9 @@ def _shots(bundle) -> list[dict[str, Any]]:
                 "own_goal": _row_value(row, frame, "shot_own_goal"),
                 "distance_m": _safe_number(
                     _row_value(row, frame, "shot_distance_m")
+                ),
+                "game_state": _game_state_at(
+                    minute, second, team, home_team, away_team, goal_events
                 ),
             }
         )

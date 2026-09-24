@@ -146,6 +146,25 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(shots), team_total_shots)
 
+    def test_shots_are_tagged_with_game_state_before_their_own_goal(self):
+        # The shared fixture has two real goals: Away FC at 12:10 and
+        # Home FC at 61:08. A shot's game_state reflects the score entering
+        # that moment, so a scoring shot itself is still "drawing"/"trailing"
+        # (the state before it changed the score), not "leading".
+        expected = [
+            (1, 18, "saved", "drawing"),
+            (5, 10, "off_target", "drawing"),
+            (12, 10, "goal", "drawing"),
+            (30, 5, "post", "trailing"),
+            (61, 8, "goal", "trailing"),
+            (75, 8, "saved", "drawing"),
+        ]
+        actual = [
+            (shot["minute"], shot["second"], shot["outcome"], shot["game_state"])
+            for shot in self.summary["shots"]
+        ]
+        self.assertEqual(actual, expected)
+
     def test_cards_are_absent_gracefully_when_match_has_none(self):
         # The shared fixture has no card events at all: an empty list is a
         # legitimate outcome here, not a failure (REL-10 philosophy).
