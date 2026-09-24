@@ -18,12 +18,13 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.2"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.3"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
 MAX_REPRESENTATIVE_SEQUENCE_EVENTS = 120
 MAX_SHOTS = 60
+MAX_CARDS = 20
 ANALYSIS_SUMMARY_SCHEMA_FILE = (
     Path(__file__).resolve().parent
     / "schemas"
@@ -491,6 +492,64 @@ def _shots(bundle) -> list[dict[str, Any]]:
             }
         )
         if len(rows) >= MAX_SHOTS:
+            break
+
+    return rows
+
+
+def _cards(bundle) -> list[dict[str, Any]]:
+    """Compact, chronologically-ordered discipline list (yellow/red cards).
+
+    Reuses the canonical ``overview.cards`` frame (already produced by
+    ``card_events.extract_card_events``) so this stays a projection of an
+    existing classification rather than a second source of truth.
+    """
+
+    data = _section_data(bundle, "overview")
+    frame = (
+        _as_frame(data.get("cards")) if isinstance(data, Mapping) else pd.DataFrame()
+    )
+    if frame.empty:
+        return []
+
+    minute_col = _column(frame, "timeMin", "minute")
+    second_col = _column(frame, "timeSec", "second")
+    sort_minute = (
+        pd.to_numeric(frame[minute_col], errors="coerce").fillna(0)
+        if minute_col is not None
+        else pd.Series(0, index=frame.index)
+    )
+    sort_second = (
+        pd.to_numeric(frame[second_col], errors="coerce").fillna(0)
+        if second_col is not None
+        else pd.Series(0, index=frame.index)
+    )
+    ordered = frame.assign(
+        _sort_minute=sort_minute, _sort_second=sort_second
+    ).sort_values(["_sort_minute", "_sort_second"], kind="stable")
+
+    rows = []
+    for _, row in ordered.iterrows():
+        rows.append(
+            {
+                "event_id": _row_value(row, frame, *_EVENT_ID_ALIASES),
+                "period": _safe_number(
+                    _row_value(row, frame, "periodId", "period_id", "period")
+                ),
+                "minute": _safe_number(_row_value(row, frame, "timeMin", "minute")),
+                "second": _safe_number(_row_value(row, frame, "timeSec", "second")),
+                "team": _row_value(row, frame, "team_name", "teamName", "team"),
+                "player": _row_value(
+                    row, frame, "playerName", "player_name", "player"
+                ),
+                "card_type": _row_value(row, frame, "card_type"),
+                "resulted_in_dismissal": _row_value(
+                    row, frame, "card_resulted_in_dismissal"
+                ),
+                "rescinded": _row_value(row, frame, "card_rescinded"),
+            }
+        )
+        if len(rows) >= MAX_CARDS:
             break
 
     return rows
@@ -1602,6 +1661,7 @@ def build_analysis_summary(
         "match": _match_summary(bundle),
         "score_and_goals": _score_and_goals(bundle),
         "shots": _shots(bundle),
+        "cards": _cards(bundle),
         "data_quality": _data_quality(bundle),
         "team_comparison": _team_comparison(bundle),
         "formations": _formations(bundle),

@@ -1,5 +1,22 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.7
+
+This is an additive schema update for discipline (cards) narrative in the
+AI-oriented summary.
+
+`analysis-summary.json` moves from schema 1.2 to 1.3, adding a top-level
+`cards` array: one compact, chronologically-ordered entry per Opta `Card`
+event (typeId 17), each with `event_id`, `period`, `minute`, `second`,
+`team`, `player`, `card_type` (`yellow`/`second_yellow`/`red`/`unknown`),
+`resulted_in_dismissal`, and `rescinded`. Classification is handled by a new
+shared module, `src/metrics/card_events.py`, mirroring the existing
+`shot_classification.py` pattern: qualifiers 31/32/33 (yellow / second
+yellow / red) are the canonical discriminators, and qualifier 171
+(`Rescinded card`) is surfaced as a flag rather than silently dropping the
+card. The array is capped at 20 entries. A match with no cards produces an
+empty array — that is a legitimate outcome, not a failure.
+
 ## Pack schema 1.6
 
 This is an additive schema update for shot-level narrative in the AI-oriented

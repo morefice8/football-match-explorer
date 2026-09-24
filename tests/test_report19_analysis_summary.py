@@ -7,6 +7,7 @@ from unittest.mock import patch
 import zipfile
 
 from jsonschema import Draft202012Validator
+import pandas as pd
 from PIL import Image
 import plotly.graph_objects as go
 
@@ -78,6 +79,7 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             "match",
             "score_and_goals",
             "shots",
+            "cards",
             "data_quality",
             "team_comparison",
             "formations",
@@ -143,6 +145,55 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             row.get("shots") or 0 for row in self.summary["team_comparison"]
         )
         self.assertGreaterEqual(len(shots), team_total_shots)
+
+    def test_cards_are_absent_gracefully_when_match_has_none(self):
+        # The shared fixture has no card events at all: an empty list is a
+        # legitimate outcome here, not a failure (REL-10 philosophy).
+        self.assertEqual(self.summary["cards"], [])
+
+    def test_cards_are_classified_chronological_and_capped_when_present(self):
+        frame, match_info = _processed_fixture()
+        synthetic_card = dict(frame.iloc[0])
+        synthetic_card.update(
+            {
+                "id": "synthetic-card-1",
+                "eventId": "synthetic-card-1",
+                "type_name": "Card",
+                "team_name": frame.iloc[0]["team_name"],
+                "playerName": "Synthetic Player",
+                "timeMin": 55,
+                "timeSec": 0,
+                "Red card": 1,
+                "Yellow Card": pd.NA,
+                "Second yellow": pd.NA,
+            }
+        )
+        frame = pd.concat(
+            [frame, pd.DataFrame([synthetic_card])],
+            ignore_index=True,
+        )
+
+        bundle = build_match_report_data_bundle(frame, match_info)
+        with patch.object(
+            RendererRegistry,
+            "resolve",
+            return_value=_dummy_renderer,
+        ):
+            catalog = build_report_figure_catalog(bundle)
+        summary = build_analysis_summary(bundle, catalog, self.generation)
+
+        cards = summary["cards"]
+        self.assertTrue(cards)
+        self.assertLessEqual(len(cards), 20)
+        red_cards = [card for card in cards if card["card_type"] == "red"]
+        self.assertEqual(len(red_cards), 1)
+        self.assertTrue(red_cards[0]["resulted_in_dismissal"])
+        self.assertEqual(red_cards[0]["player"], "Synthetic Player")
+
+        order_keys = [
+            (card["minute"] or 0, card["second"] or 0) for card in cards
+        ]
+        self.assertEqual(order_keys, sorted(order_keys))
 
     def test_representative_events_are_globally_deduplicated(self):
         representative = self.summary["representative_sequences"]

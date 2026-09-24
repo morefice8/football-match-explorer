@@ -706,7 +706,7 @@ def _goal_list(
 
 
 def _overview(ctx: _BundleContext) -> _Produced:
-    from src.metrics import data_quality, defensive_metrics
+    from src.metrics import card_events, data_quality, defensive_metrics
     from src.metrics import pass_metrics, shot_metrics
 
     goals = ctx.goal_origins()
@@ -876,6 +876,10 @@ def _overview(ctx: _BundleContext) -> _Produced:
             "game_profile": game_profile,
             "data_coverage": coverage,
             "shots": shots_df,
+            "cards": ctx.once(
+                "card-events",
+                lambda: card_events.extract_card_events(ctx.df),
+            ),
         },
         empty=ctx.df.empty,
     )
