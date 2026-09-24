@@ -95,6 +95,7 @@ from src.metrics import (
     defensive_metrics,
     data_quality,
     shot_metrics,
+    card_events,
 )
 
 # Define colors
@@ -2574,6 +2575,69 @@ def render_match_tab_content(search_query, stored_data_json):
             )
 
             # -------------------------------------------------
+            # CARDS / DISCIPLINE
+            # -------------------------------------------------
+
+            cards_df = card_events.extract_card_events(df)
+
+            if (
+                cards_df is not None
+                and not cards_df.empty
+                and 'team_name' in cards_df.columns
+            ):
+                rescinded = (
+                    cards_df.get(
+                        'card_rescinded',
+                        pd.Series(False, index=cards_df.index),
+                    )
+                    .fillna(False)
+                    .astype(bool)
+                )
+                active_cards_df = cards_df[~rescinded]
+            else:
+                active_cards_df = pd.DataFrame()
+
+            def card_count(team_name, card_types):
+                if (
+                    active_cards_df.empty
+                    or 'team_name' not in active_cards_df.columns
+                ):
+                    return 0
+
+                return int(
+                    (
+                        (active_cards_df['team_name'] == team_name)
+                        & active_cards_df['card_type'].isin(card_types)
+                    ).sum()
+                )
+
+            home_yellow_cards = card_count(
+                home_team,
+                (
+                    card_events.CARD_TYPE_YELLOW,
+                    card_events.CARD_TYPE_SECOND_YELLOW,
+                ),
+            )
+
+            away_yellow_cards = card_count(
+                away_team,
+                (
+                    card_events.CARD_TYPE_YELLOW,
+                    card_events.CARD_TYPE_SECOND_YELLOW,
+                ),
+            )
+
+            home_red_cards = card_count(
+                home_team,
+                (card_events.CARD_TYPE_RED,),
+            )
+
+            away_red_cards = card_count(
+                away_team,
+                (card_events.CARD_TYPE_RED,),
+            )
+
+            # -------------------------------------------------
             # PASSING
             # -------------------------------------------------
 
@@ -3363,6 +3427,26 @@ def render_match_tab_content(search_query, stored_data_json):
                         "Ball recoveries",
                         home_recoveries,
                         away_recoveries,
+                    ),
+
+                    comparison_row(
+                        "Yellow cards",
+                        home_yellow_cards,
+                        away_yellow_cards,
+                        description=(
+                            "Includes second yellows; "
+                            "rescinded cards excluded"
+                        ),
+                    ),
+
+                    comparison_row(
+                        "Red cards",
+                        home_red_cards,
+                        away_red_cards,
+                        description=(
+                            "Straight reds only; "
+                            "rescinded cards excluded"
+                        ),
                     ),
 
                 ], className=(
