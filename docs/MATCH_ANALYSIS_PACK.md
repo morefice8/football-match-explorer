@@ -1,5 +1,17 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.9
+
+This is an additive schema update that aggregates the per-shot `game_state`
+tag introduced in schema 1.8. It is deliberately scoped to shots only — it
+does not split every metric in the pack by game state.
+
+`analysis-summary.json` moves from schema 1.4 to 1.5, adding a top-level
+`game_state_splits` array (one entry per team) that aggregates `shots` and
+`goals` counts by `leading`/`drawing`/`trailing` state. It is derived
+directly from the already-tagged `shots` list, so the two can never
+disagree — no independent computation, no new football semantics.
+
 ## Pack schema 1.8
 
 This is an additive schema update for game-state (leading/drawing/trailing)

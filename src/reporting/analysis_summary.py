@@ -18,13 +18,14 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.4"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.5"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
 MAX_REPRESENTATIVE_SEQUENCE_EVENTS = 120
 MAX_SHOTS = 60
 MAX_CARDS = 20
+GAME_STATES = ("leading", "drawing", "trailing")
 ANALYSIS_SUMMARY_SCHEMA_FILE = (
     Path(__file__).resolve().parent
     / "schemas"
@@ -568,6 +569,37 @@ def _shots(bundle) -> list[dict[str, Any]]:
             break
 
     return rows
+
+
+def _game_state_splits(
+    bundle, shots: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Per-team shot/goal counts split by leading/drawing/trailing state.
+
+    A direct aggregation of the already-computed ``shots`` list (each shot
+    is tagged with ``game_state`` there) — no independent computation, so
+    the two can never disagree. Scoped to shots only: this does not split
+    every metric in the pack by game state, only shot volume and end result.
+    """
+
+    summary = {
+        team: {
+            "shots": {state: 0 for state in GAME_STATES},
+            "goals": {state: 0 for state in GAME_STATES},
+        }
+        for team in _teams(bundle)
+    }
+
+    for shot in shots:
+        team = shot.get("team")
+        state = shot.get("game_state")
+        if team not in summary or state not in GAME_STATES:
+            continue
+        summary[team]["shots"][state] += 1
+        if shot.get("outcome") == "goal":
+            summary[team]["goals"][state] += 1
+
+    return [{"team": team, **payload} for team, payload in summary.items()]
 
 
 def _cards(bundle) -> list[dict[str, Any]]:
@@ -1729,12 +1761,14 @@ def build_analysis_summary(
     catalog,
     generation_manifest: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    shots = _shots(bundle)
     summary = {
         "schema_version": ANALYSIS_SUMMARY_SCHEMA_VERSION,
         "match": _match_summary(bundle),
         "score_and_goals": _score_and_goals(bundle),
-        "shots": _shots(bundle),
+        "shots": shots,
         "cards": _cards(bundle),
+        "game_state_splits": _game_state_splits(bundle, shots),
         "data_quality": _data_quality(bundle),
         "team_comparison": _team_comparison(bundle),
         "formations": _formations(bundle),

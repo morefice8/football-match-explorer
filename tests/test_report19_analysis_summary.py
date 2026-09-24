@@ -80,6 +80,7 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             "score_and_goals",
             "shots",
             "cards",
+            "game_state_splits",
             "data_quality",
             "team_comparison",
             "formations",
@@ -164,6 +165,27 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             for shot in self.summary["shots"]
         ]
         self.assertEqual(actual, expected)
+
+    def test_game_state_splits_aggregate_matches_shot_tags(self):
+        splits = {row["team"]: row for row in self.summary["game_state_splits"]}
+        self.assertEqual(set(splits), {"Home FC", "Away FC"})
+
+        self.assertEqual(
+            splits["Home FC"]["shots"],
+            {"leading": 0, "drawing": 2, "trailing": 2},
+        )
+        self.assertEqual(
+            splits["Home FC"]["goals"],
+            {"leading": 0, "drawing": 0, "trailing": 1},
+        )
+        self.assertEqual(
+            splits["Away FC"]["shots"],
+            {"leading": 0, "drawing": 2, "trailing": 0},
+        )
+        self.assertEqual(
+            splits["Away FC"]["goals"],
+            {"leading": 0, "drawing": 1, "trailing": 0},
+        )
 
     def test_cards_are_absent_gracefully_when_match_has_none(self):
         # The shared fixture has no card events at all: an empty list is a

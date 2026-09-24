@@ -10,6 +10,7 @@
     "score_and_goals",
     "shots",
     "cards",
+    "game_state_splits",
     "data_quality",
     "team_comparison",
     "formations",
@@ -29,7 +30,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.4"
+      "const": "1.5"
     },
     "match": {
       "type": "object",
@@ -138,6 +139,13 @@
         "type": "object"
       },
       "maxItems": 20
+    },
+    "game_state_splits": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "maxItems": 2
     },
     "data_quality": {
       "type": "object"
@@ -458,7 +466,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.4"
+          "const": "1.5"
         },
         "figures_expected": {
           "type": [
