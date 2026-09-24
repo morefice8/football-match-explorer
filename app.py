@@ -7761,7 +7761,19 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
         return fig
 
     except Exception:
-        return go.Figure() # Return empty figure on error
+        logger.exception(
+            "Failed to build defensive heatmap for player %r",
+            player_name,
+        )
+        fig = go.Figure()
+        fig.add_annotation(
+            x=50,
+            y=50,
+            text="Couldn't load this chart<br>(see logs for details)",
+            showarrow=False,
+            font=dict(size=14, color='orange'),
+        )
+        return fig
 
 # ----------------------------------------
 
