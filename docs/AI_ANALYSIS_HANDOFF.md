@@ -19,6 +19,7 @@ analysis with minimal back-and-forth.
 
 ## Reading order for an AI assistant
 
+0. Check whether `docs/PREMATCH_SCOUTING_CONTEXT.md` was filled in and handed over alongside the pack. If it wasn't, ask for it before writing anything that depends on table position, form, injuries, or stakes — don't infer these from the event data.
 1. Read `analysis-summary.json` top to bottom once — `match`, `score_and_goals` and `team_comparison` give the spine of the story; the rest are supporting detail.
 2. Check `generation_status.pack_kind`. If it isn't `"complete"`, read `generation_status.section_data_statuses` / `section_composition_statuses` and **say explicitly which sections are missing or degraded** rather than writing around the gap silently.
 3. Only open a CSV table or the PDF when the summary doesn't have enough resolution for the specific point you're making.
@@ -45,7 +46,7 @@ analysis with minimal back-and-forth.
 - No raw possession-time percentage (only pass counts/completion %).
 - No general game-state split — only `shots`/`game_state_splits` are divided into "while leading/drawing/trailing"; passing, PPDA, defensive shape, etc. are still match-wide aggregates only.
 - No pre-match mode yet — every pack assumes a completed match with a score.
-- No external context: competition importance, league table position, recent form, head-to-head history, injuries/team news. If your analysis needs any of this, it must come from the person handing you the pack, not be inferred from the data.
+- No external context: competition importance, league table position, recent form, head-to-head history, injuries/team news. If your analysis needs any of this, it must come from the person handing you the pack, not be inferred from the data — ask for `docs/PREMATCH_SCOUTING_CONTEXT.md` filled in if it wasn't provided alongside the pack.
 - No xG per shot in `shots` — location and outcome are Opta-derived, but expected-goals values (when present at all) only exist as match-level Sportmonks totals elsewhere, never merged in per shot.
 
 ## Prompt templates
