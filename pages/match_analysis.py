@@ -1,4 +1,4 @@
-from dash import html
+from dash import html, dcc
 import dash_bootstrap_components as dbc
 
 from src.components.brand_components import app_footer, brand_lockup
@@ -59,7 +59,13 @@ def layout(match_id):
                 html.Span("Event data loaded"),
             ], className="match-analysis-data-status"),
         ], className="match-analysis-topbar"),
-        html.Div(id="match-tab-content", className="match-analysis-content"),
+        dcc.Loading(
+            type="circle",
+            children=html.Div(
+                id="match-tab-content",
+                className="match-analysis-content",
+            ),
+        ),
         app_footer("Event-level tactical analysis and interactive match reporting."),
     ], className="match-analysis-main")
 
