@@ -5,14 +5,6 @@ from src.utils.derived_cache import cache_derived_result
 import numpy as np
 from src.utils.sequence_outcomes import apply_sequence_outcome_contract
 
-# Adjust Opta typeIds if necessary
-# Note: Freekick might be complex (Pass, Shot, etc.). We'll focus on the 'Pass' part for deliveries.
-# We assume Throw-ins are also captured under a specific type or qualifier. For now, let's use a placeholder.
-CORNER_AWARDED_ID = 6  # The event that awards the corner
-PASS_ID = 1
-THROW_IN_ID = 1008  # Placeholder, adjust if you have a real ID
-FREE_KICK_PASS_ID = 3 # This is often used for freekick passes, check your data
-
 PENALTY_SHOT_TYPES = {
     'Goal',
     'Miss',
@@ -145,14 +137,10 @@ def analyze_offensive_set_pieces(df_processed, team_name):
         set_piece_dfs.append(free_kicks)
 
     # C. Offensive Throw-ins
-    # Controlliamo sia typeId che type_name per sicurezza
     throw_in_filter = (df_processed['team_name'] == team_name) & (df_processed['x'] > 50)
     if 'type_name' in df_processed.columns and 'Throw-in' in df_processed['type_name'].unique():
         throw_in_filter &= (df_processed['type_name'] == 'Throw-in')
-    # Aggiungi qui un eventuale controllo su typeId se hai un ID specifico per le rimesse
-    # elif 'typeId' in df_processed.columns:
-    #     throw_in_filter &= (df_processed['typeId'] == THROW_IN_ID)
-    
+
     throw_ins = df_processed[throw_in_filter].copy()
     if not throw_ins.empty:
         throw_ins['Set Piece Type'] = 'Throw-in'
