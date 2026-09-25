@@ -43,7 +43,7 @@ from pages import home, player_stats, upload, database, match_analysis, team_sta
 
 # Import delle funzioni di logica
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
-from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly, shot_map_plotly, shot_placement_plotly
+from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, cross_plots, league_plots, formation_plotly, pass_plotly, shot_map_plotly, shot_placement_plotly
 from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
 from src.components.match_graph_shell import match_graph_panel, match_graph_shell
