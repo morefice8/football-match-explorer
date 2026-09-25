@@ -8,25 +8,36 @@ from scipy.spatial import ConvexHull
 from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPES, UNSUCCESSFUL_COLOR
 from plotly.colors import sample_colorscale
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
-from src.visualization.plotly_branding import add_attacking_direction
+from src.visualization.plotly_branding import (
+    MATCH_PITCH_BG,
+    MATCH_PITCH_LINE,
+    add_attacking_direction,
+)
 from src.visualization.coordinate_contract import orient_point
 
 # This is the helper function we created for the defender map. We can reuse it.
-def draw_plotly_pitch(fig):
-    """Helper function to draw an Opta pitch using Plotly shapes."""
+def draw_plotly_pitch(fig, *, line_color=None):
+    """Helper function to draw an Opta pitch using Plotly shapes.
+
+    ``line_color`` defaults to the legacy black-on-white ``LINE_COLOR`` so
+    callers that haven't migrated to the shared dark Match Plot design
+    system yet keep their current look. Migrated callers pass
+    ``plotly_branding.MATCH_PITCH_LINE`` explicitly.
+    """
+    line_color = line_color or LINE_COLOR
     pitch_shapes = [
         # Outer lines & halfway line
-        go.layout.Shape(type="rect", x0=0, y0=0, x1=100, y1=100, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="line", x0=50, y0=0, x1=50, y1=100, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=0, x1=100, y1=100, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="line", x0=50, y0=0, x1=50, y1=100, line=dict(color=line_color, width=2)),
         # Center circle
-        go.layout.Shape(type="circle", x0=42, y0=42, x1=58, y1=58, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="circle", x0=49.5, y0=49.5, x1=50.5, y1=50.5, line=dict(color=LINE_COLOR, width=2), fillcolor=LINE_COLOR),
+        go.layout.Shape(type="circle", x0=42, y0=42, x1=58, y1=58, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="circle", x0=49.5, y0=49.5, x1=50.5, y1=50.5, line=dict(color=line_color, width=2), fillcolor=line_color),
         # Penalty Areas
-        go.layout.Shape(type="rect", x0=0, y0=21.1, x1=16.5, y1=78.9, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="rect", x0=83.5, y0=21.1, x1=100, y1=78.9, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=21.1, x1=16.5, y1=78.9, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="rect", x0=83.5, y0=21.1, x1=100, y1=78.9, line=dict(color=line_color, width=2)),
         # 6-yard boxes
-        go.layout.Shape(type="rect", x0=0, y0=36.8, x1=5.5, y1=63.2, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="rect", x0=94.5, y0=36.8, x1=100, y1=63.2, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=36.8, x1=5.5, y1=63.2, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="rect", x0=94.5, y0=36.8, x1=100, y1=63.2, line=dict(color=line_color, width=2)),
     ]
     fig.update_layout(shapes=pitch_shapes)
     return fig
@@ -713,7 +724,7 @@ def plot_defensive_shape_profile(
     ).lower()
 
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)
+    fig = draw_plotly_pitch(fig, line_color=MATCH_PITCH_LINE)
 
     fig.update_xaxes(
         range=[0, 100],
@@ -725,7 +736,7 @@ def plot_defensive_shape_profile(
         visible=False,
         fixedrange=True,
         scaleanchor="x",
-        scaleratio=1,
+        scaleratio=0.68,
     )
 
     fig.update_layout(
@@ -737,7 +748,7 @@ def plot_defensive_shape_profile(
             b=12,
         ),
         paper_bgcolor="white",
-        plot_bgcolor="#27343e",
+        plot_bgcolor=MATCH_PITCH_BG,
         showlegend=False,
         hovermode="closest",
         font=dict(
@@ -1025,21 +1036,11 @@ def plot_defensive_shape_profile(
                 ),
             )
 
-    fig.add_annotation(
-        x=0.99,
-        y=0.01,
-        xref="paper",
-        yref="paper",
-        text="<b>Attacking →</b>",
-        showarrow=False,
-        xanchor="right",
+    add_attacking_direction(
+        fig,
+        dark=True,
+        y=0.02,
         yanchor="bottom",
-        bgcolor=
-            "rgba(11,49,80,0.88)",
-        font=dict(
-            color="white",
-            size=10,
-        ),
     )
 
     return fig
