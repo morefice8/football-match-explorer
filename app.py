@@ -43,7 +43,7 @@ from pages import home, player_stats, upload, database, match_analysis, team_sta
 
 # Import delle funzioni di logica
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
-from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, set_piece_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly
+from src.visualization import pitch_plots, player_plots, buildup_plotly, defensive_transitions_plotly, offensive_transitions_plotly, set_piece_plotly, cross_plots, league_plots, formation_plotly, formations, pass_plotly, shot_map_plotly, shot_placement_plotly
 from src.data_processing import preprocess, pass_processing
 from src.utils import mapping_loader
 from src.components.match_graph_shell import match_graph_panel, match_graph_shell
@@ -96,6 +96,7 @@ from src.metrics import (
     data_quality,
     shot_metrics,
     card_events,
+    shot_classification,
 )
 
 # Define colors
@@ -5873,8 +5874,10 @@ def render_player_analysis_secondary_layout(active_primary_tab):
         return dash_html.Div([
             dbc.Tabs(
                 id="shooting-secondary-tabs",
-                active_tab="pa_shot_sequence_stats",
+                active_tab="pa_shot_map",
                 children=[
+                    dbc.Tab(label="Shot Map", tab_id="pa_shot_map"),
+                    dbc.Tab(label="Shot Placement", tab_id="pa_shot_placement"),
                     dbc.Tab(label="Shot Sequence Stats", tab_id="pa_shot_sequence_stats"),
                     dbc.Tab(label="Home Reception Profile", tab_id="pa_home_shot_contributor_map"),
                     dbc.Tab(label="Away Reception Profile", tab_id="pa_away_shot_contributor_map"),
@@ -6294,7 +6297,53 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
     common_plot_area_style = {"flex": "1 1 75%", "minHeight": "350px", "overflow": "hidden"}
     common_comment_area_style = {"flex": "0 0 20%", "paddingTop": "15px", "overflowY": "auto"}
 
-    if active_tab == "pa_shot_sequence_stats":
+    if active_tab == "pa_shot_map":
+        try:
+            df_processed = pd.read_json(io.StringIO(stored_match_data_json['df']), orient='split')
+            match_info = json.loads(stored_match_data_json['match_info'])
+            home_team_name = match_info.get('hteamName', '')
+            away_team_name = match_info.get('ateamName', '')
+
+            shots_df = shot_classification.classify_shots(df_processed)
+            fig = shot_map_plotly.plot_shot_map(
+                shots_df,
+                home_team=home_team_name,
+                away_team=away_team_name,
+                hcol=HCOL,
+                acol=ACOL,
+            )
+
+            return dash_html.Div([
+                dcc.Graph(figure=fig, config={'displayModeBar': False}),
+            ])
+        except Exception as e:
+            tb_str = traceback.format_exc()
+            return dbc.Alert(f"Error generating shot map: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+
+    elif active_tab == "pa_shot_placement":
+        try:
+            df_processed = pd.read_json(io.StringIO(stored_match_data_json['df']), orient='split')
+            match_info = json.loads(stored_match_data_json['match_info'])
+            home_team_name = match_info.get('hteamName', '')
+            away_team_name = match_info.get('ateamName', '')
+
+            shots_df = shot_classification.classify_shots(df_processed)
+            fig = shot_placement_plotly.plot_shot_placement(
+                shots_df,
+                home_team=home_team_name,
+                away_team=away_team_name,
+                hcol=HCOL,
+                acol=ACOL,
+            )
+
+            return dash_html.Div([
+                dcc.Graph(figure=fig, config={'displayModeBar': False}),
+            ])
+        except Exception as e:
+            tb_str = traceback.format_exc()
+            return dbc.Alert(f"Error generating shot placement chart: {e}\n{tb_str}", color="danger", style={"whiteSpace": "pre-wrap"})
+
+    elif active_tab == "pa_shot_sequence_stats":
         try:
             player_stats_df = pd.read_json(io.StringIO(player_stats_df_json), orient='split')
             df_processed = pd.read_json(io.StringIO(stored_match_data_json['df']), orient='split')
