@@ -5,21 +5,28 @@ from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPE
 from src.visualization.plotly_branding import add_attacking_direction
 
 # This is the helper function we created for the defender map. We can reuse it.
-def draw_plotly_pitch(fig):
-    """Helper function to draw an Opta pitch using Plotly shapes."""
+def draw_plotly_pitch(fig, *, line_color=None):
+    """Helper function to draw an Opta pitch using Plotly shapes.
+
+    ``line_color`` defaults to the legacy black-on-white ``LINE_COLOR`` so
+    callers that haven't migrated to the shared dark Match Plot design
+    system yet keep their current look. Migrated callers pass
+    ``plotly_branding.MATCH_PITCH_LINE`` explicitly.
+    """
+    line_color = line_color or LINE_COLOR
     pitch_shapes = [
         # Outer lines & halfway line
-        go.layout.Shape(type="rect", x0=0, y0=0, x1=100, y1=100, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="line", x0=50, y0=0, x1=50, y1=100, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=0, x1=100, y1=100, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="line", x0=50, y0=0, x1=50, y1=100, line=dict(color=line_color, width=2)),
         # Center circle
-        go.layout.Shape(type="circle", x0=42, y0=42, x1=58, y1=58, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="circle", x0=49.5, y0=49.5, x1=50.5, y1=50.5, line=dict(color=LINE_COLOR, width=2), fillcolor=LINE_COLOR),
+        go.layout.Shape(type="circle", x0=42, y0=42, x1=58, y1=58, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="circle", x0=49.5, y0=49.5, x1=50.5, y1=50.5, line=dict(color=line_color, width=2), fillcolor=line_color),
         # Penalty Areas
-        go.layout.Shape(type="rect", x0=0, y0=21.1, x1=16.5, y1=78.9, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="rect", x0=83.5, y0=21.1, x1=100, y1=78.9, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=21.1, x1=16.5, y1=78.9, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="rect", x0=83.5, y0=21.1, x1=100, y1=78.9, line=dict(color=line_color, width=2)),
         # 6-yard boxes
-        go.layout.Shape(type="rect", x0=0, y0=36.8, x1=5.5, y1=63.2, line=dict(color=LINE_COLOR, width=2)),
-        go.layout.Shape(type="rect", x0=94.5, y0=36.8, x1=100, y1=63.2, line=dict(color=LINE_COLOR, width=2)),
+        go.layout.Shape(type="rect", x0=0, y0=36.8, x1=5.5, y1=63.2, line=dict(color=line_color, width=2)),
+        go.layout.Shape(type="rect", x0=94.5, y0=36.8, x1=100, y1=63.2, line=dict(color=line_color, width=2)),
     ]
     fig.update_layout(shapes=pitch_shapes)
     return fig
