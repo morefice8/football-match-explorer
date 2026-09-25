@@ -2,7 +2,17 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPES, UNSUCCESSFUL_COLOR
-from src.visualization.plotly_branding import add_attacking_direction
+from src.visualization.plotly_branding import (
+    MATCH_PITCH_BG,
+    MATCH_PITCH_LINE,
+    MATCH_PITCH_TEXT,
+    add_attacking_direction,
+)
+
+# UNSUCCESSFUL_COLOR (config.py) is black -- fine on the light pitches it
+# was designed for, invisible on this chart's dark pitch. Local override
+# for the one function below that's migrated to the dark convention.
+_UNSUCCESSFUL_DARK = "#c9d6de"
 
 # This is the helper function we created for the defender map. We can reuse it.
 def draw_plotly_pitch(fig, *, line_color=None):
@@ -36,11 +46,11 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
     Plots a single, complete buildup sequence interactively using Plotly.
     """
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)
-    add_attacking_direction(fig, dark=False)
+    fig = draw_plotly_pitch(fig, line_color=MATCH_PITCH_LINE)
+    add_attacking_direction(fig, dark=True)
 
     if sequence_data is None or sequence_data.empty:
-        fig.add_annotation(x=50, y=50, text="No Sequence Data", showarrow=False, font=dict(size=16, color="red"))
+        fig.add_annotation(x=50, y=50, text="No Sequence Data", showarrow=False, font=dict(size=16, color="#e07a6a"))
         return fig # Return the empty figure
 
     df = sequence_data.copy()
@@ -49,7 +59,7 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
         df[col] = pd.to_numeric(df[col], errors='coerce')
     df.dropna(subset=['x', 'y'], inplace=True)
     if df.empty:
-        fig.add_annotation(x=50, y=50, text="Invalid Coordinates", showarrow=False, font=dict(size=16, color="red"))
+        fig.add_annotation(x=50, y=50, text="Invalid Coordinates", showarrow=False, font=dict(size=16, color="#e07a6a"))
         return fig
 
     # --- Plot Player Nodes First ---
@@ -88,7 +98,7 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
             line_width = 3
             
             if event_type == 'Pass':
-                line_color = team_color if is_successful else UNSUCCESSFUL_COLOR
+                line_color = team_color if is_successful else _UNSUCCESSFUL_DARK
                 # Add end-of-pass marker if it's not the final event
                 if is_successful and not is_last_event:
                      fig.add_trace(go.Scatter(
@@ -114,11 +124,11 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
             # Add special markers for terminating events
             if not is_successful or is_last_event:
                 marker_symbol = 'x' if not is_successful else 'circle-open'
-                marker_color = 'black' if not is_successful else line_color
+                marker_color = _UNSUCCESSFUL_DARK if not is_successful else line_color
                 # Add terminating marker
                 fig.add_trace(go.Scatter(
                     x=[row.end_x], y=[row.end_y], mode='markers',
-                    marker=dict(symbol=marker_symbol, size=10, color=marker_color, line=dict(width=2)),
+                    marker=dict(symbol=marker_symbol, size=10, color=marker_color, line=dict(width=2, color=MATCH_PITCH_BG)),
                     hoverinfo='none', showlegend=False
                 ))
 
@@ -130,8 +140,8 @@ def plot_buildup_sequence_plotly(sequence_data, team_color, is_away):
     
     fig.update_layout(
         title=f"Outcome: {outcome} ({pass_count} Passes)",
-        title_font_color='black', title_x=0.5,
-        plot_bgcolor=BG_COLOR, paper_bgcolor=BG_COLOR,
+        title_font_color=MATCH_PITCH_TEXT, title_x=0.5,
+        plot_bgcolor=MATCH_PITCH_BG, paper_bgcolor=MATCH_PITCH_BG,
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, scaleanchor="x", scaleratio=0.68),
         showlegend=False,
