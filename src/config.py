@@ -45,6 +45,89 @@ LOGO_PREFIX = "ENG_"
 LOGO_EXTENSION = ".png"
 DEFAULT_LOGO_PATH = "/assets/logos/_default_badge.png" # Make sure _default_badge.png exists
 
+# Best-effort primary kit colors, used as chart accent colors so a match's
+# home/away teams render in something close to their real colors instead of
+# always the same red/blue placeholder. Approximate — eyeball a match and
+# nudge a hex value if a specific club looks off. Any team not listed here
+# falls back to DEFAULT_HCOL/DEFAULT_ACOL via get_match_team_colors().
+TEAM_NAME_TO_COLOR = {
+    # Serie A (2024/25)
+    "Napoli": "#12A0D7",
+    "Bologna": "#8B1D24",
+    "Frosinone": "#F9E547",
+    "Juventus": "#000000",
+    "Inter": "#04244C",
+    "AC Milan": "#FB090B",
+    "Milan": "#FB090B",
+    "AS Roma": "#8E1F2F",
+    "Roma": "#8E1F2F",
+    "Lazio": "#87D0F0",
+    "Atalanta": "#1E71B8",
+    "Fiorentina": "#7C2E8E",
+    "Torino": "#7A263A",
+    "Genoa": "#0D3268",
+    "Sampdoria": "#1A4FA0",
+    "Udinese": "#000000",
+    "Hellas Verona": "#FFCE00",
+    "Verona": "#FFCE00",
+    "Cagliari": "#B01E28",
+    "Empoli": "#0F5EA8",
+    "Lecce": "#FFD400",
+    "Monza": "#D71920",
+    "Salernitana": "#8B1D2C",
+    "Sassuolo": "#1B6E3C",
+    "Spezia": "#0F1E3D",
+    "Venezia": "#FF7900",
+    "Cremonese": "#98A3A6",
+    "Parma": "#FFE100",
+    "Como": "#004B87",
+    "Pisa": "#1B3E7A",
+    # Premier League (matches TEAM_NAME_TO_LOGO_CODE above)
+    "Arsenal": "#EF0107",
+    "Aston Villa": "#95BFE5",
+    "Bournemouth": "#DA291C",
+    "Brentford": "#E30613",
+    "Brighton": "#0057B8",
+    "Burnley": "#6C1D45",
+    "Chelsea": "#034694",
+    "Crystal Palace": "#1B458F",
+    "Everton": "#003399",
+    "Fulham": "#000000",
+    "Ipswich": "#0044A9",
+    "Leicester": "#003090",
+    "Liverpool": "#C8102E",
+    "Luton Town": "#F78F1E",
+    "Man City": "#6CABDD",
+    "Man Utd": "#DA291C",
+    "Newcastle": "#241F20",
+    "Nottm Forest": "#DD0000",
+    "Sheffield United": "#EE2737",
+    "Southampton": "#D71920",
+    "Tottenham": "#132257",
+    "West Ham": "#7A263A",
+    "Wolves": "#FDB913",
+}
+
+
+def get_match_team_colors(home_team_name, away_team_name):
+    """Return (home_color, away_color) hex strings for a specific match.
+
+    Looks up each team in TEAM_NAME_TO_COLOR; an unmapped team falls back to
+    DEFAULT_HCOL/DEFAULT_ACOL. If both colors would come out identical (an
+    unmapped derby, or two clubs sharing a primary color), the away color
+    falls back to DEFAULT_ACOL — and if that still collides, to a neutral
+    grey — so the two teams stay visually distinguishable on chart legends.
+    """
+    home_color = TEAM_NAME_TO_COLOR.get(home_team_name, DEFAULT_HCOL)
+    away_color = TEAM_NAME_TO_COLOR.get(away_team_name, DEFAULT_ACOL)
+
+    if home_color.lower() == away_color.lower():
+        away_color = DEFAULT_ACOL if away_color.lower() != DEFAULT_ACOL.lower() else DEFAULT_HCOL
+        if away_color.lower() == home_color.lower():
+            away_color = "#666666"
+
+    return home_color, away_color
+
 # --- File Paths (relative to project root) ---
 # It's good practice to manage paths here
 # Consider using os.path.join or pathlib for better path construction

@@ -1729,6 +1729,7 @@ def handle_upload(contents, filename):
     prevent_initial_call=True
 )
 def populate_main_store(pathname, uploaded_data):
+    global HCOL, ACOL
     logger.debug(f"--- Main Data Loader triggered for path: {pathname} ---")
 
     # Se andiamo a una pagina che NON è di analisi, puliamo gli store per sicurezza
@@ -1740,6 +1741,14 @@ def populate_main_store(pathname, uploaded_data):
     if 'upload-' in pathname:
         if uploaded_data:
             logger.debug(f"  Populating main store for {pathname} from session data.")
+            try:
+                uploaded_match_info = json.loads(uploaded_data.get('match_info', '{}'))
+            except (TypeError, ValueError):
+                uploaded_match_info = {}
+            HCOL, ACOL = config.get_match_team_colors(
+                uploaded_match_info.get('hteamName', ''),
+                uploaded_match_info.get('ateamName', ''),
+            )
             return uploaded_data, None
         return no_update, no_update
 
@@ -1769,6 +1778,10 @@ def populate_main_store(pathname, uploaded_data):
                         df, _, _, _ = preprocess.process_opta_events(json_data, event_map, qualifier_map, match_info)
                         if df is None or df.empty: return None, None
                         logger.debug(f"  DB load successful for {match_id}")
+                        HCOL, ACOL = config.get_match_team_colors(
+                            match_info.get('hteamName', ''),
+                            match_info.get('ateamName', ''),
+                        )
                         return {'df': df.to_json(date_format='iso', orient='split'), 'match_info': json.dumps(match_info)}, None
                     except Exception:
                         logger.warning(f"  Error processing DB file.")
