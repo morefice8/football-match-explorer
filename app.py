@@ -5899,20 +5899,40 @@ def render_player_analysis_secondary_layout(active_primary_tab):
             ),
             # Only affects the Shot Map / Shot Placement tabs; harmless no-op
             # for the other Shooting Analysis sub-tabs.
-            dash_html.Div(
-                dbc.RadioItems(
-                    id="shooting-game-state-filter",
-                    options=[
-                        {"label": "All shots", "value": "all"},
-                        {"label": "Leading", "value": "leading"},
-                        {"label": "Drawing", "value": "drawing"},
-                        {"label": "Trailing", "value": "trailing"},
-                    ],
-                    value="all",
-                    inline=True,
-                    className="small",
-                ),
-                className="mt-2",
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.RadioItems(
+                            id="shooting-game-state-filter",
+                            options=[
+                                {"label": "All shots", "value": "all"},
+                                {"label": "Leading", "value": "leading"},
+                                {"label": "Drawing", "value": "drawing"},
+                                {"label": "Trailing", "value": "trailing"},
+                            ],
+                            value="all",
+                            inline=True,
+                            className="small",
+                        ),
+                        width="auto",
+                    ),
+                    dbc.Col(
+                        dcc.RangeSlider(
+                            id="shooting-minute-filter",
+                            min=0,
+                            max=120,
+                            step=1,
+                            value=[0, 120],
+                            marks={m: f"{m}'" for m in range(0, 121, 15)},
+                            tooltip={"placement": "bottom", "always_visible": False},
+                            allowCross=False,
+                        ),
+                        width=True,
+                        className="align-self-center",
+                    ),
+                ],
+                className="mt-2 g-3",
+                align="center",
             ),
             dcc.Loading(type="circle", children=dash_html.Div(id="shooting-secondary-tab-content"))
         ])
@@ -6317,9 +6337,10 @@ def update_away_passer_map(selected_player, stored_data_json):
     Input("shooting-secondary-tabs", "active_tab"),
     Input("store-player-stats-df", "data"),
     Input("shooting-game-state-filter", "value"),
+    Input("shooting-minute-filter", "value"),
     State("store-df-match", "data"),
 )
-def render_shooting_analysis_content(active_tab, player_stats_df_json, game_state_filter, stored_match_data_json):
+def render_shooting_analysis_content(active_tab, player_stats_df_json, game_state_filter, minute_range, stored_match_data_json):
     if not player_stats_df_json:
         return dash_html.P("Player stats are loading...")
 
@@ -6340,6 +6361,11 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, game_stat
             shots_df = game_state.add_game_state_column(shots_df, home_team_name, away_team_name)
             if game_state_filter and game_state_filter != "all":
                 shots_df = shots_df[shots_df["game_state"] == game_state_filter]
+            if minute_range and len(minute_range) == 2:
+                min_minute, max_minute = minute_range
+                shots_df = shots_df[
+                    shots_df["timeMin"].between(min_minute, max_minute)
+                ]
             fig = shot_map_plotly.plot_shot_map(
                 shots_df,
                 home_team=home_team_name,
@@ -6366,6 +6392,11 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, game_stat
             shots_df = game_state.add_game_state_column(shots_df, home_team_name, away_team_name)
             if game_state_filter and game_state_filter != "all":
                 shots_df = shots_df[shots_df["game_state"] == game_state_filter]
+            if minute_range and len(minute_range) == 2:
+                min_minute, max_minute = minute_range
+                shots_df = shots_df[
+                    shots_df["timeMin"].between(min_minute, max_minute)
+                ]
             fig = shot_placement_plotly.plot_shot_placement(
                 shots_df,
                 home_team=home_team_name,
