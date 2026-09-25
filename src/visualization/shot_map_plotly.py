@@ -165,12 +165,20 @@ def plot_shot_map(shots_df, *, home_team, away_team, hcol, acol):
         subtitle = "Marker shape = shot outcome · marker color = team"
         if has_unknown:
             subtitle += " · grey = unresolved classification"
-        add_plot_subtitle(fig, subtitle, dark=True, y=1.075)
+        # dark=False: the subtitle sits in the white paper margin above the
+        # pitch (like the legend), not on the dark pitch itself, so it needs
+        # dark-on-light contrast, not light-on-dark.
+        add_plot_subtitle(fig, subtitle, dark=False, y=1.20)
 
     apply_match_pitch_layout(
         fig,
-        x_range=(45, 102),
+        # Cropped to roughly the shooting third rather than the full half
+        # pitch: the old (45, 102) crop left a lot of empty, markless grass
+        # between the centre circle and the box.
+        x_range=(58, 102),
         y_range=(-5, 105),
         height=620,
+        header=True,  # borrow the extra top margin reserved for a header
+                      # so the legend and subtitle don't crowd each other.
     )
     return fig

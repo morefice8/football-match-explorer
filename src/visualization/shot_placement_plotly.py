@@ -12,12 +12,18 @@ general 0-100 pitch x/y scale used everywhere else in this app:
 
 Both axes are converted to real metres here so the drawn frame has the
 correct 7.32:2.44 aspect ratio instead of looking stretched.
+
+Each team gets its own goal-frame panel, side by side, rather than sharing
+one frame — with two teams' worth of shots this keeps markers from piling
+up on top of each other and reads as a direct "who placed shots where"
+comparison.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from src.visualization.plotly_branding import (
     MATCH_PITCH_BG,
@@ -55,6 +61,10 @@ GROUND_COLOR = "rgba(232,238,242,0.45)"
 # a stray "miles wide" value blow out the scale.
 X_RANGE_M = (-4.6, 4.6)
 Y_RANGE_M = (-0.6, 3.6)
+
+# Neutral swatch for the shared shape-only legend (team is conveyed by which
+# panel a marker is in, not by legend colour, once shots are split by team).
+_LEGEND_NEUTRAL_COLOR = "#b9c8d2"
 
 
 def _y_to_metres(goal_mouth_y):
@@ -142,9 +152,9 @@ def _hover_text(row, team_name, outcome_label, x_m, z_m, *, mismatch):
     return text
 
 
-def _goal_frame_shapes():
+def _goal_frame_shapes(*, xref, yref):
     half_width = GOAL_WIDTH_M / 2.0
-    return [
+    base = [
         dict(
             type="rect",
             x0=-half_width,
@@ -187,23 +197,15 @@ def _goal_frame_shapes():
         )
         for level in range(1, 3)
     ]
+    for shape in base:
+        shape["xref"] = xref
+        shape["yref"] = yref
+    return base
 
 
-def _add_team_traces(fig, team_shots, team_name, color, *, show_team_legend):
+def _add_team_panel(fig, team_shots, team_name, color, *, col):
     if team_shots.empty:
         return
-
-    if show_team_legend:
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                name=team_name,
-                legendgroup=team_name,
-                marker=dict(symbol="circle", size=12, color=color),
-            )
-        )
 
     positions = team_shots.assign(
         x_m=team_shots["goal_mouth_y"].apply(_y_to_metres),
@@ -224,7 +226,6 @@ def _add_team_traces(fig, team_shots, team_name, color, *, show_team_legend):
                 y=rows["z_m"],
                 mode="markers",
                 name=f"{team_name} · {style['label']}",
-                legendgroup=team_name,
                 showlegend=False,
                 marker=dict(
                     symbol=style["symbol"],
@@ -248,12 +249,46 @@ def _add_team_traces(fig, team_shots, team_name, color, *, show_team_legend):
                     for _, row in rows.iterrows()
                 ],
                 hovertemplate="%{text}<extra></extra>",
-            )
+            ),
+            row=1,
+            col=col,
+        )
+
+
+def _add_outcome_legend(fig, combined_shots):
+    """One shape-only legend entry per outcome present, shared across panels.
+
+    Team is already conveyed by which panel a marker sits in, so the legend
+    only needs to explain what each marker *shape* means, not repeat colour
+    per team.
+    """
+    if combined_shots.empty:
+        return
+
+    outcomes_present = set(combined_shots["shot_outcome"].dropna())
+    for outcome in OUTCOME_ORDER:
+        if outcome not in outcomes_present:
+            continue
+        style = OUTCOME_STYLE[outcome]
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                name=style["label"],
+                marker=dict(
+                    symbol=style["symbol"],
+                    size=style["size"],
+                    color=_LEGEND_NEUTRAL_COLOR,
+                ),
+            ),
+            row=1,
+            col=1,
         )
 
 
 def plot_shot_placement(shots_df, *, home_team, away_team, hcol, acol):
-    """Return a Plotly figure of the goal frame with each shot's crossing point.
+    """Return a Plotly figure with each team's goal frame side by side.
 
     ``shots_df`` must be the output of
     ``src.metrics.shot_classification.classify_shots`` run on a DataFrame
@@ -265,64 +300,102 @@ def plot_shot_placement(shots_df, *, home_team, away_team, hcol, acol):
     included when Opta recorded a crossing point, so a near-miss shows up
     just outside the frame instead of being dropped.
     """
-    fig = go.Figure()
-    fig.update_layout(shapes=_goal_frame_shapes())
-
     home_shots = _team_shots_with_placement(shots_df, home_team)
     away_shots = _team_shots_with_placement(shots_df, away_team)
 
     if home_shots.empty and away_shots.empty:
+        fig = go.Figure()
         fig.add_annotation(
-            x=0,
-            y=GOAL_HEIGHT_M / 2,
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
             text="No shot placement data available for this match",
             showarrow=False,
             font=dict(color="#b9c8d2", size=14),
         )
-    else:
-        _add_team_traces(fig, home_shots, home_team, hcol, show_team_legend=True)
-        _add_team_traces(fig, away_shots, away_team, acol, show_team_legend=True)
-        add_plot_subtitle(
-            fig,
-            "Marker shape = shot outcome · marker color = team · view from behind the goal",
-            dark=True,
-            y=1.075,
+        fig.update_layout(
+            paper_bgcolor="#ffffff",
+            plot_bgcolor=MATCH_PITCH_BG,
+            height=420,
+            margin=dict(l=18, r=18, t=40, b=18),
+            xaxis=dict(visible=False, showgrid=False, zeroline=False),
+            yaxis=dict(visible=False, showgrid=False, zeroline=False),
         )
+        return fig
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        horizontal_spacing=0.1,
+    )
+
+    _add_team_panel(fig, home_shots, home_team, hcol, col=1)
+    _add_team_panel(fig, away_shots, away_team, acol, col=2)
+    _add_outcome_legend(fig, pd.concat([home_shots, away_shots]))
+
+    panel_shapes = _goal_frame_shapes(xref="x", yref="y") + _goal_frame_shapes(
+        xref="x2", yref="y2"
+    )
+
+    fig.update_xaxes(
+        range=list(X_RANGE_M), visible=False, fixedrange=True,
+        showgrid=False, zeroline=False, row=1, col=1,
+    )
+    fig.update_xaxes(
+        range=list(X_RANGE_M), visible=False, fixedrange=True,
+        showgrid=False, zeroline=False, row=1, col=2,
+    )
+    fig.update_yaxes(
+        range=list(Y_RANGE_M), visible=False, fixedrange=True,
+        showgrid=False, zeroline=False, scaleanchor="x", scaleratio=1,
+        row=1, col=1,
+    )
+    fig.update_yaxes(
+        range=list(Y_RANGE_M), visible=False, fixedrange=True,
+        showgrid=False, zeroline=False, scaleanchor="x2", scaleratio=1,
+        row=1, col=2,
+    )
+
+    for team_name, x_domain_center in ((home_team, 0.20), (away_team, 0.80)):
+        fig.add_annotation(
+            x=x_domain_center,
+            y=1.0,
+            xref="paper",
+            yref="paper",
+            text=f"<b>{team_name}</b>",
+            showarrow=False,
+            xanchor="center",
+            yanchor="bottom",
+            font=match_font(color="#17354d", size=13),
+        )
+
+    add_plot_subtitle(
+        fig,
+        "Marker shape = shot outcome · view from behind each team's own goal",
+        dark=False,
+        y=1.155,
+    )
 
     fig.update_layout(
         title=None,
         paper_bgcolor="#ffffff",
         plot_bgcolor=MATCH_PITCH_BG,
         height=560,
-        margin=dict(l=18, r=18, t=74, b=18),
+        margin=dict(l=18, r=18, t=110, b=18),
         font=match_font(color="#17354d"),
         showlegend=True,
         legend=dict(
             orientation="h",
             x=0.5,
             xanchor="center",
-            y=1.025,
+            y=1.06,
             yanchor="bottom",
             bgcolor="rgba(0,0,0,0)",
             borderwidth=0,
             font=match_font(color="#17354d", size=13),
         ),
-        xaxis=dict(
-            range=list(X_RANGE_M),
-            visible=False,
-            fixedrange=True,
-            showgrid=False,
-            zeroline=False,
-        ),
-        yaxis=dict(
-            range=list(Y_RANGE_M),
-            visible=False,
-            fixedrange=True,
-            showgrid=False,
-            zeroline=False,
-            scaleanchor="x",
-            scaleratio=1,
-        ),
+        shapes=panel_shapes,
     )
     apply_match_tooltip(fig)
     return fig
