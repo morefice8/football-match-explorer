@@ -9,6 +9,7 @@ from ..config import BG_COLOR, LINE_COLOR, GREEN, VIOLET, CARRY_COLOR, SHOT_TYPE
 from plotly.colors import sample_colorscale
 from src.config import TEAM_NAME_TO_LOGO_CODE, LOGO_PREFIX, LOGO_EXTENSION, DEFAULT_LOGO_PATH
 from src.visualization.plotly_branding import (
+    MATCH_CARD_BG,
     MATCH_PITCH_BG,
     MATCH_PITCH_LINE,
     add_attacking_direction,
@@ -117,17 +118,17 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
     - Includes a properly calculated and placed average line label.
     """
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)
+    fig = draw_plotly_pitch(fig, line_color=MATCH_PITCH_LINE)
     thirds = [100/3, 2*100/3]
     for x in thirds:
         fig.add_shape(type="line", x0=x, y0=0, x1=x, y1=100,
-                      line=dict(color="rgba(0,0,0,0.3)", width=1, dash="dash"))
+                      line=dict(color="rgba(255,255,255,0.28)", width=1, dash="dash"))
 
     # Geometry is identical for home and away; is_away is UI-only.
     del is_away
     fig.update_xaxes(range=[0, 100])
     fig.update_yaxes(range=[0, 100])
-    add_attacking_direction(fig, dark=False)
+    add_attacking_direction(fig, dark=True)
 
     # Heatmap
     if not df_def_actions.empty:
@@ -147,7 +148,7 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
                 color='yellow',
                 size=5,
                 opacity=0.5,
-                line=dict(width=1, color='black')
+                line=dict(width=1, color='#ffffff')
             ),
             hoverinfo='text',
             hovertext=df_def_actions['type_name'] + ' by ' + df_def_actions['playerName'],
@@ -193,7 +194,7 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
         fig.add_shape(
             type='line',
             x0=avg_line_x, y0=-5, x1=avg_line_x, y1=105,
-            line=dict(color='black', width=3, dash='dashdot')
+            line=dict(color='#ffffff', width=3, dash='dashdot')
         )
         
         # Calcolo corretto che tiene conto dell'inversione degli assi per la visualizzazione
@@ -216,8 +217,8 @@ def plot_defensive_block_plotly(df_def_actions, df_player_agg, team_color, is_aw
     # Layout Finale
     fig.update_layout(
         showlegend=False,
-        plot_bgcolor="white",
-        paper_bgcolor="#2E3439",
+        plot_bgcolor=MATCH_PITCH_BG,
+        paper_bgcolor=MATCH_CARD_BG,
         margin=dict(l=10, r=10, t=40, b=10),
         height=600,
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
@@ -234,12 +235,12 @@ def plot_defensive_hull_plotly(df_player_agg, team_color, is_away=False):
     - Has a denser, more visible hull area and outline.
     """
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)
+    fig = draw_plotly_pitch(fig, line_color=MATCH_PITCH_LINE)
 
     del is_away
     fig.update_xaxes(range=[0, 100])
     fig.update_yaxes(range=[0, 100])
-    add_attacking_direction(fig, dark=False)
+    add_attacking_direction(fig, dark=True)
 
     # --- Escludi il portiere per una forma più realistica ---
     if 'Mapped Jersey Number' in df_player_agg.columns:
@@ -305,8 +306,8 @@ def plot_defensive_hull_plotly(df_player_agg, team_color, is_away=False):
     # --- Layout Finale con dimensioni maggiori ---
     fig.update_layout(
         showlegend=False,
-        plot_bgcolor="white",
-        paper_bgcolor="#2E3439",
+        plot_bgcolor=MATCH_PITCH_BG,
+        paper_bgcolor=MATCH_CARD_BG,
         margin=dict(l=10, r=10, t=40, b=10),
         height=700,  # <-- MODIFICA: Altezza del grafico aumentata
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
@@ -328,20 +329,22 @@ def plot_ppda_plotly(
 ):
     """Plot the two PPDA zones and the defensive actions used in the denominator."""
     fig = go.Figure()
-    fig = draw_plotly_pitch(fig)
+    fig = draw_plotly_pitch(fig, line_color=MATCH_PITCH_LINE)
 
     del is_away
     fig.update_xaxes(range=[0, 100])
     fig.update_yaxes(range=[0, 100])
-    add_attacking_direction(fig, dark=False)
+    add_attacking_direction(fig, dark=True)
 
     # The numerator and denominator overlap between x=40 and x=60 by design.
+    # Opacity is higher than the original light-pitch version needed --
+    # these fills need to read against a dark pitch instead of white.
     fig.add_shape(
         type="rect",
         x0=0, y0=0,
         x1=pass_zone_threshold, y1=100,
         fillcolor=opponent_color,
-        opacity=0.055,
+        opacity=0.16,
         layer="below",
         line_width=0,
     )
@@ -350,11 +353,11 @@ def plot_ppda_plotly(
         x0=defensive_zone_threshold, y0=0,
         x1=100, y1=100,
         fillcolor=team_color,
-        opacity=0.075,
+        opacity=0.20,
         layer="below",
         line_width=0
     )
-    fig.add_vline(x=pass_zone_threshold, line_width=1.5, line_dash="dot", line_color="#8296a6")
+    fig.add_vline(x=pass_zone_threshold, line_width=1.5, line_dash="dot", line_color="#9fb3bf")
     fig.add_vline(x=defensive_zone_threshold, line_width=1.5, line_dash="dash", line_color=team_color)
 
     # Opponent pass starts are deliberately quiet: they provide denominator context
@@ -363,7 +366,7 @@ def plot_ppda_plotly(
         fig.add_trace(go.Scattergl(
             x=df_opponent_passes['x'], y=df_opponent_passes['y'],
             mode='markers',
-            marker=dict(color="#8799a7", size=3.5, opacity=0.2),
+            marker=dict(color="#cfdbe2", size=3.5, opacity=0.35),
             name='Opponent pass starts',
             hoverinfo='skip',
         ))
@@ -410,8 +413,8 @@ def plot_ppda_plotly(
         ),
         font=dict(color='#18344d', family='Arial'),
         showlegend=False,
-        plot_bgcolor="#f8fbfc",
-        paper_bgcolor="white",
+        plot_bgcolor=MATCH_PITCH_BG,
+        paper_bgcolor=MATCH_CARD_BG,
         margin=dict(l=18, r=18, t=78, b=18),
         height=520,
         xaxis=dict(showgrid=False, zeroline=False, visible=False, fixedrange=True),
