@@ -7,14 +7,16 @@ import plotly.graph_objects as go
 from src.metrics.transition_heatmap_metrics import (
     sequence_display_location,
 )
-from src.visualization.plotly_branding import add_attacking_direction
+from src.visualization.plotly_branding import MATCH_PITCH_BG, add_attacking_direction
 
 GRID_SIZE = 6
 SCALE_MAX_PCT = 30.0
 
 # Same palette and absolute percentage scale for both loss and recovery maps.
+# The first stop matches MATCH_PITCH_BG so zero-density cells blend into the
+# pitch instead of leaving a visible seam.
 COLORSCALE = [
-    [0.00, "#27343e"],
+    [0.00, MATCH_PITCH_BG],
     [0.12, "#31505d"],
     [0.28, "#3b7181"],
     [0.48, "#3194aa"],
@@ -270,8 +272,8 @@ def plot_transition_heatmap(
 
     fig.update_layout(
         title=None,
-        plot_bgcolor="#27343e",
-        paper_bgcolor="#27343e",
+        plot_bgcolor=MATCH_PITCH_BG,
+        paper_bgcolor=MATCH_PITCH_BG,
         xaxis=dict(
             showgrid=False,
             zeroline=False,
