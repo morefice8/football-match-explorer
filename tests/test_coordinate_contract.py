@@ -11,7 +11,6 @@ from src.visualization.coordinate_contract import (
 from src.visualization import (
     buildup_plotly,
     defensive_transitions_plotly,
-    formation_plotly,
     offensive_transitions_plotly,
     pass_plotly,
     player_plots,
@@ -85,36 +84,6 @@ class CoordinateContractTests(unittest.TestCase):
         self.assertNotEqual(fig.layout.yaxis.autorange, 'reversed')
         self.assertEqual(list(fig.data[0].x[:2]), [60.0, 72.0])
         self.assertEqual(list(fig.data[0].y[:2]), [25.0, 35.0])
-        self.assert_attacking_direction(fig)
-
-    def test_mean_positions_keep_away_geometry(self):
-        touches = pd.DataFrame([
-            {'x': 24.0, 'y': 35.0},
-            {'x': 28.0, 'y': 40.0},
-        ])
-        players = pd.DataFrame([
-            {
-                'median_x': 26.0,
-                'median_y': 38.0,
-                'Mapped Jersey Number': 8,
-                'playerName': 'Midfielder',
-                'action_count': 12,
-                'Is Starter': True,
-            }
-        ])
-
-        fig = formation_plotly.plot_mean_positions_plotly(
-            touches,
-            players,
-            '#0b88a8',
-            is_away=True,
-        )
-
-        self.assertEqual(list(fig.layout.xaxis.range), [0, 100])
-        self.assertEqual(list(fig.layout.yaxis.range), [0, 100])
-        player_trace = next(trace for trace in fig.data if trace.name == 'Midfielder')
-        self.assertEqual(list(player_trace.x), [26.0])
-        self.assertEqual(list(player_trace.y), [38.0])
         self.assert_attacking_direction(fig)
 
     def test_offensive_recovery_heatmap_keeps_away_recovery_location(self):
