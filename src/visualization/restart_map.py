@@ -8,7 +8,10 @@ from src.visualization.buildup_plotly import (
     draw_plotly_pitch,
 )
 from src.visualization.plotly_branding import (
+    MATCH_PITCH_BG,
+    MATCH_PITCH_LINE,
     add_attacking_direction,
+    apply_match_tooltip,
 )
 
 
@@ -101,7 +104,8 @@ def plot_restart_map(
     fig = go.Figure()
 
     draw_plotly_pitch(
-        fig
+        fig,
+        line_color=MATCH_PITCH_LINE,
     )
 
     add_attacking_direction(
@@ -388,8 +392,8 @@ def plot_restart_map(
         title=None,
         height=600,
         autosize=True,
-        paper_bgcolor="#27343e",
-        plot_bgcolor="#27343e",
+        paper_bgcolor=MATCH_PITCH_BG,
+        plot_bgcolor=MATCH_PITCH_BG,
         margin=dict(
             l=12,
             r=12,
@@ -403,24 +407,16 @@ def plot_restart_map(
             xanchor="left",
             x=0,
             bgcolor=
-                "rgba(39,52,62,0.78)",
+                "rgba(41,52,61,0.78)",
             font=dict(
                 color="white",
                 size=11,
                 family="Inter, Arial",
             ),
         ),
-        hoverlabel=dict(
-            bgcolor="#11344c",
-            bordercolor="#4f7187",
-            font=dict(
-                color="white",
-                family="Inter, Arial",
-                size=12,
-            ),
-        ),
         clickmode="event+select",
     )
+    apply_match_tooltip(fig)
 
     fig.update_xaxes(
         range=[-2, 102],
