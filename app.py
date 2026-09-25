@@ -97,6 +97,7 @@ from src.metrics import (
     shot_metrics,
     card_events,
     shot_classification,
+    game_state,
 )
 
 # Define colors
@@ -5896,6 +5897,23 @@ def render_player_analysis_secondary_layout(active_primary_tab):
                     dbc.Tab(label="Away Reception Profile", tab_id="pa_away_shot_contributor_map"),
                 ], className="mt-2"
             ),
+            # Only affects the Shot Map / Shot Placement tabs; harmless no-op
+            # for the other Shooting Analysis sub-tabs.
+            dash_html.Div(
+                dbc.RadioItems(
+                    id="shooting-game-state-filter",
+                    options=[
+                        {"label": "All shots", "value": "all"},
+                        {"label": "Leading", "value": "leading"},
+                        {"label": "Drawing", "value": "drawing"},
+                        {"label": "Trailing", "value": "trailing"},
+                    ],
+                    value="all",
+                    inline=True,
+                    className="small",
+                ),
+                className="mt-2",
+            ),
             dcc.Loading(type="circle", children=dash_html.Div(id="shooting-secondary-tab-content"))
         ])
     elif active_primary_tab == "pa_primary_defending":
@@ -6298,9 +6316,10 @@ def update_away_passer_map(selected_player, stored_data_json):
     Output("shooting-secondary-tab-content", "children"),
     Input("shooting-secondary-tabs", "active_tab"),
     Input("store-player-stats-df", "data"),
+    Input("shooting-game-state-filter", "value"),
     State("store-df-match", "data"),
 )
-def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_match_data_json):
+def render_shooting_analysis_content(active_tab, player_stats_df_json, game_state_filter, stored_match_data_json):
     if not player_stats_df_json:
         return dash_html.P("Player stats are loading...")
 
@@ -6318,6 +6337,9 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
             away_team_name = match_info.get('ateamName', '')
 
             shots_df = shot_classification.classify_shots(df_processed)
+            shots_df = game_state.add_game_state_column(shots_df, home_team_name, away_team_name)
+            if game_state_filter and game_state_filter != "all":
+                shots_df = shots_df[shots_df["game_state"] == game_state_filter]
             fig = shot_map_plotly.plot_shot_map(
                 shots_df,
                 home_team=home_team_name,
@@ -6341,6 +6363,9 @@ def render_shooting_analysis_content(active_tab, player_stats_df_json, stored_ma
             away_team_name = match_info.get('ateamName', '')
 
             shots_df = shot_classification.classify_shots(df_processed)
+            shots_df = game_state.add_game_state_column(shots_df, home_team_name, away_team_name)
+            if game_state_filter and game_state_filter != "all":
+                shots_df = shots_df[shots_df["game_state"] == game_state_filter]
             fig = shot_placement_plotly.plot_shot_placement(
                 shots_df,
                 home_team=home_team_name,
