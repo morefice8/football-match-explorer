@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from plotly.colors import sample_colorscale
 from .plotly_branding import (
+    add_attacking_direction,
     apply_dark_pitch_layout,
 )
 
@@ -607,18 +608,7 @@ def plot_cross_heatmap(
     # ATTACKING DIRECTION
     # ---------------------------------------------------------
 
-    fig.add_annotation(
-        x=98,
-        y=103,
-        text='<b>ATTACKING →</b>',
-        showarrow=False,
-        xanchor='right',
-
-        font=dict(
-            color='#94dbea',
-            size=10,
-        ),
-    )
+    add_attacking_direction(fig, dark=True)
 
     # ---------------------------------------------------------
     # LAYOUT
