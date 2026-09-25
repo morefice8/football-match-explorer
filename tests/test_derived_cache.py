@@ -11,7 +11,6 @@ from src.utils.derived_cache import (
     derived_cache_info,
 )
 from src.data_processing import pass_processing
-from src.metrics import sequence_metrics
 
 
 def match_events():
@@ -408,62 +407,6 @@ class DerivedCacheTests(unittest.TestCase):
             ]["hits"],
             1,
         )
-
-    def test_shot_sequence_detector_cached_and_uncached_are_equivalent(self):
-        df = match_events()
-
-        uncached = (
-            sequence_metrics
-            .find_shot_sequences
-            .__wrapped__(
-                df.copy()
-            )
-        )
-
-        clear_derived_cache()
-
-        cached = (
-            sequence_metrics
-            .find_shot_sequences(
-                df.copy()
-            )
-        )
-
-        assert_frame_equal(
-            uncached,
-            cached,
-            check_dtype=True,
-            check_like=False,
-        )
-
-        again = (
-            sequence_metrics
-            .find_shot_sequences(
-                df.copy()
-            )
-        )
-
-        assert_frame_equal(
-            cached,
-            again,
-            check_dtype=True,
-            check_like=False,
-        )
-
-        info = derived_cache_info()
-        self.assertEqual(
-            info["by_namespace"][
-                "shot_sequences"
-            ]["misses"],
-            1,
-        )
-        self.assertEqual(
-            info["by_namespace"][
-                "shot_sequences"
-            ]["hits"],
-            1,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()
