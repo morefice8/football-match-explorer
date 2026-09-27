@@ -127,7 +127,7 @@ class ShotClassificationTests(unittest.TestCase):
 class ShotClassificationPackIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from tests.test_report11_real_shaped_fixture import _processed_fixture
+        from test_report11_real_shaped_fixture import _processed_fixture
 
         frame, match_info = _processed_fixture()
         saved = frame.index[frame["type_name"].eq("Attempt Saved")].tolist()
