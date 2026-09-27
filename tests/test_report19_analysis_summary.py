@@ -22,7 +22,7 @@ from src.reporting.figure_catalog import (
     build_report_figure_catalog,
 )
 from src.reporting.pack_builder import build_match_analysis_pack
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 def _dummy_renderer(*args, **kwargs):
@@ -185,6 +185,38 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
         self.assertEqual(
             splits["Away FC"]["goals"],
             {"leading": 0, "drawing": 1, "trailing": 0},
+        )
+
+    def test_game_state_splits_include_passing_volume_and_accuracy(self):
+        splits = {row["team"]: row for row in self.summary["game_state_splits"]}
+
+        self.assertEqual(
+            splits["Home FC"]["passing"],
+            {
+                "leading": {
+                    "attempted": 0, "completed": 0, "completion_pct": None,
+                },
+                "drawing": {
+                    "attempted": 8, "completed": 7, "completion_pct": 87.5,
+                },
+                "trailing": {
+                    "attempted": 6, "completed": 6, "completion_pct": 100.0,
+                },
+            },
+        )
+        self.assertEqual(
+            splits["Away FC"]["passing"],
+            {
+                "leading": {
+                    "attempted": 0, "completed": 0, "completion_pct": None,
+                },
+                "drawing": {
+                    "attempted": 6, "completed": 5, "completion_pct": 83.3,
+                },
+                "trailing": {
+                    "attempted": 0, "completed": 0, "completion_pct": None,
+                },
+            },
         )
 
     def test_cards_are_absent_gracefully_when_match_has_none(self):

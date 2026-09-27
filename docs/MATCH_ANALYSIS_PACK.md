@@ -1,5 +1,19 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.10
+
+This is an additive schema update extending game-state splits (introduced in
+schema 1.9) from shots-only to also cover passing volume and accuracy. It is
+still deliberately scoped to two metrics, not every metric in the pack.
+
+`analysis-summary.json` moves from schema 1.5 to 1.6: each entry in
+`game_state_splits` gains a `passing` object keyed by `leading`/`drawing`/
+`trailing`, each with `attempted`, `completed` and `completion_pct` (null
+when a team attempted zero passes in that state). Passes are re-tagged with
+the same per-instant game-state logic already used for shots, reusing the
+same `pass-locations` frame the pack's own `passing` section and the live
+app already read — no new pass-detection logic, no new football semantics.
+
 ## Pack schema 1.9
 
 This is an additive schema update that aggregates the per-shot `game_state`

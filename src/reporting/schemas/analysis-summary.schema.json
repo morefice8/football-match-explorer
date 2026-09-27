@@ -30,7 +30,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.5"
+      "const": "1.6"
     },
     "match": {
       "type": "object",
@@ -466,7 +466,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.5"
+          "const": "1.6"
         },
         "figures_expected": {
           "type": [

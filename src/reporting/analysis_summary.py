@@ -18,7 +18,7 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.5"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.6"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
@@ -571,16 +571,91 @@ def _shots(bundle) -> list[dict[str, Any]]:
     return rows
 
 
+def _passing_game_state_splits(
+    bundle,
+    home_team: Any,
+    away_team: Any,
+    goal_events: Sequence[tuple[int, int, Any]],
+) -> dict[Any, dict[str, dict[str, Any]]]:
+    """Per-team pass attempted/completed counts split by game state.
+
+    Reuses the same ``pass-locations`` frame the live app and the pack's
+    own ``passing`` section already read (``pass_processing.get_passes_df``
+    output) rather than recomputing pass detection -- this is a re-tag of
+    existing rows, not a second source of truth for what counts as a pass.
+    """
+
+    data = _section_data(bundle, "pass-locations")
+    frame = (
+        _as_frame(data.get("passes")) if isinstance(data, Mapping) else pd.DataFrame()
+    )
+
+    result = {
+        team: {
+            state: {"attempted": 0, "completed": 0, "completion_pct": None}
+            for state in GAME_STATES
+        }
+        for team in (home_team, away_team)
+    }
+    if frame.empty:
+        return result
+
+    outcome = frame.get("outcome", pd.Series("", index=frame.index))
+    outcome_text = outcome.fillna("").astype(str).str.strip().str.lower()
+    outcome_numeric = pd.to_numeric(outcome, errors="coerce")
+    successful = (outcome_text.eq("successful") | outcome_numeric.eq(1)).fillna(False)
+
+    minute_col = _column(frame, "timeMin", "minute")
+    second_col = _column(frame, "timeSec", "second")
+
+    counts = {
+        team: {state: [0, 0] for state in GAME_STATES}
+        for team in (home_team, away_team)
+    }
+    team_col = _column(frame, "team_name", "teamName", "team")
+    for idx, row in frame.iterrows():
+        team = row.get(team_col) if team_col else None
+        if team not in counts:
+            continue
+        minute = _safe_number(row.get(minute_col)) if minute_col else None
+        second = _safe_number(row.get(second_col)) if second_col else None
+        state = _game_state_at(minute, second, team, home_team, away_team, goal_events)
+        if state not in GAME_STATES:
+            continue
+        counts[team][state][0] += 1
+        if bool(successful.loc[idx]):
+            counts[team][state][1] += 1
+
+    for team, by_state in counts.items():
+        for state, (attempted, completed) in by_state.items():
+            result[team][state] = {
+                "attempted": attempted,
+                "completed": completed,
+                "completion_pct": (
+                    round(completed / attempted * 100, 1) if attempted else None
+                ),
+            }
+    return result
+
+
 def _game_state_splits(
     bundle, shots: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Per-team shot/goal counts split by leading/drawing/trailing state.
+    """Per-team shot/goal/passing counts split by leading/drawing/trailing state.
 
-    A direct aggregation of the already-computed ``shots`` list (each shot
-    is tagged with ``game_state`` there) — no independent computation, so
-    the two can never disagree. Scoped to shots only: this does not split
-    every metric in the pack by game state, only shot volume and end result.
+    Shots/goals are a direct aggregation of the already-computed ``shots``
+    list (each shot is tagged with ``game_state`` there) — no independent
+    computation, so the two can never disagree. Passing is re-tagged here
+    from the same pass-locations frame the rest of the pack already uses.
+    Deliberately still scoped to shots and passing only, not every metric in
+    the pack.
     """
+
+    home_team, away_team = (tuple(_teams(bundle)) + (None, None))[:2]
+    goal_events = _goal_score_events(_goal_rows(bundle))
+    passing_splits = _passing_game_state_splits(
+        bundle, home_team, away_team, goal_events
+    )
 
     summary = {
         team: {
@@ -599,7 +674,17 @@ def _game_state_splits(
         if shot.get("outcome") == "goal":
             summary[team]["goals"][state] += 1
 
-    return [{"team": team, **payload} for team, payload in summary.items()]
+    return [
+        {
+            "team": team,
+            **payload,
+            "passing": passing_splits.get(
+                team,
+                {state: {"attempted": 0, "completed": 0, "completion_pct": None} for state in GAME_STATES},
+            ),
+        }
+        for team, payload in summary.items()
+    ]
 
 
 def _cards(bundle) -> list[dict[str, Any]]:
