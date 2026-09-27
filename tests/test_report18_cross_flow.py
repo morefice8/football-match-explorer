@@ -23,7 +23,7 @@ from src.reporting.pdf_renderer import (
     _styles,
     _table_payloads,
 )
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 def _tiny_png():

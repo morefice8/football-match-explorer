@@ -27,7 +27,7 @@ from src.reporting.render_audit import (
     section_key,
 )
 from src.reporting.bundle import ReportSectionStatus
-from tests.test_report_pdf_renderer import _bundle
+from test_report_pdf_renderer import _bundle
 
 
 def _catalog() -> MatchReportFigureCatalog:

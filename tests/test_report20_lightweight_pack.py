@@ -23,7 +23,7 @@ from src.reporting.pack_builder import (
     TABLE_PATHS,
     build_match_analysis_pack,
 )
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 def _tiny_png() -> bytes:

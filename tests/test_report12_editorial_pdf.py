@@ -25,7 +25,7 @@ from src.reporting.pdf_renderer import (
     _table_story_for_spec,
     render_match_report_pdf,
 )
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 def _page_count(pdf: bytes) -> int:

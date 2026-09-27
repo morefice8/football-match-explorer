@@ -10,7 +10,7 @@ from src.reporting.figure_catalog import (
     RendererRegistry,
     build_report_figure_catalog,
 )
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 class Report223PlayerHighlightJerseyTests(unittest.TestCase):

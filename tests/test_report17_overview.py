@@ -15,7 +15,7 @@ from src.reporting.pdf_renderer import (
     _quality_strip_values,
     render_match_report_pdf,
 )
-from tests.test_report11_real_shaped_fixture import _processed_fixture
+from test_report11_real_shaped_fixture import _processed_fixture
 
 
 class Report17OverviewTests(unittest.TestCase):

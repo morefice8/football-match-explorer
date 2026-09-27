@@ -20,8 +20,8 @@ from src.reporting.figure_catalog import (
 )
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.pack_builder import build_match_analysis_pack
-from tests.test_report_pdf_renderer import _bundle
-from tests.test_report_download_integration import stored_match, successful_preflight
+from test_report_pdf_renderer import _bundle
+from test_report_download_integration import stored_match, successful_preflight
 
 
 class RenderAuditTests(unittest.TestCase):
