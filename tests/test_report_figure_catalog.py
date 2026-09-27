@@ -273,6 +273,8 @@ class ReportFigureCatalogTests(unittest.TestCase):
                 "player-pass-map",
                 "player-reception-map",
                 "player-defensive-map",
+                "shot-map",
+                "shot-placement",
             },
         )
 

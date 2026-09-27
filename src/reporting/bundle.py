@@ -1020,6 +1020,34 @@ def _pass_locations(ctx: _BundleContext) -> _Produced:
     )
 
 
+def _shooting(ctx: _BundleContext) -> _Produced:
+    from src.metrics import shot_metrics
+
+    hxg = ctx.match_info.get("hxG")
+    axg = ctx.match_info.get("axG")
+    hxgot = ctx.match_info.get("hxGOT")
+    axgot = ctx.match_info.get("axGOT")
+    # Same "shot-stats" cache key _overview() uses -- ctx.once() means this
+    # reuses the already-computed shots_df instead of reclassifying shots.
+    shots_df, _, _ = ctx.once(
+        "shot-stats",
+        lambda: shot_metrics.calculate_shot_stats(
+            ctx.df,
+            ctx.home_team,
+            ctx.away_team,
+            hxg,
+            axg,
+            hxgot,
+            axgot,
+        ),
+    )
+
+    return _produced(
+        {"shots": shots_df},
+        empty=shots_df.empty,
+    )
+
+
 def _cross_flow(ctx: _BundleContext) -> _Produced:
     data = {}
     non_empty = False
@@ -1514,6 +1542,7 @@ _SECTION_PRODUCERS: dict[str, Callable[[_BundleContext], _Produced]] = {
     "progressive-passes": _progressive_passes,
     "final-third-entries": _final_third_entries,
     "pass-locations": _pass_locations,
+    "shooting": _shooting,
     "cross-flow": _cross_flow,
     "build-up": _build_up,
     "defensive-shape": _defensive_shape,

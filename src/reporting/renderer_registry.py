@@ -94,6 +94,16 @@ VALIDATED_RENDERERS: dict[str, RendererRef] = {
         "src.visualization.defender_action_map",
         "plot_defensive_action_profile",
     ),
+    "shot-map": RendererRef(
+        "shot-map",
+        "src.visualization.shot_map_plotly",
+        "plot_shot_map",
+    ),
+    "shot-placement": RendererRef(
+        "shot-placement",
+        "src.visualization.shot_placement_plotly",
+        "plot_shot_placement",
+    ),
 }
 
 

@@ -105,7 +105,7 @@ class ReportBundleTests(unittest.TestCase):
             {section.status for section in bundle.sections},
             {ReportSectionStatus.GENERATED},
         )
-        self.assertEqual(len(bundle.sections), 16)
+        self.assertEqual(len(bundle.sections), 17)
 
         encoded = bundle.to_json()
         decoded = json.loads(encoded)
@@ -139,7 +139,7 @@ class ReportBundleTests(unittest.TestCase):
                 {"hteamName": "Home FC", "ateamName": "Away FC"},
             )
 
-        self.assertEqual(len(bundle.sections), 16)
+        self.assertEqual(len(bundle.sections), 17)
         self.assertTrue(
             all(
                 section.status

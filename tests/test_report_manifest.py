@@ -22,6 +22,7 @@ EXPECTED_SECTION_IDS = (
     "progressive-passes",
     "final-third-entries",
     "pass-locations",
+    "shooting",
     "cross-flow",
     "build-up",
     "defensive-shape",
@@ -41,6 +42,7 @@ EXPECTED_REQUIRED_SECTION_IDS = (
     "progressive-passes",
     "final-third-entries",
     "pass-locations",
+    "shooting",
     "cross-flow",
     "build-up",
     "defensive-shape",
@@ -64,7 +66,7 @@ class ReportManifestTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(section.order for section in REPORT_MANIFEST.sections),
-            tuple(range(1, 17)),
+            tuple(range(1, 18)),
         )
 
     def test_manifest_serializes_to_json_safe_structure(self):
@@ -75,7 +77,7 @@ class ReportManifestTests(unittest.TestCase):
         self.assertEqual(decoded, payload)
         self.assertEqual(decoded["id"], "match-analysis-report")
         self.assertEqual(decoded["schema_version"], "1.0")
-        self.assertEqual(len(decoded["sections"]), 16)
+        self.assertEqual(len(decoded["sections"]), 17)
 
     def test_required_sections_are_present(self):
         self.assertEqual(

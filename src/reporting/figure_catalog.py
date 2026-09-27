@@ -1419,6 +1419,70 @@ def _render_ppda(
     )
 
 
+def _render_shots(
+    bundle,
+    plan: FigurePlan,
+    registry: RendererRegistry,
+    config: FigureCatalogConfig,
+) -> _Rendered:
+    teams = _teams(bundle)
+    if len(teams) != 2:
+        return _Rendered(
+            _placeholder(plan, "Shot figures require both teams."),
+            ReportFigureStatus.EMPTY,
+        )
+
+    section = _section(bundle, "shooting")
+    data = getattr(section, "data", {}) or {}
+    shots_df = _as_frame(data.get("shots"))
+    if shots_df.empty:
+        return _Rendered(
+            _placeholder(plan, "No shots recorded for either team."),
+            ReportFigureStatus.EMPTY,
+        )
+
+    home_plan = FigurePlan(
+        plan.section_id,
+        plan.section_order,
+        plan.figure_id,
+        plan.title,
+        plan.width_px,
+        plan.height_px,
+        teams[0],
+        0,
+        "summary",
+    )
+    away_plan = FigurePlan(
+        plan.section_id,
+        plan.section_order,
+        plan.figure_id,
+        plan.title,
+        plan.width_px,
+        plan.height_px,
+        teams[1],
+        1,
+        "summary",
+    )
+
+    renderer_id = (
+        "shot-map"
+        if plan.figure_id == "shot-map-figure"
+        else "shot-placement"
+    )
+    figure = registry.resolve(renderer_id)(
+        shots_df,
+        home_team=teams[0],
+        away_team=teams[1],
+        hcol=_team_color(bundle, home_plan, config),
+        acol=_team_color(bundle, away_plan, config),
+    )
+    return _Rendered(
+        _pdf_layout(figure, plan),
+        ReportFigureStatus.GENERATED,
+        renderer_id,
+    )
+
+
 def _render_player_highlight(
     bundle,
     plan: FigurePlan,
@@ -1595,6 +1659,17 @@ def _render_plan(
             config,
         )
 
+    if plan.figure_id in {
+        "shot-map-figure",
+        "shot-placement-figure",
+    }:
+        return _render_shots(
+            bundle,
+            plan,
+            registry,
+            config,
+        )
+
     if plan.figure_id == "defensive-transitions-top-sequence":
         return _render_transition(
             bundle,
@@ -1695,6 +1770,22 @@ def build_figure_plans(
                                 variant,
                             )
                         )
+                continue
+
+            if figure.id in ("shot-map-figure", "shot-placement-figure"):
+                plans.append(
+                    FigurePlan(
+                        section.id,
+                        section.order,
+                        figure.id,
+                        figure.title,
+                        figure.export.width_px,
+                        figure.export.height_px,
+                        None,
+                        None,
+                        "summary",
+                    )
+                )
                 continue
 
             if figure.id == "ppda-figure":

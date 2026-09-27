@@ -311,13 +311,28 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
             ),
         ),
     ),
+    section(
+        "shooting",
+        "Shooting",
+        8,
+        figures=(
+            figure(
+                "shot-map-figure",
+                "Shot Map",
+            ),
+            figure(
+                "shot-placement-figure",
+                "Shot Placement",
+            ),
+        ),
+    ),
     # REPORT-18: the static report keeps one origin-to-destination flow
     # per team. Separate origin/destination heatmaps remain available through
     # the interactive analysis and the underlying detailed cross data.
     section(
         "cross-flow",
         "Cross Flow",
-        8,
+        9,
         figures=(
             figure(
                 "cross-flow-figure",
@@ -340,7 +355,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "build-up",
         "Build-up",
-        9,
+        10,
         figures=(
             figure(
                 "build-up-top-sequence",
@@ -363,7 +378,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "defensive-shape",
         "Defensive Density",
-        10,
+        11,
         figures=(
             figure(
                 "defensive-shape-figure",
@@ -382,7 +397,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "ppda",
         "PPDA",
-        11,
+        12,
         figures=(
             figure(
                 "ppda-figure",
@@ -399,7 +414,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "defensive-transitions",
         "Defensive Transitions",
-        12,
+        13,
         figures=(
             figure(
                 "defensive-transitions-top-sequence",
@@ -427,7 +442,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "offensive-transitions",
         "Offensive Transitions",
-        13,
+        14,
         figures=(
             figure(
                 "offensive-transitions-top-sequence",
@@ -455,7 +470,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "restarts",
         "Restarts",
-        14,
+        15,
         figures=(
             figure(
                 "restart-map",
@@ -482,7 +497,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "player-highlights",
         "Player highlights",
-        15,
+        16,
         required=False,
         figures=(
             figure(
@@ -519,7 +534,7 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
     section(
         "methodology-appendix",
         "Methodology/appendix",
-        16,
+        17,
         export=PORTRAIT_PAGE,
         tables=(
             table(
