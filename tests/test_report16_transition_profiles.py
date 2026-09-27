@@ -238,21 +238,57 @@ class Report16TransitionProfileTests(unittest.TestCase):
                     doc.multiBuild(story)
                     self.assertEqual(_page_count(buffer.getvalue()), 2)
 
-    def test_full_event_rows_remain_in_transition_csvs(self):
+    def test_transition_csvs_are_compact_profiles_not_full_event_rows(self):
+        # REPORT-20 ("lightweight match data pack") deliberately made these
+        # CSVs compact aggregate profiles -- one row per team "summary" plus
+        # one row per zone/channel/outcome/terminal-outcome/trigger-type
+        # category (see data_exports.build_transition_summary's own
+        # docstring: "compact canonical transition profiles, never event
+        # rows") -- not a dump of every individual transition event. This
+        # used to assert row-for-row parity with the raw per-event
+        # "combined" frame; that contract predates REPORT-20 and no longer
+        # holds, so the row count is now derived from the same stats
+        # sub-structures build_transition_summary itself sums, rather than
+        # hardcoding today's fixture-specific number.
         tables = build_pack_tables(self.bundle)
         for section_id, path in (
             ("defensive-transitions", "tables/defensive-transitions.csv"),
             ("offensive-transitions", "tables/offensive-transitions.csv"),
         ):
             section = self.bundle.section(section_id)
-            expected_rows = sum(
-                len(section.data[team]["combined"])
-                for team in self.bundle.teams
-            )
+            expected_rows = 0
+            for team in self.bundle.teams:
+                payload = section.data.get(team, {}) or {}
+                stats = payload.get("stats", {}) or {}
+                expected_rows += 1  # the "summary" row
+                profile = stats.get("transition_profile_table")
+                if profile is not None:
+                    expected_rows += len(profile)
+                for key in ("outcomes", "terminal_outcomes", "flanks", "types"):
+                    values = stats.get(key, {})
+                    if isinstance(values, dict):
+                        expected_rows += len(values)
+
             frame = tables[path]
             self.assertEqual(len(frame), expected_rows)
             self.assertIn("report_team", frame.columns)
-            self.assertIn("loss_sequence_id", frame.columns)
+            # A fixed set of aggregate categories, not a raw event dump: no
+            # "loss_sequence_id"/event-level identity column, and every row
+            # belongs to one of the known dimensions build_transition_summary
+            # actually emits.
+            self.assertNotIn("loss_sequence_id", frame.columns)
+            self.assertTrue(
+                set(frame["dimension"]).issubset(
+                    {
+                        "summary",
+                        "start_zone_channel",
+                        "outcome",
+                        "terminal_outcome",
+                        "channel",
+                        "trigger_type",
+                    }
+                )
+            )
 
 
 if __name__ == "__main__":
