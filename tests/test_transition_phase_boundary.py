@@ -246,7 +246,18 @@ class TransitionPhaseBoundaryTests(
                 'Goal',
                 x=85,
                 end_x=100,
-                second=15,
+                # Deliberately beyond both the base 12s window AND the 4s
+                # terminal grace period added in 3753079 ("improve offensive
+                # transition possession continuity"): event 3 already
+                # reaches the final third (end_x=75 >= the 66.67 advanced-x
+                # threshold) inside the base window, so a goal at 15s would
+                # now correctly qualify for terminal grace and count as
+                # "Goals" -- that's the intended newer behaviour, not what
+                # this test is checking. 25s is unambiguously past window
+                # (12s) + grace (4s) = 16s, so this still tests the case the
+                # name promises: a shot far enough after the loss that even
+                # the grace period doesn't rescue it.
+                second=25,
             ),
         ])
 

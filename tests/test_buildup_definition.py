@@ -140,7 +140,7 @@ class ReliableBuildupDefinitionTests(unittest.TestCase):
         self.assertFalse(result.empty)
         row = result.iloc[-1]
 
-        self.assertEqual(row['type_of_initial_trigger'], 'Goal kick')
+        self.assertEqual(row['type_of_initial_trigger'], 'Goal Kick')
         self.assertEqual(row['first_active_action_type'], 'Goal kick')
         self.assertEqual(row['buildup_type'], 'Long Ball')
         self.assertEqual(row['terminal_outcome'], 'consolidated')
