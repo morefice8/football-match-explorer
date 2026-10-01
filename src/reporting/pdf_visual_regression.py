@@ -54,8 +54,8 @@ _SNAPSHOT_SELECTORS = (
     ("cover", ("__cover__",)),
     ("overview", ("SECTION 01", "Overview and data coverage")),
     ("pitch", ("SECTION 03", "Mean Positions")),
-    ("transitions", ("SECTION 12", "Defensive Transitions")),
-    ("player-highlights", ("SECTION 15", "Player highlights")),
+    ("transitions", ("SECTION 13", "Defensive Transitions")),
+    ("player-highlights", ("SECTION 16", "Player highlights")),
 )
 
 
