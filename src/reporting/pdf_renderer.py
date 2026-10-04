@@ -4111,6 +4111,14 @@ _SECTION_INTRO_CAPTIONS: dict[str, str] = {
         "penalty area -- widely considered the most dangerous zone to "
         "receive the ball in before creating a chance."
     ),
+    "build-up": (
+        "Sequences below are ranked by outcome quality (goal, then shot, "
+        "then box entry, then territorial progress) -- any sequence that "
+        "produced a shot or goal will always surface first. Most "
+        "build-ups in a match end safely, with possession retained or "
+        "the clock running out, so long runs of the same outcome reflect "
+        "how the match actually went, not a gap in the data."
+    ),
 }
 
 
