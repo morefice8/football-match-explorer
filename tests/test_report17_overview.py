@@ -148,14 +148,22 @@ class Report17OverviewTests(unittest.TestCase):
             "Decisive mechanism",
             "Creator",
             "Analysis / linked sequence",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, text)
+
+        # REPORT-17 overview is the customer-facing editorial page; the
+        # internal data-quality diagnostics (qualifier coverage, receiver
+        # resolution, etc.) are QA signal, not reader content, and must not
+        # leak into this page.
+        for internal in (
             "Quality strip",
             "Receiver coverage",
             "Coordinate coverage",
             "Unmapped qualifiers",
-            "Failures",
         ):
-            with self.subTest(required=required):
-                self.assertIn(required, text)
+            with self.subTest(internal=internal):
+                self.assertNotIn(internal, text)
 
         self.assertNotIn("goal_type", text.casefold())
         self.assertNotIn("Type G", text)

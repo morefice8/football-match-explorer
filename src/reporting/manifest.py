@@ -195,11 +195,6 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
                 "Goal origins and creation",
                 export=PORTRAIT_PAGE,
             ),
-            table(
-                "data-coverage",
-                "Quality strip",
-                export=PORTRAIT_PAGE,
-            ),
         ),
     ),
     section(
@@ -545,11 +540,6 @@ REPORT_SECTIONS: tuple[ReportSectionSpec, ...] = (
             table(
                 "metric-definitions",
                 "Metric definitions",
-                export=PORTRAIT_PAGE,
-            ),
-            table(
-                "data-quality-notes",
-                "Data quality notes",
                 export=PORTRAIT_PAGE,
             ),
         ),

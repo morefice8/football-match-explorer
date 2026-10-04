@@ -2820,40 +2820,6 @@ def _quality_strip_values(bundle, catalog) -> list[dict[str, str]]:
     ]
 
 
-def _quality_strip_table(bundle, catalog, styles) -> Table:
-    values = _quality_strip_values(bundle, catalog)
-    cells = []
-    for item in values:
-        cells.append(
-            [
-                Paragraph(escape(str(item["label"])), styles["small"]),
-                Paragraph(f"<b>{escape(str(item['value']))}</b>", styles["body"]),
-                Paragraph(escape(str(item["detail"])), styles["small"]),
-            ]
-        )
-
-    table = Table(
-        [cells],
-        colWidths=[268 * mm / len(cells)] * len(cells),
-        hAlign="LEFT",
-    )
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
-                ("BOX", (0, 0), (-1, -1), 0.35, BORDER),
-                ("INNERGRID", (0, 0), (-1, -1), 0.25, BORDER),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 5),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
-    return table
-
-
 def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
     """Editorial match-first Overview constrained to at most two pages."""
 
@@ -2902,11 +2868,6 @@ def _overview_section_story(bundle, catalog, styles, config) -> list[Any]:
             )
         )
         _mark_table_composed(config, "overview", "goal-context")
-    story.append(Spacer(1, 2.5 * mm))
-
-    story.append(Paragraph("Quality strip", styles["table_subheading"]))
-    story.append(_quality_strip_table(bundle, catalog, styles))
-    _mark_table_composed(config, "overview", "data-coverage")
 
     return story
 
@@ -3325,25 +3286,6 @@ def _table_payloads(
         ]
         return [("Metric definitions", pd.DataFrame(definitions))]
 
-    if table_id == "data-quality-notes":
-        overview = _section(bundle, "overview")
-        data = getattr(overview, "data", {}) or {}
-        coverage = data.get("data_coverage", {}) if isinstance(data, Mapping) else {}
-        frame = pd.DataFrame(_mapping_rows(coverage))
-        frame = _metric_rows(
-            frame,
-            exact=(
-                "event_rows",
-                "receiver.eligible",
-                "receiver.resolved",
-                "receiver.coverage_pct",
-                "coordinates.coverage_pct",
-                "outcome.known_pct",
-            ),
-            limit=6,
-        )
-        return [("Data quality notes", frame)]
-
     return []
 
 
@@ -3719,65 +3661,6 @@ def _overview_notes(bundle, styles) -> list[Any]:
         _long_table(pd.DataFrame(rows), styles, max_columns=4),
         Spacer(1, 4 * mm),
     ]
-
-
-def _appendix_manifest_table(manifest: ReportManifest) -> pd.DataFrame:
-    rows = []
-    for section in manifest.sections:
-        rows.append(
-            {
-                "Order": section.order,
-                "Section ID": section.id,
-                "Title": section.title,
-                "Required": bool(section.required),
-                "Figures": ", ".join(item.id for item in section.figures) or "-",
-                "Tables": ", ".join(item.id for item in section.tables) or "-",
-            }
-        )
-    return pd.DataFrame(rows)
-
-
-def _generation_notes(bundle, catalog, manifest, styles, config) -> list[Any]:
-    methodology = _section(bundle, "methodology-appendix")
-    methodology_data = getattr(methodology, "data", {}) or {}
-
-    lines = [
-        "This PDF is the editorial reading layer of the Match Analysis Pack.",
-        "analysis-summary.json is the machine-readable entry point; canonical event rows are stored once in tables/events-core.csv.",
-        "Compact CSV exports contain aggregates, rankings and sequence summaries rather than duplicate event tables.",
-        "Full report-data.json and the wide event explorer are available only in debug exports.",
-        "Empty or failed sections remain explicit so missing data is never hidden.",
-    ]
-
-    story: list[Any] = [
-        Paragraph("Generation manifest", styles["subheading"]),
-    ]
-    for line in lines:
-        story.append(Paragraph(escape(line), styles["body"]))
-
-    story.extend(
-        [
-            Paragraph(
-                "The full machine-readable manifest, section statuses and plot statuses are stored in report-manifest.json.",
-                styles["small"],
-            ),
-            Paragraph("Generation metadata", styles["table_subheading"]),
-            _long_table(
-                pd.DataFrame(
-                    [
-                        {
-                            "scope": getattr(getattr(bundle, "scope", None), "value", getattr(bundle, "scope", "")),
-                            "figure_count": len(getattr(catalog, "figures", ()) or ()),
-                            "manifest_version": getattr(catalog, "manifest_version", manifest.schema_version),
-                        }
-                    ]
-                ),
-                styles,
-                max_columns=3,
-            ),
-        ]
-    )
-    return story
 
 
 def _cross_flow_section_story(
@@ -4258,17 +4141,6 @@ def _section_story(
                 styles,
                 config,
                 section_id=section_spec.id,
-            )
-        )
-
-    if section_spec.id == "methodology-appendix":
-        story.extend(
-            _generation_notes(
-                bundle,
-                catalog,
-                manifest,
-                styles,
-                config,
             )
         )
 
