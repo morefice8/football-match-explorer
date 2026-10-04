@@ -4099,6 +4099,21 @@ def _transition_section_story(
     return story
 
 
+_SECTION_INTRO_CAPTIONS: dict[str, str] = {
+    "ppda": (
+        "PPDA (Passes allowed Per Defensive Action) measures pressing "
+        "intensity: how many passes the opponent completes, on average, "
+        "before this team makes a tackle, interception, challenge or foul. "
+        "Lower means more aggressive, higher-intensity pressing."
+    ),
+    "final-third-entries": (
+        "Zone 14 is the central strip of the pitch just outside the "
+        "penalty area -- widely considered the most dangerous zone to "
+        "receive the ball in before creating a chance."
+    ),
+}
+
+
 def _section_story(
     bundle,
     catalog,
@@ -4112,6 +4127,11 @@ def _section_story(
 
     story: list[Any] = []
     story.extend(_section_heading(section_spec, styles))
+
+    intro_caption = _SECTION_INTRO_CAPTIONS.get(section_spec.id)
+    if intro_caption:
+        story.append(Paragraph(escape(intro_caption), styles["small"]))
+        story.append(Spacer(1, 2 * mm))
 
     if status == "error":
         story.extend(
