@@ -2266,7 +2266,7 @@ def plot_pass_network_profile_plotly(edges, nodes, team_name, *, is_away=False):
         ))
 
     if nodes.empty:
-        add_zero_state(fig, "No eligible players in this window", dark=True)
+        add_zero_state(fig, "No eligible players in this window", dark_pitch=True)
     else:
         involvement = pd.to_numeric(nodes["pass_involvement"], errors="coerce").fillna(0)
         max_involvement = max(float(involvement.max()), 1.0)
