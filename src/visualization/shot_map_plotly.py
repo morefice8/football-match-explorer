@@ -126,6 +126,40 @@ def _add_team_traces(fig, team_shots, team_name, color, *, show_team_legend):
         )
 
 
+def _add_outcome_legend(fig, shots_df):
+    """Add one legend-only marker per outcome actually present in the data.
+
+    _add_team_traces deliberately suppresses its own per-outcome legend
+    entries to avoid a team x outcome cross-product (up to 12 entries) --
+    but that left the chart's "marker shape = shot outcome" subtitle
+    pointing at a key that didn't exist anywhere on the chart. This adds
+    that missing key as a compact, neutral-colored second legend group
+    (shape only, not team color), sized to however many distinct outcomes
+    the match actually produced rather than the full fixed outcome list.
+    """
+    present = [
+        outcome
+        for outcome in OUTCOME_ORDER
+        if (shots_df["shot_outcome"] == outcome).any()
+    ]
+    for outcome in present:
+        style = OUTCOME_STYLE[outcome]
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                name=style["label"],
+                legendgroup="outcome",
+                marker=dict(
+                    symbol=style["symbol"],
+                    size=style["size"],
+                    color=UNKNOWN_COLOR,
+                ),
+            )
+        )
+
+
 def plot_shot_map(shots_df, *, home_team, away_team, hcol, acol):
     """Return a Plotly figure with every counted shot from both teams.
 
@@ -158,6 +192,7 @@ def plot_shot_map(shots_df, *, home_team, away_team, hcol, acol):
     else:
         _add_team_traces(fig, home_shots, home_team, hcol, show_team_legend=True)
         _add_team_traces(fig, away_shots, away_team, acol, show_team_legend=True)
+        _add_outcome_legend(fig, pd.concat([home_shots, away_shots]))
 
         has_unknown = bool(
             pd.concat([home_shots, away_shots])["shot_outcome"].eq("unknown").any()
