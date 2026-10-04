@@ -1346,6 +1346,18 @@ def _render_restart(
 
     # restart_map is list-of-records based; DataFrame truth testing is ambiguous.
     records = records_frame.to_dict(orient="records")
+    if plan.figure_id == "restart-top-sequence":
+        # Unlike restart-map (the full overview), top-sequence is meant to
+        # isolate the one representative restart, matching how every other
+        # section's "top sequence" figure (build-up, transitions) renders
+        # only the selected sequence's own events rather than the full
+        # population with a highlight baked in.
+        records = [
+            record
+            for record in records
+            if str(record.get("sequence_id")) == str(selection.selected_id)
+        ]
+
     figure = registry.resolve("restart-map")(
         records,
         team_color=_team_color(bundle, plan, config),
