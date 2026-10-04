@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import re
 import time
 import unicodedata
 from io import BytesIO
@@ -1270,7 +1271,6 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "Passes",
         "Analysis / linked sequence",
     ),
-    "data-coverage": ("Metric", "Value"),
     "formation-spells": (
         "start",
         "end",
@@ -1428,7 +1428,6 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
     ),
     "methodology-notes": ("Metric", "Value"),
     "metric-definitions": ("Term", "Definition"),
-    "data-quality-notes": ("Metric", "Value"),
 }
 
 
@@ -1454,6 +1453,76 @@ def _format_table_cell(value: Any) -> str:
     return _pdf_safe_helvetica_text(text)
 
 
+_HEADER_ACRONYMS = {"ppda", "id"}
+_HEADER_UNIT_SUFFIXES = {
+    "m": "(m)",
+    "s": "(s)",
+    "seconds": "(s)",
+    "pct": "%",
+    "percent": "%",
+}
+
+
+def _humanize_header(name: Any) -> str:
+    """Turn a raw identifier-style column name into sentence-case display text.
+
+    Headers already written out by hand (start with an uppercase letter or a
+    symbol, no snake_case/camelCase markers) are returned unchanged, so this
+    only touches the raw `team_name`/`playerName`/`zone14`-style identifiers
+    that otherwise leak straight from the DataFrame into the PDF.
+    """
+
+    text = str(name)
+    if not text:
+        return text
+    if text[0].isupper() and "_" not in text and not re.search(r"[a-z][A-Z]", text):
+        return text
+
+    spaced = text.replace("_", " ")
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", spaced)
+    spaced = re.sub(r"(?<=[a-zA-Z])(?=[0-9])", " ", spaced)
+    words = [word for word in re.split(r"\s+", spaced.strip()) if word]
+    if not words:
+        return text
+
+    unit = None
+    if words[-1].lower() in _HEADER_UNIT_SUFFIXES:
+        unit = _HEADER_UNIT_SUFFIXES[words.pop().lower()]
+    if not words:
+        return unit or text
+
+    rendered = []
+    for index, word in enumerate(words):
+        lower = word.lower()
+        if lower in _HEADER_ACRONYMS:
+            rendered.append(lower.upper())
+        elif index == 0:
+            rendered.append(lower.capitalize())
+        else:
+            rendered.append(lower)
+
+    label = " ".join(rendered)
+    return f"{label} {unit}" if unit else label
+
+
+def _humanize_enum_value(value: Any) -> str:
+    """Title-case a raw snake_case/lowercase enum value for display.
+
+    Leaves anything with existing uppercase alone (e.g. "Possession
+    Consolidated", "Goal Kick"), since those are already deliberately
+    authored labels -- this only catches the raw internal values
+    (terminal_outcome's "consolidated", termination_reason's
+    "time_window_elapsed") that otherwise leak past the humanization
+    already applied to sibling dimensions like "Outcome".
+    """
+
+    text = str(value)
+    if not text or any(char.isupper() for char in text):
+        return text
+    spaced = text.replace("_", " ").strip()
+    return spaced.title() if spaced else text
+
+
 def _long_table(
     frame: pd.DataFrame,
     styles,
@@ -1466,7 +1535,7 @@ def _long_table(
     if frame.empty:
         return _placeholder_box("No table rows available.", styles)
 
-    headers = [str(column) for column in frame.columns]
+    headers = [_humanize_header(column) for column in frame.columns]
     data: list[list[Any]] = [
         [Paragraph(escape(header), styles["table_header"]) for header in headers]
     ]
@@ -1886,7 +1955,7 @@ def _transition_taxonomy_rows(bundle, section_id: str) -> pd.DataFrame:
                     label = (
                         _transition_channel(category)
                         if dimension == "Channel"
-                        else " ".join(str(category).split()) or "Unknown"
+                        else _humanize_enum_value(category) or "Unknown"
                     )
                     try:
                         numeric = float(value or 0)
@@ -3161,6 +3230,9 @@ def _table_payloads(
                     ("duration_seconds", "buildup_active_duration_seconds"),
                 ),
             )
+            for column in ("terminal_outcome", "termination_reason"):
+                if column in sequences.columns:
+                    sequences[column] = sequences[column].map(_humanize_enum_value)
             payloads.append((f"Build-up sequences - {team}", sequences))
         return payloads
 
