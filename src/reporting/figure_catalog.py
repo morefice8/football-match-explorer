@@ -16,6 +16,12 @@ from typing import Any, Mapping, Sequence
 import pandas as pd
 import plotly.graph_objects as go
 from src.utils.sequence_normalization import normalize_sequence
+from src.visualization.plotly_branding import (
+    MATCH_PITCH_BG,
+    MATCH_PITCH_MUTED,
+    MATCH_PITCH_TEXT,
+    MATCH_TEXT_FONT,
+)
 
 from src.reporting.manifest import REPORT_MANIFEST
 from src.reporting.models import ReportManifest
@@ -791,7 +797,11 @@ def _cross_flow_summary(
     fig = go.Figure(
         data=[
             go.Sankey(
-                node=dict(label=labels),
+                node=dict(
+                    label=labels,
+                    color=MATCH_PITCH_MUTED,
+                    line=dict(color=MATCH_PITCH_TEXT, width=0.5),
+                ),
                 link=dict(
                     source=[
                         lookup[value]
@@ -802,13 +812,17 @@ def _cross_flow_summary(
                         for value in routes[destination].astype(str)
                     ],
                     value=routes[count].tolist(),
+                    color="rgba(255, 255, 255, 0.18)",
                 ),
+                textfont=dict(color=MATCH_PITCH_TEXT, family=MATCH_TEXT_FONT, size=12),
             )
         ]
     )
     fig.update_layout(
         title=f"Cross Flow — {plan.team_name}",
-        template="plotly_white",
+        paper_bgcolor=MATCH_PITCH_BG,
+        plot_bgcolor=MATCH_PITCH_BG,
+        font=dict(color=MATCH_PITCH_TEXT, family=MATCH_TEXT_FONT),
         margin=dict(l=30, r=30, t=80, b=30),
     )
     return _Rendered(

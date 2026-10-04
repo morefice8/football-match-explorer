@@ -10,7 +10,9 @@ from src.visualization.plotly_branding import (
     add_attacking_direction,
 )
 from src.visualization.plotly_branding import (
+    MATCH_AWAY_CYAN,
     MATCH_COMPARE_HEIGHT,
+    MATCH_HOME_CORAL,
     MATCH_WARNING,
     add_attacking_direction,
     add_zero_state,
@@ -1567,7 +1569,15 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
 
     # Coordinates are already team-relative. Away only changes palette.
     df_plot = passes_df.copy()
-    colorscale = 'Reds' if not is_away else 'Blues'
+    team_color = MATCH_HOME_CORAL if not is_away else MATCH_AWAY_CYAN
+    # Zero-density areas blend into the dark pitch background instead of
+    # washing out to the near-white low end of a built-in 'Reds'/'Blues'
+    # colorscale -- same pattern as the defensive-density chart.
+    colorscale = [
+        [0.0, "rgba(39,52,62,0.05)"],
+        [0.35, team_color],
+        [1.0, team_color],
+    ]
 
     if not df_plot.empty:
         # --- Subplot 1: Mappa di Densità (KDE) ---
@@ -1607,7 +1617,11 @@ def plot_pass_locations_plotly(passes_df, team_name, is_away=False):
                         y=(y_edges[i] + y_edges[i+1]) / 2,
                         text=f"<b>{int(val)}</b>",
                         showarrow=False,
-                        font=dict(color='white' if val > counts.max() / 2 else 'black', size=10)
+                        # The dark-blended colorscale never reaches a pale
+                        # shade the way the old built-in 'Reds'/'Blues' scale
+                        # did at low values, so white reads cleanly at every
+                        # non-zero cell instead of needing a black fallback.
+                        font=dict(color='white', size=10)
                     )
 
     # --- DISEGNO DEL CAMPO SU ENTRAMBI I SUBPLOT ---
