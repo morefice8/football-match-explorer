@@ -976,6 +976,10 @@ def _image_flowable(
             if score:
                 variant_label += f" / {score}"
         caption_parts.append(variant_label)
+    if str(getattr(artifact, "id", "")).startswith("player-highlight-"):
+        player_name = (getattr(artifact, "selection", None) or {}).get("selected_name")
+        if player_name:
+            caption_parts.append(str(player_name))
     caption = _pdf_safe_helvetica_text(" - ".join(caption_parts))
     audit = config.render_audit
     record = audit.get(artifact_key(artifact)) if audit is not None else None
