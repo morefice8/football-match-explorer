@@ -3382,11 +3382,11 @@ def _paired_restart_takers_frame(
     return pd.DataFrame(
         {
             f"{left_team} player": values(left, "player_name"),
-            f"{left_team} #": values(left, "restart_count"),
+            f"{left_team} restarts taken": values(left, "restart_count"),
             f"{left_team} restart": values(left, "primary_restart"),
             f"{left_team} shots": values(left, "shots"),
             f"{right_team} player": values(right, "player_name"),
-            f"{right_team} #": values(right, "restart_count"),
+            f"{right_team} restarts taken": values(right, "restart_count"),
             f"{right_team} restart": values(right, "primary_restart"),
             f"{right_team} shots": values(right, "shots"),
         }
