@@ -6628,6 +6628,153 @@ def load_comment_away_pass_map(data, pn):
     return data.get(key, "")
 
 # --------------------------------------
+def _shot_contributor_team_meta(
+    team_type,
+    stored_match_data_json,
+):
+    df_processed = pd.read_json(
+        io.StringIO(
+            stored_match_data_json[
+                "df"
+            ]
+        ),
+        orient="split",
+    )
+
+    match_info = json.loads(
+        stored_match_data_json.get(
+            "match_info",
+            "{}",
+        )
+    )
+
+    is_away = (
+        team_type
+        == "away"
+    )
+
+    team_name = (
+        match_info.get(
+            "ateamName"
+        )
+        if is_away
+        else match_info.get(
+            "hteamName"
+        )
+    )
+
+    if not team_name:
+        team_name = (
+            "Away"
+            if is_away
+            else "Home"
+        )
+
+    team_color = (
+        ACOL
+        if is_away
+        else HCOL
+    )
+
+    return (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    )
+
+
+def _build_threat_reception_panel(
+    selected_player,
+    team_type,
+    stored_match_data_json,
+):
+    if (
+        not selected_player
+        or not stored_match_data_json
+    ):
+        return dbc.Alert(
+            "Select a player to view their reception profile.",
+            color="secondary",
+        )
+
+    (
+        df_processed,
+        team_name,
+        team_color,
+        is_away,
+    ) = (
+        _shot_contributor_team_meta(
+            team_type,
+            stored_match_data_json,
+        )
+    )
+
+    receptions = (
+        threat_reception_metrics
+        .received_passes_for_player(
+            df_processed,
+            selected_player,
+            team_name,
+        )
+    )
+
+    summary = (
+        threat_reception_metrics
+        .reception_summary(
+            receptions
+        )
+    )
+
+    (
+        player_team,
+        jersey,
+    ) = (
+        threat_reception_metrics
+        .player_team_and_jersey(
+            df_processed,
+            selected_player,
+        )
+    )
+
+    figure = (
+        threat_reception_map
+        .plot_reception_profile(
+            receptions,
+            selected_player=
+                selected_player,
+            jersey=
+                jersey,
+            team_color=
+                team_color,
+            summary=
+                summary,
+            is_away=
+                is_away,
+        )
+    )
+
+    return (
+        threat_reception_view
+        .player_panel(
+            selected_player=
+                selected_player,
+            jersey=
+                jersey,
+            team_name=(
+                player_team
+                or team_name
+            ),
+            team_color=
+                team_color,
+            summary=
+                summary,
+            figure=
+                figure,
+        )
+    )
+
+
 def create_shot_contributor_layout(
     team_type,
     stored_match_data_json,
