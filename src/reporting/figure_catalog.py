@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 import re
 from typing import Any, Mapping, Sequence
 
@@ -651,6 +652,16 @@ def _formation_plot_moments(model: Mapping[str, Any]) -> dict[str, Mapping[str, 
 
     return selected
 
+def _format_ppda_value(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isinf(number) or math.isnan(number):
+        return "—"
+    return f"{number:.2f}"
+
+
 def _ppda_summary(
     bundle,
     plan: FigurePlan,
@@ -661,12 +672,15 @@ def _ppda_summary(
 
     rows = []
     for team in _teams(bundle):
-        overall = (profiles.get(team, {}) or {}).get("overall", {}) or {}
+        profile = profiles.get(team, {}) or {}
+        overall = profile.get("overall", {}) or {}
+        first_half = profile.get("first_half", {}) or {}
+        second_half = profile.get("second_half", {}) or {}
         rows.append([
             team,
-            overall.get("full", overall.get("ppda", "—")),
-            overall.get("1H", overall.get("first_half", "—")),
-            overall.get("2H", overall.get("second_half", "—")),
+            _format_ppda_value(overall.get("ppda")),
+            _format_ppda_value(first_half.get("ppda")),
+            _format_ppda_value(second_half.get("ppda")),
         ])
 
     if not rows:
