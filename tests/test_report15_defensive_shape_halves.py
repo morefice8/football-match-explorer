@@ -366,11 +366,15 @@ class Report15DefensiveDensityTests(unittest.TestCase):
         self.assertEqual(len(first), 2)
         self.assertTrue(first["Sample size"].str.fullmatch(r"\d+ actions").all())
         self.assertNotIn("Footprint (m²)", first.columns)
-        self.assertIn("Δ vs 1H", second.columns)
-        self.assertTrue(second["Δ vs 1H"].str.contains("BH ").all())
-        self.assertTrue(second["Δ vs 1H"].str.contains("W ").all())
-        self.assertTrue(second["Δ vs 1H"].str.contains("C ").all())
-        self.assertFalse(second["Δ vs 1H"].str.contains("FP ").any())
+        # ASCII-only by design: a literal "Δ" triggers ReportLab to declare
+        # Symbol/ArialUnicode font resources it never embeds, which a PDF
+        # viewer without those exact fonts installed (e.g. a bare Linux
+        # server) renders as the wrong glyph instead of "Δ".
+        self.assertIn("Change vs 1H", second.columns)
+        self.assertTrue(second["Change vs 1H"].str.contains("Block height ").all())
+        self.assertTrue(second["Change vs 1H"].str.contains("Width ").all())
+        self.assertTrue(second["Change vs 1H"].str.contains("Compactness ").all())
+        self.assertFalse(second["Change vs 1H"].str.contains("FP ").any())
 
     def test_defensive_density_section_is_exactly_two_pdf_pages(self):
         manifest = _defensive_manifest()

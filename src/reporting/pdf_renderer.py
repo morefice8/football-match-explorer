@@ -1353,7 +1353,7 @@ _PDF_TABLE_COLUMNS: dict[str, tuple[str | tuple[str, ...], ...]] = {
         "Width (m)",
         "Compactness (m)",
         "Sample size",
-        "Δ vs 1H",
+        "Change vs 1H",
     ),
     "ppda-summary": (
         "team_name",
@@ -2444,9 +2444,9 @@ def _defensive_shape_delta_text(first: Mapping[str, Any], second: Mapping[str, A
     """Compact 2H-v-1H change for defensive-action density metrics."""
     parts = []
     for key, label in (
-        ("block_height_m", "BH"),
-        ("width_m", "W"),
-        ("compactness_m", "C"),
+        ("block_height_m", "Block height"),
+        ("width_m", "Width"),
+        ("compactness_m", "Compactness"),
     ):
         before = first.get(key) if isinstance(first, Mapping) else None
         after = second.get(key) if isinstance(second, Mapping) else None
@@ -2489,7 +2489,7 @@ def _defensive_shape_period_frame(bundle, period_key: str) -> pd.DataFrame:
             "Sample size": sample_size,
         }
         if period_key == "second_half":
-            row["Δ vs 1H"] = _defensive_shape_delta_text(first, profile)
+            row["Change vs 1H"] = _defensive_shape_delta_text(first, profile)
         rows.append(row)
 
     columns = [
@@ -2500,7 +2500,7 @@ def _defensive_shape_period_frame(bundle, period_key: str) -> pd.DataFrame:
         "Sample size",
     ]
     if period_key == "second_half":
-        columns.append("Δ vs 1H")
+        columns.append("Change vs 1H")
     return pd.DataFrame(rows, columns=columns)
 
 
