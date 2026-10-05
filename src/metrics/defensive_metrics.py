@@ -1100,6 +1100,11 @@ def build_defensive_density_profile(
         _defensive_shape_period_mask(df_processed, period)
         & df_processed["team_name"].eq(team_name)
     ].copy()
+    # Excluded for the same reason build_defensive_shape_profile excludes
+    # them: a goalkeeper making a defensive action is already a last resort,
+    # not part of the team's settled defensive block, so it would distort
+    # where the block actually sits rather than describe it.
+    source_df = source_df.loc[~_defensive_shape_is_goalkeeper(source_df)].copy()
 
     actions = get_defensive_actions(source_df)
     if actions is None or actions.empty:

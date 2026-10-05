@@ -9043,21 +9043,21 @@ def render_defensive_shape_content(
             "ateamName"
         )
 
-        home_profile = (
-            defensive_metrics
-            .build_defensive_shape_profile(
-                df_processed,
-                home_team,
-                period=period,
-            )
+        profile_builder = (
+            defensive_metrics.build_defensive_density_profile
+            if mode == "density"
+            else defensive_metrics.build_defensive_shape_profile
         )
-        away_profile = (
-            defensive_metrics
-            .build_defensive_shape_profile(
-                df_processed,
-                away_team,
-                period=period,
-            )
+
+        home_profile = profile_builder(
+            df_processed,
+            home_team,
+            period=period,
+        )
+        away_profile = profile_builder(
+            df_processed,
+            away_team,
+            period=period,
         )
 
         home_figure = (

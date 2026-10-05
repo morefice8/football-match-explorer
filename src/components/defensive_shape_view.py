@@ -191,6 +191,7 @@ def team_panel(
             0,
         )
     )
+    is_density = mode == "density"
     snapshot_count = int(
         profile.get(
             "snapshot_count",
@@ -249,15 +250,21 @@ def team_panel(
                                 className=
                                     "match-panel-chip",
                             ),
-                            html.Span(
-                                (
-                                    f"{snapshot_count} "
-                                    "stable windows"
+                        ]
+                        + (
+                            []
+                            if is_density
+                            else [
+                                html.Span(
+                                    (
+                                        f"{snapshot_count} "
+                                        "stable windows"
+                                    ),
+                                    className=
+                                        "match-panel-chip",
                                 ),
-                                className=
-                                    "match-panel-chip",
-                            ),
-                        ],
+                            ]
+                        ),
                         className=
                             "defensive-shape-panel-chips",
                     ),
@@ -281,7 +288,9 @@ def team_panel(
                         "BLOCK HEIGHT",
                         block_value,
                         (
-                            "Median coherent-window "
+                            "Median distance of every action from own goal"
+                            if is_density
+                            else "Median coherent-window "
                             "height from own goal"
                         ),
                     ),
@@ -289,7 +298,9 @@ def team_panel(
                         "WIDTH",
                         width_value,
                         (
-                            "Median coherent-window "
+                            "10th-90th percentile lateral spread of actions"
+                            if is_density
+                            else "Median coherent-window "
                             "lateral span"
                         ),
                     ),
@@ -297,7 +308,9 @@ def team_panel(
                         "COMPACTNESS",
                         compact_value,
                         (
-                            "Typical player spread from block centre · lower = tighter"
+                            "Median action distance from centre · lower = tighter"
+                            if is_density
+                            else "Typical player spread from block centre · lower = tighter"
                         ),
                     ),
                 ],
