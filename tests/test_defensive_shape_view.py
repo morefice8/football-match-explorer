@@ -16,6 +16,7 @@ def _row(
     jersey,
     period=1,
     event_type="Tackle",
+    role="CB",
 ):
     return {
         "team_name": "Home",
@@ -27,6 +28,7 @@ def _row(
         "playerName": player,
         "Mapped Jersey Number":
             jersey,
+        "role": role,
         "id":
             f"{minute}-{player}-{x}-{y}",
     }
@@ -470,6 +472,30 @@ class DefensiveShapeViewTests(
             "plot_defensive_shape_profile",
             source,
         )
+
+    def test_app_density_mode_uses_the_pdf_reports_profile_builder(self):
+        # Regression guard for the UI/PDF mismatch Michele reported
+        # (2026-10-04): the app's "Density" mode must call the same
+        # function the PDF report uses (bundle.py's _defensive_shape),
+        # not the window-based shape algorithm, or the two will silently
+        # drift apart again under the same KPI labels.
+        source = Path("app.py").read_text(encoding="utf-8")
+        self.assertIn("build_defensive_density_profile", source)
+
+    def test_density_profile_excludes_goalkeeper_actions(self):
+        rows = [
+            _row(10, "A", 35, 20, 2, role="CB"),
+            _row(12, "B", 38, 40, 4, role="CB"),
+            _row(14, "GK1", 5, 50, 1, role="GK"),
+        ]
+        df = pd.DataFrame(rows)
+
+        profile = defensive_metrics.build_defensive_density_profile(
+            df, "Home", period="full"
+        )
+
+        self.assertEqual(profile["action_count"], 2)
+        self.assertNotIn("GK1", profile["actions"]["playerName"].tolist())
 
 
 if __name__ == "__main__":
