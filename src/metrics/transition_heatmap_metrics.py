@@ -3,21 +3,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-import pandas as pd
 
+from src.metrics.sequence_outcome_metrics import calculate_sequence_milestones
 from src.visualization.coordinate_contract import orient_point
-
-FINAL_THIRD_X = 66.67
-PENALTY_AREA_X = 83.5
-PENALTY_AREA_Y_MIN = 21.1
-PENALTY_AREA_Y_MAX = 78.9
-SHOT_EVENT_NAMES = frozenset({
-    "goal",
-    "miss",
-    "attempt saved",
-    "post",
-    "shot",
-})
 
 
 def _number(value):
@@ -84,81 +72,23 @@ def sequence_duration_seconds(sequence):
     return duration
 
 
-def sequence_ends_in_shot(sequence):
-    if sequence is None or sequence.empty:
-        return False
-
-    terminal = str(
-        sequence.iloc[-1].get("terminal_outcome", "")
-    ).strip().lower()
-
-    if terminal in {"shot", "goal"}:
-        return True
-
-    if "type_name" not in sequence.columns:
-        return False
-
-    event_names = (
-        sequence["type_name"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    return bool(event_names.isin(SHOT_EVENT_NAMES).any())
-
-
-def sequence_reaches_final_third(sequence, *, is_away=False):
-    if sequence is None or sequence.empty:
-        return False
-
-    for _, row in sequence.iterrows():
-        for key in ("x", "end_x", "shot_end_x"):
-            x = _number(row.get(key))
-            if x is None:
-                continue
-
-            oriented_x, _ = orient_point(
-                x,
-                50.0,
-                is_away=is_away,
-            )
-
-            if float(oriented_x) >= FINAL_THIRD_X:
-                return True
-
-    return False
-
-
-def sequence_reaches_penalty_area(sequence, *, is_away=False):
-    if sequence is None or sequence.empty:
-        return False
-
-    for _, row in sequence.iterrows():
-        for x_key, y_key in (("x", "y"), ("end_x", "end_y")):
-            x = _number(row.get(x_key))
-            y = _number(row.get(y_key))
-            if x is None or y is None:
-                continue
-
-            oriented_x, oriented_y = orient_point(
-                x,
-                y,
-                is_away=is_away,
-            )
-            if (
-                float(oriented_x) >= PENALTY_AREA_X
-                and PENALTY_AREA_Y_MIN
-                <= float(oriented_y)
-                <= PENALTY_AREA_Y_MAX
-            ):
-                return True
-
-    return False
-
-
 def transition_kpis(sequences, *, transition_team_is_away=False):
+    """Summarize a team's transition sequences.
+
+    Final-third/penalty-area/shot rates are computed by
+    calculate_sequence_milestones -- the same "controlled location" rule
+    the live app's sequence-comparison panel uses (every event's start
+    counts as controlled; an end location only counts when that event was
+    successful). This used to be a separate, more lenient implementation
+    here (any x/end_x/shot_end_x counted regardless of outcome, and a
+    different penalty-area line), which silently disagreed with the app
+    for the same match under the same KPI labels.
+    """
+    del transition_team_is_away  # Match Analysis coordinates are already
+    # team-relative (x=0 own goal, x=100 opponent goal) per
+    # coordinate_contract.py; orient_point is a no-op, so this flag never
+    # changed anything. Kept for call-site compatibility.
+
     clean = [
         sequence
         for sequence in (sequences or [])
@@ -182,37 +112,21 @@ def transition_kpis(sequences, *, transition_team_is_away=False):
         else None
     )
 
+    milestones = [calculate_sequence_milestones(sequence) for sequence in clean]
+
     reached_final_third = sum(
-        1
-        for sequence in clean
-        if sequence_reaches_final_third(
-            sequence,
-            is_away=transition_team_is_away,
-        )
+        1 for milestone in milestones if milestone["reached_final_third"]
     )
     reached_penalty_area = sum(
-        1
-        for sequence in clean
-        if sequence_reaches_penalty_area(
-            sequence,
-            is_away=transition_team_is_away,
-        )
+        1 for milestone in milestones if milestone["entered_penalty_area"]
     )
     ended_in_shot = sum(
-        1
-        for sequence in clean
-        if sequence_ends_in_shot(sequence)
+        1 for milestone in milestones if milestone["produced_shot"]
     )
     reached_or_shot = sum(
         1
-        for sequence in clean
-        if (
-            sequence_ends_in_shot(sequence)
-            or sequence_reaches_final_third(
-                sequence,
-                is_away=transition_team_is_away,
-            )
-        )
+        for milestone in milestones
+        if milestone["produced_shot"] or milestone["reached_final_third"]
     )
 
     def percentage(count):

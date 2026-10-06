@@ -746,6 +746,7 @@ def render_sequence_comparison_panel(
     profile_labels=None,
     hint_text=None,
     funnel_tooltip_overrides=None,
+    duration_key="avg_duration_seconds",
 ):
     """
     Render a Home vs Away sequence comparison.
@@ -1323,17 +1324,21 @@ def render_sequence_comparison_panel(
                 profile_metric(
                     profile_labels.get(
                         'duration',
-                        "Avg active duration",
+                        (
+                            "Median active duration"
+                            if duration_key == 'median_duration_seconds'
+                            else "Avg active duration"
+                        ),
                     ),
                     format_number(
                         home_profile.get(
-                            'avg_duration_seconds'
+                            duration_key
                         ),
                         "s",
                     ),
                     format_number(
                         away_profile.get(
-                            'avg_duration_seconds'
+                            duration_key
                         ),
                         "s",
                     ),
@@ -8443,11 +8448,16 @@ def render_def_transition_content(active_tab, active_filter, stored_data_json):
 
                     profile_labels={
                         'duration':
-                            'Opp. avg active duration',
+                            'Opp. median active duration',
 
                         'passes':
                             'Opp. avg completed passes',
                     },
+
+                    # Matches the PDF report's transition_kpis, which
+                    # reports median duration -- avg was shown here before,
+                    # silently disagreeing with the report for the same match.
+                    duration_key='median_duration_seconds',
 
                     funnel_tooltip_overrides={
                         'reached_opposition_half': (
@@ -9649,6 +9659,10 @@ def render_off_transition_content(active_tab, active_filter, stored_data_json):
                     'produced_shot',
                     'produced_goal',
                 ],
+                # Matches the PDF report's transition_kpis, which reports
+                # median duration -- avg was shown here before, silently
+                # disagreeing with the report for the same match.
+                duration_key='median_duration_seconds',
             )
         )
 
