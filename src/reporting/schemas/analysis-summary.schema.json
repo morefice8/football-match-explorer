@@ -23,6 +23,7 @@
     "ppda",
     "defensive_transitions",
     "offensive_transitions",
+    "phase_profile",
     "restarts",
     "top_players",
     "representative_sequences",
@@ -30,7 +31,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.6"
+      "const": "1.7"
     },
     "match": {
       "type": "object",
@@ -252,6 +253,9 @@
     "offensive_transitions": {
       "$ref": "#/$defs/teamContainer"
     },
+    "phase_profile": {
+      "$ref": "#/$defs/teamContainer"
+    },
     "restarts": {
       "$ref": "#/$defs/teamContainer"
     },
@@ -466,7 +470,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.6"
+          "const": "1.7"
         },
         "figures_expected": {
           "type": [

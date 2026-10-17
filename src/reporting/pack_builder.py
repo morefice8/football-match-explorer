@@ -25,6 +25,8 @@ from src.reporting.data_exports import (
     EVENTS_CORE_PATH,
     build_events_core,
     build_final_third_summary,
+    build_phase_profile,
+    build_phase_sequences,
     build_transition_summary,
     csv_export_documentation,
 )
@@ -54,7 +56,7 @@ from src.reporting.pdf_renderer import (
 logger = logging.getLogger(__name__)
 
 
-PACK_SCHEMA_VERSION = "1.10"
+PACK_SCHEMA_VERSION = "1.11"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 ANALYSIS_SUMMARY_PATH = "analysis-summary.json"
@@ -71,6 +73,8 @@ TABLE_PATHS: tuple[str, ...] = (
     "tables/buildup-summary.csv",
     "tables/defensive-transitions.csv",
     "tables/offensive-transitions.csv",
+    "tables/phase-sequences.csv",
+    "tables/phase-profile.csv",
     "tables/restarts.csv",
     "tables/player-rankings.csv",
     EVENTS_CORE_PATH,
@@ -707,6 +711,8 @@ def build_pack_tables(
             bundle,
             "offensive-transitions",
         ),
+        "tables/phase-sequences.csv": build_phase_sequences(bundle),
+        "tables/phase-profile.csv": build_phase_profile(bundle),
         "tables/restarts.csv": _restarts_table(bundle),
         "tables/player-rankings.csv": _player_rankings_table(bundle),
         EVENTS_CORE_PATH: build_events_core(bundle),
@@ -1065,6 +1071,14 @@ def build_match_analysis_pack(
             "team_name",
         ),
         "tables/offensive-transitions.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/phase-sequences.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/phase-profile.csv": (
             "report_team",
             "team_name",
         ),

@@ -18,7 +18,7 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.6"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.7"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
@@ -1238,6 +1238,26 @@ def _transition_section(bundle, section_id: str) -> dict[str, Any]:
     return {"teams": rows}
 
 
+def _phase_profile(bundle) -> dict[str, Any]:
+    """Recovery/loss profile by pitch third (see ``src.metrics.phase_profile``)."""
+    from src.reporting.data_exports import build_phase_profile
+
+    table = build_phase_profile(bundle)
+    rows = []
+    for team in _teams(bundle):
+        part = table[table["team_name"] == team]
+        record = {"team": team}
+        for phase, key in (("recovery", "recoveries"), ("loss", "losses")):
+            sub = part[part["phase"] == phase].drop(columns=["report_team", "team_name", "phase"])
+            sub = sub.dropna(axis=1, how="all")
+            record[key] = [
+                {k: (None if pd.isna(v) else v) for k, v in row.items()}
+                for row in sub.to_dict("records")
+            ]
+        rows.append(record)
+    return {"teams": rows}
+
+
 def _restarts(bundle) -> dict[str, Any]:
     data = _section_data(bundle, "restarts")
     data = data if isinstance(data, Mapping) else {}
@@ -1870,6 +1890,7 @@ def build_analysis_summary(
         "offensive_transitions": _transition_section(
             bundle, "offensive-transitions"
         ),
+        "phase_profile": _phase_profile(bundle),
         "restarts": _restarts(bundle),
         "top_players": _top_players(bundle),
         "representative_sequences": _representative_sequences(

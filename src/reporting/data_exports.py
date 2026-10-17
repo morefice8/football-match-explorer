@@ -102,6 +102,16 @@ CSV_EXPORT_DOCUMENTATION: dict[str, dict[str, Any]] = {
         "description": "Offensive-transition KPIs, zone/channel profile and outcome distributions.",
         "debug_only": False,
     },
+    "tables/phase-sequences.csv": {
+        "granularity": "one row per recovery or loss sequence",
+        "description": "How each transition started and developed: recoveries (team wins the ball) and losses (team loses it), with pitch third, speed and outcome fields.",
+        "debug_only": False,
+    },
+    "tables/phase-profile.csv": {
+        "granularity": "one row per team, phase and pitch third",
+        "description": "Phase profile by pitch third: how the team attacks after winning the ball and how it reacts after losing it. Low-sample cells are flagged.",
+        "debug_only": False,
+    },
     "tables/restarts.csv": {
         "granularity": "one row per restart sequence",
         "description": "Restart sequence records and outcomes.",
@@ -790,6 +800,89 @@ def _percentage(count: Any, total: Any) -> float:
     if not math.isfinite(count_value) or not math.isfinite(total_value):
         return 0.0
     return count_value / total_value * 100.0 if total_value else 0.0
+
+
+PHASE_SEQUENCE_COLUMNS = (
+    "report_team", "team_name", "phase", "sequence_id", "zone", "x", "y",
+    "duration_s", "completed_passes", "first_pass_forward",
+    "reached_final_third", "seconds_to_final_third", "gain_m",
+    "produced_shot", "initial_loss_type", "regained", "seconds_to_regain",
+    "opponent_passes", "opponent_reached_final_third", "opponent_shot",
+    "terminal_outcome",
+)
+PHASE_PROFILE_COLUMNS = (
+    "report_team", "team_name", "phase", "zone", "n", "low_sample",
+    "first_pass_forward_pct", "reached_final_third_pct",
+    "median_seconds_to_final_third", "shot_pct", "avg_completed_passes",
+    "median_gain_m", "median_duration_s", "regained_pct",
+    "regained_within_5s_pct", "regained_within_10s_pct",
+    "median_seconds_to_regain", "opponent_final_third_pct",
+    "opponent_shot_pct",
+)
+
+
+def _phase_frames(bundle) -> dict[str, dict[str, pd.DataFrame]]:
+    from src.metrics import phase_profile
+
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    out: dict[str, dict[str, pd.DataFrame]] = {}
+    for team in teams:
+        sequences = {}
+        for key, section_id in (
+            ("recovery", "offensive-transitions"),
+            ("loss", "defensive-transitions"),
+        ):
+            data = _section_data(bundle, section_id)
+            payload = data.get(team, {}) if isinstance(data, Mapping) else {}
+            payload = payload if isinstance(payload, Mapping) else {}
+            sequences[key] = list(payload.get("sequences") or [])
+        out[team] = {
+            "recovery": phase_profile.recovery_sequences(sequences["recovery"]),
+            "loss": phase_profile.loss_sequences(sequences["loss"]),
+        }
+    return out
+
+
+def build_phase_sequences(bundle) -> pd.DataFrame:
+    """One row per recovery/loss sequence (the auditable base of the profile)."""
+    rows: list[dict[str, Any]] = []
+    for team, frames in _phase_frames(bundle).items():
+        for record in frames["recovery"].to_dict("records"):
+            rows.append({
+                "report_team": team, "team_name": team, "phase": "recovery",
+                "sequence_id": record["sequence_id"], "zone": record["start_zone"],
+                "x": record["start_x"], "y": record["start_y"],
+                **{k: record[k] for k in (
+                    "duration_s", "completed_passes", "first_pass_forward",
+                    "reached_final_third", "seconds_to_final_third", "gain_m",
+                    "produced_shot", "terminal_outcome")},
+            })
+        for record in frames["loss"].to_dict("records"):
+            rows.append({
+                "report_team": team, "team_name": team, "phase": "loss",
+                "sequence_id": record["sequence_id"], "zone": record["loss_zone"],
+                "x": record["loss_x"], "y": record["loss_y"],
+                **{k: record[k] for k in (
+                    "initial_loss_type", "regained", "seconds_to_regain",
+                    "opponent_passes", "opponent_reached_final_third",
+                    "opponent_shot", "terminal_outcome")},
+            })
+    return pd.DataFrame(rows, columns=list(PHASE_SEQUENCE_COLUMNS))
+
+
+def build_phase_profile(bundle) -> pd.DataFrame:
+    """Phase profile by team, phase and pitch third (plus an ``All`` row)."""
+    from src.metrics import phase_profile
+
+    rows: list[dict[str, Any]] = []
+    for team, frames in _phase_frames(bundle).items():
+        for phase, summary in (
+            ("recovery", phase_profile.summarize_recoveries(frames["recovery"])),
+            ("loss", phase_profile.summarize_losses(frames["loss"])),
+        ):
+            for record in summary.to_dict("records"):
+                rows.append({"report_team": team, "team_name": team, "phase": phase, **record})
+    return pd.DataFrame(rows, columns=list(PHASE_PROFILE_COLUMNS))
 
 
 def build_transition_summary(

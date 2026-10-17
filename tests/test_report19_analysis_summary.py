@@ -93,6 +93,7 @@ class Report19AnalysisSummaryTests(unittest.TestCase):
             "ppda",
             "defensive_transitions",
             "offensive_transitions",
+            "phase_profile",
             "restarts",
             "top_players",
             "representative_sequences",

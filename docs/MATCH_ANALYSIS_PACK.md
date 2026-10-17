@@ -1,5 +1,37 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.11
+
+Additive update: the pack gains a **phase profile**, answering two scouting
+questions per pitch third (defensive / middle / attacking):
+
+1. *Where the team wins the ball, how does it attack?* (first pass forward,
+   whether and how fast it reaches the final third, metres gained, shot rate)
+2. *Where the team loses the ball, how does it win it back?* (regained, regained
+   within 5 and 10 seconds, median seconds to regain, how often the opponent
+   reaches the final third or shoots before the ball is won back)
+
+Two new tables, both built from the transition sequences the pack already
+contains (no new detection logic):
+
+- `tables/phase-sequences.csv`, one row per recovery or loss sequence, the
+  auditable base of the profile. Concatenating these tables from several
+  matches and re-running `src.metrics.phase_profile.summarize_recoveries` /
+  `summarize_losses` gives a correctly weighted multi-match profile.
+- `tables/phase-profile.csv`, one row per team, phase (`recovery`/`loss`) and
+  pitch third (plus an `All` row). `low_sample` is true when a cell has fewer
+  than 10 sequences; read those cells as anecdotes, not tendencies.
+
+`analysis-summary.json` moves from schema 1.6 to 1.7 with a new top-level
+`phase_profile` section (`teams[].recoveries` / `teams[].losses`).
+
+Definitions and thresholds live in `src/metrics/phase_profile.py`
+(final-third line 66.67, "forward" first pass = at least 10 pitch units, quick
+regain = 5 s). Reaching the final third and shot rates use the same
+"controlled location" milestones as the existing transition KPIs, so the new
+table cannot disagree with them. Event data has no off-ball positions: this
+profile says *how fast and where*, not *how the rest defence is organised*.
+
 ## Pack schema 1.10
 
 This is an additive schema update extending game-state splits (introduced in
