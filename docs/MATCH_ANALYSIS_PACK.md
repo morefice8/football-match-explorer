@@ -106,6 +106,14 @@ event (goal, miss, attempt saved, post), each with `event_id`, `period`,
 `tables/events-core.csv` and `tables/match-comparison.csv` — no new football
 semantics are introduced, only surfaced. The array is capped at 60 entries.
 
+`distance_m` (and the `avg_shot_distance` KPI, and the shot-map hover) is the
+straight-line distance to the centre of the goal line, computed by
+`src/metrics/shot_geometry.py` with each axis scaled by its own pitch dimension
+(1 x-unit = 1.05 m, 1 y-unit = 0.68 m on a 105 x 68 m pitch). Earlier builds
+scaled both axes by the pitch length, which overstated every off-centre shot
+(a shot from the edge of the box on the wing read ~25 m instead of ~16 m), so
+packs generated before this fix are not comparable on distance.
+
 ## Pack schema 1.5
 
 This release adds final-composition accounting. Data availability and final PDF

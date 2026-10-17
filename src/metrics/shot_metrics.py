@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 
 from src.metrics.shot_classification import classify_shots, shot_stats_for_team
+from src.metrics.shot_geometry import GOAL_X, GOAL_Y, shot_distance_m
 
 
 def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, axGOT,
@@ -23,18 +24,18 @@ def calculate_shot_stats(df_processed, hteamName, ateamName, hxG, axG, hxGOT, ax
         logger.debug("No shot events found.")
         return pd.DataFrame(), {}, {}
 
-    target_goal_center_x, target_goal_center_y = 100, 50
-
     if 'x' not in shots_df.columns or 'y' not in shots_df.columns:
         logger.warning("Shot coordinate columns ('x', 'y') not found. Cannot calculate distance.")
         shots_df['shot_distance_m'] = np.nan
     else:
-        x_opta = shots_df['x'].fillna(target_goal_center_x)
-        y_opta = shots_df['y'].fillna(target_goal_center_y)
-        dx_opta = target_goal_center_x - x_opta
-        dy_opta = target_goal_center_y - y_opta
-        dist_opta = np.sqrt(dx_opta**2 + dy_opta**2)
-        shots_df['shot_distance_m'] = dist_opta * (pitch_length_meters / 100.0)
+        x_opta = shots_df['x'].fillna(GOAL_X)
+        y_opta = shots_df['y'].fillna(GOAL_Y)
+        shots_df['shot_distance_m'] = shot_distance_m(
+            x_opta,
+            y_opta,
+            pitch_length_m=pitch_length_meters,
+            pitch_width_m=pitch_width_meters,
+        )
         logger.debug("Calculated shot distances in meters (to X=100 goal).")
 
     def _stats(team_name, xg, xgot):

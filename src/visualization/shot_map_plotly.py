@@ -8,20 +8,16 @@ any home/away mirroring.
 
 from __future__ import annotations
 
-import math
-
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.metrics.shot_geometry import shot_distance_m
 from src.visualization import pitch_plots
 from src.visualization.plotly_branding import (
     add_attacking_direction,
     add_plot_subtitle,
     apply_match_pitch_layout,
 )
-
-GOAL_X, GOAL_Y = 100.0, 50.0
-PITCH_LENGTH_M = 105.0
 
 UNKNOWN_COLOR = "#9fb3bf"
 
@@ -40,9 +36,7 @@ OUTCOME_ORDER = ("goal", "saved", "off_target", "blocked", "post", "unknown")
 
 
 def _shot_distance_m(x, y):
-    dx = GOAL_X - x
-    dy = GOAL_Y - y
-    return math.sqrt(dx * dx + dy * dy) * (PITCH_LENGTH_M / 100.0)
+    return float(shot_distance_m(x, y))
 
 
 def _team_shots(shots_df, team_name):
