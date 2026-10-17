@@ -89,6 +89,16 @@ event frame as `events-core.csv`; scope `phase_id = 0` is the whole match,
   least 20 minutes).
 - Everything is one match: it says what happened, not what the team usually does.
 
+### Insight sheet for articles
+
+`py -3.11 scripts/pack_insights.py pack.zip --out sheet.md` (optionally
+`--team "Napoli"`) turns a pack into a markdown working sheet: the phases, the
+ranked insight candidates with their numbers, a numbered caveat and the
+questions to settle before writing each one, the phase-by-phase and pressure
+tables (players as name and shirt number) and the droughts. It reads only the
+pack tables (`src/reporting/insight_sheet.py`) and adds no analysis of its own.
+Packs older than schema 1.12 are reported and need rebuilding.
+
 ### Defensive action filter (corrected)
 
 `defensive_metrics.get_defensive_actions` used to list `Blocked pass` while the
