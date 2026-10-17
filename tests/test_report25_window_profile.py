@@ -233,11 +233,14 @@ class PositionTests(unittest.TestCase):
         intervals = wp.on_pitch_intervals(v, frame, clock)
         self.assertAlmostEqual(intervals[("A", "s1")][1], 30 * 60)
 
-    def test_team_length_ignores_low_sample_players(self):
+    def test_team_length_ignores_low_sample_players_and_needs_enough_of_them(self):
         pos = pd.DataFrame({"actions": [20, 20, 3], "x": [20.0, 70.0, 99.0]})
-        self.assertAlmostEqual(wp.team_length_m(pos), 50 * 1.05)
-        self.assertIsNone(wp.team_length_m(pos.iloc[:1]))
+        self.assertAlmostEqual(wp.team_length_m(pos, min_players=2), 50 * 1.05)       # the 3-action player does not stretch it
+        self.assertIsNone(wp.team_length_m(pos))                                      # default: at least 7 players
+        self.assertIsNone(wp.team_length_m(pos.iloc[:1], min_players=2))
         self.assertIsNone(wp.team_length_m(pd.DataFrame()))
+        eight = pd.DataFrame({"actions": [10] * 8, "x": [10.0 + 8 * i for i in range(8)]})
+        self.assertAlmostEqual(wp.team_length_m(eight), 56 * 1.05)
 
 
 class DroughtTests(unittest.TestCase):

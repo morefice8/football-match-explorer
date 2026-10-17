@@ -24,6 +24,11 @@
     "defensive_transitions",
     "offensive_transitions",
     "phase_profile",
+    "match_phases",
+    "window_profile",
+    "pressure_profile",
+    "shot_droughts",
+    "insight_candidates",
     "restarts",
     "top_players",
     "representative_sequences",
@@ -31,7 +36,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.7"
+      "const": "1.8"
     },
     "match": {
       "type": "object",
@@ -256,6 +261,29 @@
     "phase_profile": {
       "$ref": "#/$defs/teamContainer"
     },
+    "match_phases": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object"
+      }
+    },
+    "window_profile": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "pressure_profile": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "shot_droughts": {
+      "$ref": "#/$defs/teamContainer"
+    },
+    "insight_candidates": {
+      "type": "array",
+      "maxItems": 15,
+      "items": {
+        "type": "object"
+      }
+    },
     "restarts": {
       "$ref": "#/$defs/teamContainer"
     },
@@ -470,7 +498,7 @@
           ]
         },
         "analysis_summary_schema_version": {
-          "const": "1.7"
+          "const": "1.8"
         },
         "figures_expected": {
           "type": [

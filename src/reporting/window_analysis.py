@@ -85,7 +85,12 @@ def compute_window_analysis(
     total = clock.total_seconds
     goals = mph.goal_events(source, home, away, clock, shots_df=shots_df)
     phases = mph.build_match_phases(source, home, away, goals=goals, clock=clock)
-    scopes = [(0, "match", 0.0, total + 1.0)] + [(int(p.phase_id), p.label, float(p.start_play_s), float(p.end_play_s)) for p in phases.itertuples()]
+    # windows are half-open; the last phase is stretched by a second so an event at the very last instant is not lost
+    last_phase = int(phases["phase_id"].max()) if len(phases) else None
+    scopes = [(0, "match", 0.0, total + 1.0)] + [
+        (int(p.phase_id), p.label, float(p.start_play_s), (total + 1.0) if int(p.phase_id) == last_phase else float(p.end_play_s))
+        for p in phases.itertuples()
+    ]
     intervals = wp.on_pitch_intervals(view, source, clock)
 
     profile_rows, pressure_rows, touch_frames, position_frames, drought_frames = [], [], [], [], []

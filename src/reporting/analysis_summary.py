@@ -18,7 +18,7 @@ from src.reporting.bundle import normalize_for_json
 from src.reporting.selectors import rank_players_by_metric_family
 
 
-ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.7"
+ANALYSIS_SUMMARY_SCHEMA_VERSION = "1.8"
 ANALYSIS_SUMMARY_MAX_BYTES = 1024 * 1024
 MAX_RANKING_ROWS = 10
 MAX_CROSS_ROUTES = 8
@@ -1258,6 +1258,92 @@ def _phase_profile(bundle) -> dict[str, Any]:
     return {"teams": rows}
 
 
+def _records(frame: pd.DataFrame, drop: Sequence[str] = ()) -> list[dict[str, Any]]:
+    """Rows of ``frame`` as JSON-native dicts, with missing values as ``None``."""
+    if frame is None or frame.empty:
+        return []
+    rows = []
+    for row in frame.drop(columns=list(drop), errors="ignore").to_dict("records"):
+        rows.append({key: (None if _is_missing(value) else value) for key, value in row.items()})
+    return _native(rows)
+
+
+def _is_missing(value: Any) -> bool:
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _match_phases(bundle) -> list[dict[str, Any]]:
+    """Phases cut at goals, dismissals and substitution clusters."""
+    from src.reporting.data_exports import build_match_phases
+
+    return _records(build_match_phases(bundle), drop=("start_play_s", "end_play_s", "home_team", "away_team"))
+
+
+def _window_profile_section(bundle) -> dict[str, Any]:
+    """Access / block / pressure profile per team and phase (``phase_id`` 0 = whole match)."""
+    from src.reporting.data_exports import build_window_profile
+
+    table = build_window_profile(bundle)
+    return {"teams": [
+        {"team": team, "phases": _records(table[table["team_name"] == team], drop=("report_team", "team_name"))}
+        for team in _teams(bundle)
+    ]}
+
+
+def _pressure_profile_section(bundle) -> dict[str, Any]:
+    """Pressed-touch shares (whole match by lane / third / player, plus a one-line-per-phase total)."""
+    from src.reporting.data_exports import build_pressure_profile
+
+    table = build_pressure_profile(bundle)
+    drop = ("report_team", "team_name", "phase_id", "phase_label", "group_type")
+    teams = []
+    for team in _teams(bundle):
+        part = table[table["team_name"] == team]
+        match = part[part["phase_id"] == 0]
+
+        def group(kind: str, limit: int | None = None) -> list[dict[str, Any]]:
+            rows = match[match["group_type"] == kind]
+            return _records(rows.head(limit) if limit else rows, drop=drop)
+
+        overall = group("all")
+        by_phase = part[(part["phase_id"] > 0) & (part["group_type"] == "all")][["phase_id", "phase_label", "touches", "pressed", "pressed_pct"]]
+        teams.append({
+            "team": team,
+            "match": {"all": overall[0] if overall else None, "lanes": group("lane"), "thirds": group("third"), "players": group("player", 14)},
+            "by_phase": _records(by_phase),
+        })
+    return {"teams": teams}
+
+
+def _shot_droughts_section(bundle) -> dict[str, Any]:
+    """Long stretches without a shot or without a touch in the box."""
+    from src.reporting.data_exports import build_shot_droughts
+
+    table = build_shot_droughts(bundle)
+    return {"teams": [
+        {"team": team, "droughts": _records(table[table["team_name"] == team], drop=("report_team", "team_name"))}
+        for team in _teams(bundle)
+    ]}
+
+
+def _insight_candidates_section(bundle) -> list[dict[str, Any]]:
+    """Ranked findings with their numbers (parsed) and caveats."""
+    import json
+
+    from src.reporting.data_exports import build_insight_candidates
+
+    rows = _records(build_insight_candidates(bundle), drop=("report_team",))
+    for row in rows:
+        try:
+            row["numbers"] = json.loads(row["numbers"]) if isinstance(row.get("numbers"), str) else row.get("numbers")
+        except ValueError:
+            pass
+    return rows
+
+
 def _restarts(bundle) -> dict[str, Any]:
     data = _section_data(bundle, "restarts")
     data = data if isinstance(data, Mapping) else {}
@@ -1891,6 +1977,11 @@ def build_analysis_summary(
             bundle, "offensive-transitions"
         ),
         "phase_profile": _phase_profile(bundle),
+        "match_phases": _match_phases(bundle),
+        "window_profile": _window_profile_section(bundle),
+        "pressure_profile": _pressure_profile_section(bundle),
+        "shot_droughts": _shot_droughts_section(bundle),
+        "insight_candidates": _insight_candidates_section(bundle),
         "restarts": _restarts(bundle),
         "top_players": _top_players(bundle),
         "representative_sequences": _representative_sequences(

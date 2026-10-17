@@ -52,6 +52,7 @@ PRESSURE_WINDOW_S = 6.0
 LOW_SAMPLE_TOUCHES = 20
 LOW_SAMPLE_ACTIONS = 8
 MIN_POSITION_MINUTES = 12.0
+MIN_LENGTH_PLAYERS = 7
 
 VIEW_COLUMNS = (
     "team", "type", "period", "play_seconds", "x", "y", "end_x", "end_y", "player", "player_key", "jersey",
@@ -345,12 +346,18 @@ def window_positions(
     return pd.DataFrame(rows, columns=list(POSITION_COLUMNS))
 
 
-def team_length_m(positions: pd.DataFrame, *, min_actions: int = LOW_SAMPLE_ACTIONS) -> float | None:
-    """Distance (m) between the deepest and the highest outfield player (median action x)."""
+def team_length_m(
+    positions: pd.DataFrame, *, min_actions: int = LOW_SAMPLE_ACTIONS, min_players: int = MIN_LENGTH_PLAYERS,
+) -> float | None:
+    """Distance (m) between the deepest and the highest outfield player (median action x).
+
+    Needs ``min_players`` players with at least ``min_actions`` actions each: a
+    "length" computed from two or three players of a short phase is noise.
+    """
     if positions is None or positions.empty:
         return None
     p = positions[positions["actions"] >= min_actions]
-    if len(p) < 2:
+    if len(p) < max(2, min_players):
         return None
     return round(float((p["x"].max() - p["x"].min()) * pz.X_METRES), 1)
 

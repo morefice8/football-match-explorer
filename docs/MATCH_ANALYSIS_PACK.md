@@ -1,5 +1,103 @@
 # Match Analysis Pack schema
 
+## Pack schema 1.12
+
+Additive update: the pack gains a **window analysis** that reads the match in
+phases and answers post-match questions with numbers an article can quote:
+*how did each team access the final third and the box, where did the opponent
+get hands on the play, where did each player act, how did the defensive block
+move after the goals and the changes, and how long did a team go without a shot
+or a touch in the box?*
+
+Seven new tables (all built by `src/reporting/window_analysis.py` from the same
+event frame as `events-core.csv`; scope `phase_id = 0` is the whole match,
+`1..n` are the match phases):
+
+- `tables/match-phases.csv`: the phases. The match is cut at goals,
+  dismissals and substitution clusters (merged when closer than 3 / 10 minutes,
+  a goal or dismissal always wins over a nearby substitution), each with its
+  score state, length in **minutes of play**, the trigger and who came on.
+- `tables/window-profile.csv`: one row per team and scope: touches and share,
+  final-third and box touches, completed final-third entries, crosses, shots,
+  loss share in the final third, block height, team length, pressed-touch share.
+- `tables/pressure-profile.csv`: share of a team's touches followed by an
+  opponent intervention, by all / lane / third / player, with Wilson 95%
+  intervals, a `low_sample` flag (< 20 touches) and a Fisher test against the
+  rest of the group.
+- `tables/pressure-touches.csv`: one row per touch with who intervened and
+  where (the plotting base for pressure maps; goalkeeper touches included).
+- `tables/window-positions.csv`: median location of each outfield player's
+  touches and interventions per scope, in the team's own frame and in a shared
+  frame (home team unchanged, away team rotated 180 degrees, so both teams can
+  be drawn on one pitch facing each other).
+- `tables/shot-droughts.csv`: stretches of at least 15 minutes of play without
+  a shot or without a touch in the opponent's box, with what the team did
+  meanwhile.
+- `tables/insight-candidates.csv`: ranked findings that pass an explicit size
+  and evidence bar, each with its numbers and its caveat. They are article
+  material, not conclusions.
+
+`analysis-summary.json` moves from schema 1.7 to 1.8 with top-level
+`match_phases`, `window_profile`, `pressure_profile`, `shot_droughts` and
+`insight_candidates` sections.
+
+### Definitions (all in `src/metrics`)
+
+- **Play clock** (`match_clock.py`). Opta restarts the clock at 45:00 in the
+  second half even when the first half ran into stoppage time, so
+  `minute * 60 + second` overlaps across the interval. Windows, durations and
+  every "within N seconds" pairing use `play_seconds` (periods laid end to end)
+  and pair events only inside one period. Durations are minutes of play: the
+  26'-59' stretch of a match with 2 minutes of first-half stoppage is 36
+  minutes, not 34.
+- **Zones** (`pitch_zones.py`). Five lanes by y (right = low y, penalty-area
+  width for the half-spaces), thirds by x, the penalty area in true metres. Lane
+  statistics are in the touching team's own attacking frame.
+- **Touch** = pass, take-on, ball touch, shot, dispossession. **Intervention** =
+  an opponent tackle, challenge, interception, blocked pass, ball recovery,
+  clearance or committed foul.
+- **Pressed touch** = a touch followed by an opponent intervention within 6 s
+  and 10 m in the same period. It measures where the opponent got hands on the
+  play, and it also counts balls lost and recovered next to the touch. Pressure
+  grows towards the opponent's area (in Villarreal-Napoli: 1% of touches in the
+  own third, 26-30% in the final third), so compare like with like: the pressure
+  table carries lanes and thirds for that.
+- **Block height** = median distance (m) from the own goal of the team's own
+  interventions, goalkeepers excluded. It uses the intervention set above, not
+  `defensive_metrics.get_defensive_actions` (see "Known issue" below), so it can
+  differ from the Defensive Shape figures.
+- **Position** = where a player acts (median of touches and interventions), not
+  where he stands; players need 12 minutes in the scope (or the whole of a
+  shorter scope), and `low_sample` marks fewer than 8 actions. **Team length** =
+  deepest to highest median position, only from at least 7 players.
+- **Drought** gaps are measured between the team's consecutive shots (or box
+  touches); the first gap starts at kick-off and the last ends at the final whistle
+  (`ends_with_event` is false for it).
+
+### Reading rules
+
+- Quote every share with its counts and interval; a `low_sample` row is an
+  anecdote.
+- State the basis of every metre figure (touches only, or touches plus
+  interventions): they differ by several metres for the same player.
+- The insight rules and their thresholds are in
+  `src/metrics/insight_candidates.py` (hotspot player: at least 25 touches, twice
+  the team average and at least 12 points more, Fisher p < 0.05, "strong" below
+  0.01; lane gap: lanes with at least 40 touches, 15 points apart, p < 0.05;
+  phase shifts of at least 10 m with at least 10 interventions; droughts of at
+  least 20 minutes).
+- Everything is one match: it says what happened, not what the team usually does.
+
+### Known issue (not changed here)
+
+`defensive_metrics.DEFAULT_DEFENSIVE_TYPES` lists `Blocked pass` while the data
+type is `Blocked Pass`, so blocked passes never count as defensive actions
+there, and `Foul` counts every foul row (committed and suffered). The Defensive
+Shape / block-height figures built on it are affected; fixing it would change
+numbers in existing reports, so it needs its own decision. Likewise
+`game_state.py` and `player_metrics` still compare printed clocks and could be
+moved to `match_clock` in a follow-up.
+
 ## Pack schema 1.11
 
 Additive update: the pack gains a **phase profile**, answering two scouting

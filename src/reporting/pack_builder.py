@@ -25,9 +25,16 @@ from src.reporting.data_exports import (
     EVENTS_CORE_PATH,
     build_events_core,
     build_final_third_summary,
+    build_insight_candidates,
+    build_match_phases,
     build_phase_profile,
     build_phase_sequences,
+    build_pressure_profile,
+    build_pressure_touches,
+    build_shot_droughts,
     build_transition_summary,
+    build_window_positions,
+    build_window_profile,
     csv_export_documentation,
 )
 from src.reporting.analysis_summary import (
@@ -56,7 +63,7 @@ from src.reporting.pdf_renderer import (
 logger = logging.getLogger(__name__)
 
 
-PACK_SCHEMA_VERSION = "1.11"
+PACK_SCHEMA_VERSION = "1.12"
 MAX_RECOMMENDED_PACK_BYTES = 50 * 1024 * 1024
 
 ANALYSIS_SUMMARY_PATH = "analysis-summary.json"
@@ -75,6 +82,13 @@ TABLE_PATHS: tuple[str, ...] = (
     "tables/offensive-transitions.csv",
     "tables/phase-sequences.csv",
     "tables/phase-profile.csv",
+    "tables/match-phases.csv",
+    "tables/window-profile.csv",
+    "tables/pressure-profile.csv",
+    "tables/pressure-touches.csv",
+    "tables/window-positions.csv",
+    "tables/shot-droughts.csv",
+    "tables/insight-candidates.csv",
     "tables/restarts.csv",
     "tables/player-rankings.csv",
     EVENTS_CORE_PATH,
@@ -713,6 +727,13 @@ def build_pack_tables(
         ),
         "tables/phase-sequences.csv": build_phase_sequences(bundle),
         "tables/phase-profile.csv": build_phase_profile(bundle),
+        "tables/match-phases.csv": build_match_phases(bundle),
+        "tables/window-profile.csv": build_window_profile(bundle),
+        "tables/pressure-profile.csv": build_pressure_profile(bundle),
+        "tables/pressure-touches.csv": build_pressure_touches(bundle),
+        "tables/window-positions.csv": build_window_positions(bundle),
+        "tables/shot-droughts.csv": build_shot_droughts(bundle),
+        "tables/insight-candidates.csv": build_insight_candidates(bundle),
         "tables/restarts.csv": _restarts_table(bundle),
         "tables/player-rankings.csv": _player_rankings_table(bundle),
         EVENTS_CORE_PATH: build_events_core(bundle),
@@ -1079,6 +1100,31 @@ def build_match_analysis_pack(
             "team_name",
         ),
         "tables/phase-profile.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/match-phases.csv": ("phase_id",),
+        "tables/window-profile.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/pressure-profile.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/pressure-touches.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/window-positions.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/shot-droughts.csv": (
+            "report_team",
+            "team_name",
+        ),
+        "tables/insight-candidates.csv": (
             "report_team",
             "team_name",
         ),

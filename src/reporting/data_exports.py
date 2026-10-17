@@ -7,11 +7,24 @@ bundle dumps remain available only through the pack builder's debug mode.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Iterable, Mapping, Sequence
 
 import pandas as pd
 
+from src.metrics.insight_candidates import COLUMNS as INSIGHT_CANDIDATE_COLUMNS
+from src.metrics.match_phases import PHASE_COLUMNS as MATCH_PHASE_COLUMNS
+from src.reporting import window_analysis as _window_analysis
+from src.reporting.window_analysis import (
+    PRESSURE_PROFILE_COLUMNS,
+    PRESSURE_TOUCH_COLUMNS,
+    SHOT_DROUGHT_COLUMNS,
+    WINDOW_POSITION_COLUMNS,
+    WINDOW_PROFILE_COLUMNS,
+)
+
+logger = logging.getLogger(__name__)
 
 EVENTS_CORE_PATH = "tables/events-core.csv"
 
@@ -110,6 +123,41 @@ CSV_EXPORT_DOCUMENTATION: dict[str, dict[str, Any]] = {
     "tables/phase-profile.csv": {
         "granularity": "one row per team, phase and pitch third",
         "description": "Phase profile by pitch third: how the team attacks after winning the ball and how it reacts after losing it. Low-sample cells are flagged.",
+        "debug_only": False,
+    },
+    "tables/match-phases.csv": {
+        "granularity": "one row per match phase",
+        "description": "Phases cut at goals, dismissals and substitution clusters, with score state, minutes of play (stoppage-safe) and who came on.",
+        "debug_only": False,
+    },
+    "tables/window-profile.csv": {
+        "granularity": "one row per team and scope (phase_id 0 = whole match)",
+        "description": "Possession, final-third and box access, completed entries, crosses, shots, block height, team length and pressed-touch share for the whole match and each phase.",
+        "debug_only": False,
+    },
+    "tables/pressure-profile.csv": {
+        "granularity": "one row per team, scope, group type and group",
+        "description": "Share of a team's touches followed by an opponent intervention within 6 s and 10 m (same period), by all / lane / third / player, with Wilson 95% intervals, a low-sample flag and a Fisher test against the rest. Lanes are in the touching team's own frame.",
+        "debug_only": False,
+    },
+    "tables/pressure-touches.csv": {
+        "granularity": "one row per touch",
+        "description": "Every touch with whether an opponent intervention followed, who made it and where: the plotting base for pressure maps.",
+        "debug_only": False,
+    },
+    "tables/window-positions.csv": {
+        "granularity": "one row per team, scope and outfield player",
+        "description": "Median location of each player's touches and interventions in the scope, in the team's own frame and in a shared frame (home team unchanged, away team rotated 180 degrees). Where the player acts, not where he stands.",
+        "debug_only": False,
+    },
+    "tables/shot-droughts.csv": {
+        "granularity": "one row per drought",
+        "description": "Stretches of at least 15 minutes of play without a shot or without a touch in the opponent's box, with what the team did meanwhile.",
+        "debug_only": False,
+    },
+    "tables/insight-candidates.csv": {
+        "granularity": "one row per candidate finding",
+        "description": "Ranked findings that pass an explicit size and evidence bar, each with its numbers and its caveat. Article material, not conclusions.",
         "debug_only": False,
     },
     "tables/restarts.csv": {
@@ -883,6 +931,66 @@ def build_phase_profile(bundle) -> pd.DataFrame:
             for record in summary.to_dict("records"):
                 rows.append({"report_team": team, "team_name": team, "phase": phase, **record})
     return pd.DataFrame(rows, columns=list(PHASE_PROFILE_COLUMNS))
+
+
+def _window_analysis_for(bundle) -> "_window_analysis.WindowAnalysis":
+    """Window analysis of the bundle's match, computed once per bundle.
+
+    The analysis is auxiliary: if it fails the pack still builds, with empty
+    tables, and the failure is logged.
+    """
+    cached = getattr(bundle, "_window_analysis_cache", None)
+    if cached is not None:
+        return cached
+    source = _source_events(bundle)
+    overview = _section_data(bundle, "overview")
+    shots = _as_frame(overview.get("shots")) if isinstance(overview, Mapping) else pd.DataFrame()
+    teams = tuple(getattr(bundle, "teams", ()) or ())
+    try:
+        result = _window_analysis.compute_window_analysis(source, teams, shots_df=shots if not shots.empty else None)
+    except Exception:  # an auxiliary analysis must never break the pack
+        logger.exception("Window analysis failed; its tables will be empty.")
+        result = _window_analysis.WindowAnalysis()
+    try:
+        object.__setattr__(bundle, "_window_analysis_cache", result)
+    except (AttributeError, TypeError):
+        pass
+    return result
+
+
+def build_match_phases(bundle) -> pd.DataFrame:
+    """Match phases (see ``src.metrics.match_phases``)."""
+    return _window_analysis_for(bundle).phases.reindex(columns=list(MATCH_PHASE_COLUMNS))
+
+
+def build_window_profile(bundle) -> pd.DataFrame:
+    """Territory / access / block / pressure profile per team and scope."""
+    return _window_analysis_for(bundle).window_profile.reindex(columns=list(WINDOW_PROFILE_COLUMNS))
+
+
+def build_pressure_profile(bundle) -> pd.DataFrame:
+    """Pressed-touch shares by all / lane / third / player, per team and scope."""
+    return _window_analysis_for(bundle).pressure_profile.reindex(columns=list(PRESSURE_PROFILE_COLUMNS))
+
+
+def build_pressure_touches(bundle) -> pd.DataFrame:
+    """One row per touch with its pressure outcome."""
+    return _window_analysis_for(bundle).pressure_touches.reindex(columns=list(PRESSURE_TOUCH_COLUMNS))
+
+
+def build_window_positions(bundle) -> pd.DataFrame:
+    """Median action positions per team, scope and player."""
+    return _window_analysis_for(bundle).positions.reindex(columns=list(WINDOW_POSITION_COLUMNS))
+
+
+def build_shot_droughts(bundle) -> pd.DataFrame:
+    """Long stretches without a shot or a box touch."""
+    return _window_analysis_for(bundle).droughts.reindex(columns=list(SHOT_DROUGHT_COLUMNS))
+
+
+def build_insight_candidates(bundle) -> pd.DataFrame:
+    """Ranked candidate findings with their numbers and caveats."""
+    return _window_analysis_for(bundle).insights.reindex(columns=list(INSIGHT_CANDIDATE_COLUMNS))
 
 
 def build_transition_summary(

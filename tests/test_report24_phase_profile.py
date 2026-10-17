@@ -238,7 +238,7 @@ class PackIntegrationTests(unittest.TestCase):
 
     def test_analysis_summary_carries_the_phase_profile(self):
         from src.reporting.analysis_summary import build_analysis_summary, ANALYSIS_SUMMARY_SCHEMA_VERSION
-        self.assertEqual(ANALYSIS_SUMMARY_SCHEMA_VERSION, "1.7")
+        self.assertEqual(ANALYSIS_SUMMARY_SCHEMA_VERSION, "1.8")
         try:
             summary = build_analysis_summary(self.bundle)
         except TypeError:
