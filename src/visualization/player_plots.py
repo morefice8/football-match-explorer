@@ -24,7 +24,8 @@ import plotly.graph_objects as go
 from . import pitch_plots
 from src.visualization.coordinate_contract import add_matplotlib_attacking_direction
 from src.visualization.plotly_branding import add_attacking_direction
-from src.metrics import player_metrics 
+from src.metrics import defensive_metrics
+from src.metrics import player_metrics
 from src.metrics.sportmonks import LOWER_IS_BETTER, PLAYER_RADAR_GROUPS
 
 # Import config for colors if not passed directly
@@ -498,9 +499,11 @@ def plot_player_defensive_actions_plotly(df_player_def_actions, player_name, tea
         # Define base symbols for each action
         action_symbols = {
             'Tackle': 'cross', 'Interception': 'square', 'Ball recovery': 'circle',
-            'Clearance': 'diamond', 'Foul': 'x', 'Aerial': 'triangle-up', 'Blocked pass': 'pentagon'
+            'Clearance': 'diamond', 'Foul': 'x', 'Aerial': 'triangle-up', 'Blocked Pass': 'pentagon'
         }
-        
+        # The data spells the type "Blocked Pass": compare ignoring case so it is never dropped.
+        action_type_key = df_player_def_actions['type_name'].fillna('').astype(str).str.strip().str.lower()
+
         # Plot successful actions first, then unsuccessful on top
         outcomes_to_plot = [('Successful', team_color, 'solid'), ('Unsuccessful', '#B2B2B2', 'open')]
 
@@ -508,12 +511,12 @@ def plot_player_defensive_actions_plotly(df_player_def_actions, player_name, tea
             for action_type, symbol in action_symbols.items():
                 # Filter for the specific action and outcome
                 df_plot = df_player_def_actions[
-                    (df_player_def_actions['type_name'] == action_type) &
+                    (action_type_key == action_type.lower()) &
                     (df_player_def_actions['outcome'] == outcome)
-                ]
+                ].copy()
 
                 # For actions that are always successful, only plot them once
-                if action_type in ['Interception', 'Clearance', 'Ball recovery', 'Blocked pass'] and outcome == 'Unsuccessful':
+                if action_type in ['Interception', 'Clearance', 'Ball recovery', 'Blocked Pass'] and outcome == 'Unsuccessful':
                     continue
                 # For fouls, which are always unsuccessful
                 if action_type == 'Foul' and outcome == 'Successful':
@@ -1572,10 +1575,9 @@ def generate_defender_layout_and_data(stored_data_json, player_stats_df_json, is
         team_color = HCOL if is_for_home_team else ACOL
 
         # --- 2. Trova tutti i giocatori difensivi per il dropdown ---
-        DEFENSIVE_ACTION_TYPES = ['Tackle', 'Interception', 'Ball recovery', 'Clearance', 'Foul', 'Aerial', 'Blocked pass']
         defensive_players_df = df_processed[
             (df_processed['team_name'] == team_name) &
-            (df_processed['type_name'].isin(DEFENSIVE_ACTION_TYPES))
+            defensive_metrics.defensive_type_mask(df_processed, defensive_metrics.PLAYER_DEFENSIVE_TYPES)
         ].dropna(subset=['playerName'])
         
         if defensive_players_df.empty:

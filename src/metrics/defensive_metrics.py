@@ -11,11 +11,36 @@ DEFAULT_DEFENSIVE_TYPES = [
     'Clearance', 'Error', 'Foul', 'Interception', 'Tackle'
 ]
 
+# Actions listed for a single player (dropdowns, action map, action table).
+PLAYER_DEFENSIVE_TYPES = (
+    'Tackle', 'Interception', 'Ball recovery', 'Clearance', 'Foul', 'Aerial', 'Blocked Pass'
+)
+
 PPDA_ACTION_TYPES = {
     'tackle', 'challenge', 'interception', 'blocked pass', 'foul'
 }
 PPDA_PASS_ZONE_THRESHOLD = 60.0
 PPDA_DEFENSIVE_ZONE_THRESHOLD = 40.0
+
+
+def defensive_type_mask(df, action_types):
+    """Boolean mask of the rows whose event type is one of ``action_types``.
+
+    Type names are matched ignoring case and surrounding spaces: the data spells
+    it "Blocked Pass", and a case-sensitive lookup silently drops those events.
+    Opta logs a committed foul as unsuccessful and a foul suffered as
+    successful (same rule as the PPDA count and the defensive contribution
+    view), so fouls count only when committed.
+    """
+    type_key = df['type_name'].fillna('').astype(str).str.strip().str.lower()
+    wanted = {str(name).strip().lower() for name in action_types}
+    mask = type_key.isin(wanted)
+    if 'outcome' in df.columns:
+        outcome_key = df['outcome'].fillna('').astype(str).str.strip().str.lower()
+        mask &= ~(type_key.eq('foul') & outcome_key.eq('successful'))
+    else:
+        logger.debug("  'outcome' column missing: fouls suffered cannot be told from fouls committed.")
+    return mask
 
 def get_defensive_actions(df_processed, defensive_action_types=None):
     """
@@ -57,21 +82,9 @@ def get_defensive_actions(df_processed, defensive_action_types=None):
 
 
     # --- Apply Filters ---
-    # Base filter for standard defensive types provided in the list. Matching
-    # ignores case and surrounding spaces: the data spells it "Blocked Pass",
-    # and a lookup that is case-sensitive silently drops those events.
-    type_key = df_processed['type_name'].fillna('').astype(str).str.strip().str.lower()
-    wanted_types = {str(name).strip().lower() for name in types_to_use}
-    defensive_filter = type_key.isin(wanted_types)
-
-    # Opta logs a committed foul as unsuccessful and a foul suffered as
-    # successful (same rule as the PPDA count and the defensive contribution
-    # view): only the committed ones are a defensive action by this team.
-    if 'outcome' in df_processed.columns:
-        outcome_key = df_processed['outcome'].fillna('').astype(str).str.strip().str.lower()
-        defensive_filter &= ~(type_key.eq('foul') & outcome_key.eq('successful'))
-    else:
-        logger.debug("  'outcome' column missing: fouls suffered cannot be told from fouls committed.")
+    # Base filter for the defensive types provided in the list (case-insensitive,
+    # fouls committed only).
+    defensive_filter = defensive_type_mask(df_processed, types_to_use)
 
     # Specific filter for Aerial duels in defensive third (always included for now)
     # Ensure 'x' exists before applying this filter
@@ -238,15 +251,10 @@ def get_defensive_block_data(df_processed, team_name):
             - pd.DataFrame: All defensive actions for the team.
             - pd.DataFrame: Aggregated data per player (median_x, median_y, action_count, etc.).
     """
-    DEFENSIVE_ACTION_TYPES = [
-        'Tackle', 'Interception', 'Clearance', 'Blocked pass', 
-        'Ball recovery', 'Foul', 'Aerial'
-    ]
-    
     # Filtra le azioni difensive per la squadra specificata
     df_def_actions = df_processed[
         (df_processed['team_name'] == team_name) &
-        (df_processed['type_name'].isin(DEFENSIVE_ACTION_TYPES))
+        defensive_type_mask(df_processed, PLAYER_DEFENSIVE_TYPES)
     ].copy()
 
     if df_def_actions.empty:

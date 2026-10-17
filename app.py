@@ -7048,10 +7048,9 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
 
         # --- 2. Create the list of players for the dropdown ---
         # Filter for players who made at least one defensive action to populate the dropdown
-        DEFENSIVE_ACTION_TYPES = ['Tackle', 'Interception', 'Ball recovery', 'Clearance', 'Foul', 'Aerial', 'Blocked pass']
         defensive_players_df = df_processed[
             (df_processed['playerName'].isin(team_player_names_all)) &
-            (df_processed['type_name'].isin(DEFENSIVE_ACTION_TYPES))
+            defensive_metrics.defensive_type_mask(df_processed, defensive_metrics.PLAYER_DEFENSIVE_TYPES)
         ]
         defensive_players_df = defensive_players_df.dropna(subset=['playerName'])
         # Get the unique names of players who made these actions
@@ -7104,6 +7103,7 @@ def generate_team_top_defender_map_plot(stored_data_json, player_stats_df_json, 
             'Aerial',
             'Ball recovery',
             'Clearance',
+            'Blocked Pass',
             'Foul' # Keep foul at the bottom
         ]
 
@@ -7237,10 +7237,9 @@ def generate_player_defensive_heatmap(stored_data_json, player_name):
     try:
         df_processed = pd.read_json(stored_data_json['df'], orient='split')
 
-        DEFENSIVE_ACTION_TYPES = ['Tackle', 'Interception', 'Ball recovery', 'Clearance', 'Foul', 'Aerial', 'Blocked pass']
         df_player_actions = df_processed[
             (df_processed['playerName'] == player_name) &
-            (df_processed['type_name'].isin(DEFENSIVE_ACTION_TYPES))
+            defensive_metrics.defensive_type_mask(df_processed, defensive_metrics.PLAYER_DEFENSIVE_TYPES)
         ]
 
         if df_player_actions.empty:

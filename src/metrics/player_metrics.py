@@ -4,6 +4,7 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 import numpy as np
+from . import defensive_metrics
 from .pass_metrics import classify_progressive_passes
 from .shot_sequence_metrics import calculate_shot_sequence_player_stats
 
@@ -451,14 +452,20 @@ def calculate_defensive_action_rates(df_player_actions):
 
     # Define which actions have a success/fail outcome vs. are always successful
     outcome_based_actions = ['Tackle', 'Aerial']
-    always_successful_actions = ['Interception', 'Clearance', 'Ball recovery', 'Blocked pass']
-    other_actions = ['Foul'] # Actions that are counted but not successful
+    always_successful_actions = ['Interception', 'Clearance', 'Ball recovery', 'Blocked Pass']
+    other_actions = ['Foul'] # Actions that are counted but not successful (fouls committed only)
 
     all_action_types = outcome_based_actions + always_successful_actions + other_actions
     stats_list = []
 
+    # Type names are matched ignoring case ("Blocked Pass" in the data), and a foul
+    # counts only when committed (Opta: unsuccessful), never when suffered.
+    type_key = df_player_actions['type_name'].fillna('').astype(str).str.strip().str.lower()
     for action in all_action_types:
-        df_action = df_player_actions[df_player_actions['type_name'] == action]
+        if action == 'Foul':
+            df_action = df_player_actions[defensive_metrics.defensive_type_mask(df_player_actions, ['Foul'])]
+        else:
+            df_action = df_player_actions[type_key == action.lower()]
         total = len(df_action)
         
         if total == 0:

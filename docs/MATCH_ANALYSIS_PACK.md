@@ -110,10 +110,14 @@ change are not comparable with new ones: on Villarreal-Napoli the Villarreal
 action count goes 137 to 130 (block height 28.5 to 26.9 m) and the Napoli one
 121 to 120 (34.1 to 35.1 m).
 
-Still open: the player-level defensive lists in `app.py`, `player_plots.py`,
-`player_metrics.py` and `config.py` spell `Blocked pass` too, and
-`game_state.py` / `player_metrics` still compare printed clocks and could be
-moved to `match_clock` in a follow-up.
+The same rule now lives in one place, `defensive_metrics.defensive_type_mask`,
+and the per-player views use it too: the defender dropdowns and heatmap in
+`app.py`, the defensive action map and its table (`player_plots.py`,
+`player_metrics.calculate_defensive_action_rates`, where Blocked Pass is a new
+row) and `get_defensive_block_data`.
+
+Still open: `game_state.py` / `player_metrics` still compare printed clocks and
+could be moved to `match_clock` in a follow-up.
 
 ## Pack schema 1.11
 
