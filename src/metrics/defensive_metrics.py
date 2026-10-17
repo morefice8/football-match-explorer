@@ -7,7 +7,7 @@ import numpy as np
 
 # --- Define Default Defensive Action Types ---
 DEFAULT_DEFENSIVE_TYPES = [
-    'Ball recovery', 'Blocked pass', 'Challenge',
+    'Ball recovery', 'Blocked Pass', 'Challenge',
     'Clearance', 'Error', 'Foul', 'Interception', 'Tackle'
 ]
 
@@ -20,7 +20,9 @@ PPDA_DEFENSIVE_ZONE_THRESHOLD = 40.0
 def get_defensive_actions(df_processed, defensive_action_types=None):
     """
     Filters the DataFrame for relevant defensive actions, allowing dynamic selection.
-    Includes Aerial duels in the defensive third by default.
+    Includes Aerial duels in the defensive third by default. Type names are
+    matched ignoring case, and only fouls committed (outcome "Unsuccessful")
+    count, not fouls suffered.
 
     Args:
         df_processed (pd.DataFrame): The main processed DataFrame.
@@ -55,9 +57,21 @@ def get_defensive_actions(df_processed, defensive_action_types=None):
 
 
     # --- Apply Filters ---
-    # Base filter for standard defensive types provided in the list
-    # Handle potential NaNs in type_name just in case, though unlikely
-    defensive_filter = df_processed['type_name'].fillna('').isin(types_to_use)
+    # Base filter for standard defensive types provided in the list. Matching
+    # ignores case and surrounding spaces: the data spells it "Blocked Pass",
+    # and a lookup that is case-sensitive silently drops those events.
+    type_key = df_processed['type_name'].fillna('').astype(str).str.strip().str.lower()
+    wanted_types = {str(name).strip().lower() for name in types_to_use}
+    defensive_filter = type_key.isin(wanted_types)
+
+    # Opta logs a committed foul as unsuccessful and a foul suffered as
+    # successful (same rule as the PPDA count and the defensive contribution
+    # view): only the committed ones are a defensive action by this team.
+    if 'outcome' in df_processed.columns:
+        outcome_key = df_processed['outcome'].fillna('').astype(str).str.strip().str.lower()
+        defensive_filter &= ~(type_key.eq('foul') & outcome_key.eq('successful'))
+    else:
+        logger.debug("  'outcome' column missing: fouls suffered cannot be told from fouls committed.")
 
     # Specific filter for Aerial duels in defensive third (always included for now)
     # Ensure 'x' exists before applying this filter

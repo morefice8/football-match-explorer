@@ -19,9 +19,9 @@ Definitions (explicit, tunable through the constants):
   tables carry thirds and lanes for that).
 * **Block height**: median distance from the own goal (metres) of the team's own
   interventions, goalkeepers excluded. It uses an explicit set of event types
-  (see ``INTERVENTION_TYPES``); the app's ``get_defensive_actions`` set differs
-  (it misses ``Blocked Pass`` because of a case mismatch and counts fouls
-  suffered), so the two figures are not interchangeable.
+  (see ``INTERVENTION_TYPES``); the app's ``get_defensive_actions`` set also
+  counts committed fouls, errors and defensive-third aerials, so the two
+  figures can differ by a metre or two.
 * **Box touch**: a touch inside the penalty area the team is attacking.
 * **Final-third entry**: a completed pass that starts before and ends beyond
   two thirds of the pitch.

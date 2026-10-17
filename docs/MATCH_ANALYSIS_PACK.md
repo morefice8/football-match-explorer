@@ -64,8 +64,9 @@ event frame as `events-core.csv`; scope `phase_id = 0` is the whole match,
   table carries lanes and thirds for that.
 - **Block height** = median distance (m) from the own goal of the team's own
   interventions, goalkeepers excluded. It uses the intervention set above, not
-  `defensive_metrics.get_defensive_actions` (see "Known issue" below), so it can
-  differ from the Defensive Shape figures.
+  `defensive_metrics.get_defensive_actions` (which also counts committed fouls,
+  errors and defensive-third aerials), so it can differ from the Defensive Shape
+  figures by a metre or two.
 - **Position** = where a player acts (median of touches and interventions), not
   where he stands; players need 12 minutes in the scope (or the whole of a
   shorter scope), and `low_sample` marks fewer than 8 actions. **Team length** =
@@ -88,14 +89,20 @@ event frame as `events-core.csv`; scope `phase_id = 0` is the whole match,
   least 20 minutes).
 - Everything is one match: it says what happened, not what the team usually does.
 
-### Known issue (not changed here)
+### Defensive action filter (corrected)
 
-`defensive_metrics.DEFAULT_DEFENSIVE_TYPES` lists `Blocked pass` while the data
-type is `Blocked Pass`, so blocked passes never count as defensive actions
-there, and `Foul` counts every foul row (committed and suffered). The Defensive
-Shape / block-height figures built on it are affected; fixing it would change
-numbers in existing reports, so it needs its own decision. Likewise
-`game_state.py` and `player_metrics` still compare printed clocks and could be
+`defensive_metrics.get_defensive_actions` used to list `Blocked pass` while the
+data type is `Blocked Pass`, so blocked passes never counted, and it counted
+every `Foul` row (committed and suffered). It now matches type names ignoring
+case and keeps only committed fouls (outcome `Unsuccessful`), as the PPDA count
+already did. Reports and Defensive Shape / density figures built before this
+change are not comparable with new ones: on Villarreal-Napoli the Villarreal
+action count goes 137 to 130 (block height 28.5 to 26.9 m) and the Napoli one
+121 to 120 (34.1 to 35.1 m).
+
+Still open: the player-level defensive lists in `app.py`, `player_plots.py`,
+`player_metrics.py` and `config.py` spell `Blocked pass` too, and
+`game_state.py` / `player_metrics` still compare printed clocks and could be
 moved to `match_clock` in a follow-up.
 
 ## Pack schema 1.11
